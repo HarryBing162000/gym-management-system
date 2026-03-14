@@ -1,0 +1,37 @@
+@baseUrl = http://localhost:5000
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5YjRjMGQ3ZGIwY2Y2NGJjZTRjNjYwOSIsInJvbGUiOiJvd25lciIsImlhdCI6MTc3MzQ1MzU0OCwiZXhwIjoxNzc0MDU4MzQ4fQ.VcRsJ9M-zoJudZnIJ7D3Xs87AMWIUM8lqy5tttDsd7U
+
+### 1. Register
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Admin",
+  "email": "test@ironcore.gym",
+  "password": "ironcore123",
+  "role": "owner"
+}
+
+### 2. Login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@ironcore.gym",
+  "password": "ironcore123"
+}
+
+### 3. Get Current User (paste token from login response above)
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{token}}
+```
+
+---
+
+## Step 3 — Send a request
+
+You will see **"Send Request"** text appear above each `###` line like this:
+```
+Send Request          ← click this
+### 1. Register
+POST {{baseUrl}}/api/auth/register
