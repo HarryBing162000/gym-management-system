@@ -1,37 +1,84 @@
 @baseUrl = http://localhost:5000
-@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5YjRjMGQ3ZGIwY2Y2NGJjZTRjNjYwOSIsInJvbGUiOiJvd25lciIsImlhdCI6MTc3MzQ1MzU0OCwiZXhwIjoxNzc0MDU4MzQ4fQ.VcRsJ9M-zoJudZnIJ7D3Xs87AMWIUM8lqy5tttDsd7U
+@ownerToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5YjhhMDk0NmQzZjYwN2QxZGI1NzY2OSIsInJvbGUiOiJvd25lciIsImlhdCI6MTc3MzcwNzQxMiwiZXhwIjoxNzc0MzEyMjEyfQ.btAaBKIeYjh42jC73f0JUqm9zgtufi6Ua81krHtrO3w
+@staffToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5YjhhMGUxNmQzZjYwN2QxZGI1NzY2ZCIsInJvbGUiOiJzdGFmZiIsImlhdCI6MTc3MzcwNzQ5MCwiZXhwIjoxNzc0MzEyMjkwfQ.LkJ44cigcLzWjaQczsJh1D0Sk_onAGQCXzzVK4i23ks
 
-### 1. Register
-POST {{baseUrl}}/api/auth/register
+### ─── AUTH ──────────────────────────────────────────────
+
+### 1. Register Owner
+POST {{baseUrl}}/api/auth/register/owner
 Content-Type: application/json
 
 {
-  "name": "Admin",
-  "email": "test@ironcore.gym",
+  "name": "Admin Owner",
+  "email": "owner@ironcore.gym",
   "password": "ironcore123",
   "role": "owner"
 }
 
-### 2. Login
-POST {{baseUrl}}/api/auth/login
+### 2. Login Owner
+POST {{baseUrl}}/api/auth/login/owner
 Content-Type: application/json
 
 {
-  "email": "test@ironcore.gym",
+  "email": "owner@ironcore.gym",
   "password": "ironcore123"
 }
 
-### 3. Get Current User (paste token from login response above)
+### 3. Register Staff (requires owner token)
+POST {{baseUrl}}/api/auth/register/staff
+Content-Type: application/json
+Authorization: Bearer {{ownerToken}}
+
+{
+  "name": "Bianca Cruz",
+  "username": "bianca_cruz",
+  "password": "staff123",
+  "role": "staff"
+}
+
+### 4. Login Staff
+POST {{baseUrl}}/api/auth/login/staff
+Content-Type: application/json
+
+{
+  "username": "bianca_cruz",
+  "password": "staff123"
+}
+
+### 5. Get Current User
 GET {{baseUrl}}/api/auth/me
-Authorization: Bearer {{token}}
-```
+Authorization: Bearer {{ownerToken}}
 
----
+### ─── WALK-IN ─────────────────────────────────────────
 
-## Step 3 — Send a request
+### 6. Register Walk-in (requires staff or owner token)
+POST {{baseUrl}}/api/walkin/register
+Content-Type: application/json
+Authorization: Bearer {{staffToken}}
 
-You will see **"Send Request"** text appear above each `###` line like this:
-```
-Send Request          ← click this
-### 1. Register
-POST {{baseUrl}}/api/auth/register
+{
+  "name": "Jose Rizal",
+  "phone": "09171234567",
+  "passType": "student"
+}
+
+### 7. Get Today's Walk-ins + Revenue Summary
+GET {{baseUrl}}/api/walkin/today
+Authorization: Bearer {{staffToken}}
+
+### 8. Staff Checkout Walk-in
+PATCH {{baseUrl}}/api/walkin/checkout
+Content-Type: application/json
+Authorization: Bearer {{staffToken}}
+
+{
+  "walkId": "WALK-002"
+}
+
+### 9. Kiosk Self Checkout (no token needed — public)
+POST {{baseUrl}}/api/walkin/kiosk-checkout
+Content-Type: application/json
+
+{
+  "walkId": "WALK-002"
+}

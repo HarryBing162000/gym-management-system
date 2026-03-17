@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import connectDB from "./config/db";
 import authRoutes from "./routes/authRoutes";
+import walkInRoutes from "./routes/walkInRoutes";
 
 // Security middleware
 import {
@@ -58,6 +59,8 @@ app.use(securityLogger);
 // ROUTES
 // ============================================================
 app.use("/api/auth", authRoutes);
+
+app.use("/api/walkin", walkInRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "Server is running ✅" });
