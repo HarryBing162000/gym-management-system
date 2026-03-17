@@ -62,7 +62,7 @@ export default function LoginPage() {
         `,
       }}>
       {/* Card — full width on mobile, fixed width on larger screens */}
-      <div className="w-full max-w-[420px]  bg-[#212121] border border-white/10 rounded-2xl p-6 sm:p-10">
+      <div className="w-full max-w-105  bg-[#212121] border border-white/10 rounded-2xl p-6 sm:p-10">
         {/* Logo */}
         <div className="mb-6 sm:mb-8">
           <h1 className="text-xl sm:text-2xl font-black tracking-widest text-[#FF6B1A] text-center uppercase">

@@ -204,7 +204,7 @@ function DashboardContent() {
                 key={item.id + item.time}
                 className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
                 <div
-                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  className={`w-2 h-2 rounded-full shrink-0 ${
                     item.type === "check-in"
                       ? "bg-[#FF6B1A]"
                       : item.type === "expiring"
@@ -214,7 +214,7 @@ function DashboardContent() {
                 />
                 <div className="flex-1 min-w-0 flex items-center gap-2">
                   <span
-                    className={`text-xs font-mono font-semibold flex-shrink-0 ${
+                    className={`text-xs font-mono font-semibold shrink-0 ${
                       item.id.startsWith("WALK")
                         ? "text-[#FFB800]"
                         : "text-[#FF6B1A]"
@@ -225,7 +225,7 @@ function DashboardContent() {
                     {item.name}
                   </span>
                 </div>
-                <span className="text-[11px] font-mono text-white/30 flex-shrink-0">
+                <span className="text-[11px] font-mono text-white/30 shrink-0">
                   {item.time}
                 </span>
               </div>
@@ -298,7 +298,7 @@ function DashboardContent() {
                   key={member.id}
                   className="flex items-center gap-2.5 p-2.5 bg-[#2a2a2a] rounded-lg">
                   <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                       member.status === "overdue"
                         ? "bg-red-400/10 text-red-400"
                         : "bg-[#FFB800]/10 text-[#FFB800]"
@@ -325,7 +325,7 @@ function DashboardContent() {
                     </div>
                   </div>
                   <button
-                    className={`text-[10px] font-bold px-2 py-1 rounded border flex-shrink-0 ${
+                    className={`text-[10px] font-bold px-2 py-1 rounded border shrink-0 ${
                       member.status === "overdue"
                         ? "text-red-400 border-red-400/30 hover:bg-red-400/10"
                         : "text-[#FFB800] border-[#FFB800]/30 hover:bg-[#FFB800]/10"
