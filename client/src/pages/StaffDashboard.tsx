@@ -128,14 +128,11 @@ function CheckInDesk() {
     if (isCheckedIn) {
       newSet.delete(member.id);
       setCheckedInIds(newSet);
-      showToast(
-        `${member.name.split(" ")[0]} checked out successfully`,
-        "info",
-      );
+      showToast(`${member.name.split(" ")[0]} checked out.`, "info");
     } else {
       newSet.add(member.id);
       setCheckedInIds(newSet);
-      showToast(`Welcome back, ${member.name.split(" ")[0]}! ✓`);
+      showToast(`Welcome back, ${member.name.split(" ")[0]}! ✓`, "success");
     }
     setSearch("");
     setSelectedMember(null);
@@ -390,15 +387,15 @@ function WalkInDesk() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const prices: Record<string, number> = {
-    regular: 75,
-    student: 60,
-    couple: 140,
+    regular: 150,
+    student: 100,
+    couple: 250,
   };
 
   const passConfig = [
-    { type: "regular" as const, icon: "☀", label: "Regular", price: 75 },
-    { type: "student" as const, icon: "◎", label: "Student", price: 60 },
-    { type: "couple" as const, icon: "♡", label: "Couple", price: 140 },
+    { type: "regular" as const, icon: "☀", label: "Regular", price: 150 },
+    { type: "student" as const, icon: "◎", label: "Student", price: 100 },
+    { type: "couple" as const, icon: "♡", label: "Couple", price: 250 },
   ];
 
   const formatPhone = (val: string) => {

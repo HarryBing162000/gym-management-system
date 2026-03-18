@@ -3,6 +3,7 @@ import {
   registerWalkIn,
   checkOutWalkIn,
   getTodayWalkIns,
+  getWalkInHistory,
   kioskCheckOut,
 } from "../controllers/walkInController";
 import { validate } from "../middleware/validate";
@@ -11,7 +12,7 @@ import { protect, requireRole } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// Staff/Owner registers a walk-in at the counter
+// Staff/Owner registers a walk-in
 router.post(
   "/register",
   protect,
@@ -29,10 +30,13 @@ router.patch(
   checkOutWalkIn,
 );
 
-// View today's walk-ins + revenue summary
+// Today's walk-ins + summary
 router.get("/today", protect, requireRole("owner", "staff"), getTodayWalkIns);
 
-// PUBLIC — kiosk self checkout (no login needed)
+// History by date or range — owner only
+router.get("/history", protect, requireRole("owner"), getWalkInHistory);
+
+// Public kiosk self-checkout
 router.post("/kiosk-checkout", validate(walkInCheckOutSchema), kioskCheckOut);
 
 export default router;

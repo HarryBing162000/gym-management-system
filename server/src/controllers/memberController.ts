@@ -63,10 +63,17 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
       filter.plan = plan;
     }
     if (search) {
-      const safeSearch = String(search).replace(/[.*+?^${}()|[\]\\]/g, "");
-      if (safeSearch.length >= 2) {
-        if (/^GYM-\d+$/i.test(safeSearch)) {
-          filter.gymId = safeSearch.toUpperCase();
+      // Strip regex metacharacters but preserve hyphen — needed for GYM-XXXX
+      const safeSearch = String(search)
+        .replace(/[.*+?^${}()|[\]\\]/g, "")
+        .trim();
+      if (safeSearch.length >= 1) {
+        // Detect GYM-ID intent: starts with "GYM" (with or without hyphen/digits)
+        // Supports partial typing: "GYM", "GYM-", "GYM-10", "GYM-1001"
+        if (/^GYM/i.test(safeSearch)) {
+          filter.gymId = {
+            $regex: `^${safeSearch.toUpperCase()}`, // starts-with match
+          };
         } else {
           filter.$or = [
             { name: { $regex: safeSearch, $options: "i" } },

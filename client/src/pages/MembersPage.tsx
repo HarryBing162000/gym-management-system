@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/authStore";
+import { useToastStore } from "../store/toastStore";
 import { memberService } from "../services/memberService";
 import type {
   Member,
@@ -418,15 +419,7 @@ export default function MembersPage() {
   const [editTarget, setEditTarget] = useState<Member | undefined>();
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
 
-  // Toast with type support — success (green) or warning (amber)
-  const [toast, setToast] = useState("");
-  const [toastType, setToastType] = useState<"success" | "warning">("success");
-
-  const showToast = (msg: string, type: "success" | "warning" = "success") => {
-    setToast(msg);
-    setToastType(type);
-    setTimeout(() => setToast(""), 5500);
-  };
+  const { showToast } = useToastStore();
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchMembers = useCallback(async () => {
@@ -476,14 +469,20 @@ export default function MembersPage() {
     try {
       if (confirmState.action === "deactivate") {
         await memberService.deactivate(confirmState.member.gymId);
-        showToast(`${confirmState.member.name} has been deactivated.`);
+        showToast(
+          `${confirmState.member.name} has been deactivated.`,
+          "success",
+        );
       } else {
         await memberService.reactivate(confirmState.member.gymId);
-        showToast(`${confirmState.member.name} has been reactivated.`);
+        showToast(
+          `${confirmState.member.name} has been reactivated.`,
+          "success",
+        );
       }
       fetchMembers();
     } catch {
-      showToast("Action failed. Please try again.");
+      showToast("Action failed. Please try again.", "error");
     } finally {
       setConfirmState(null);
     }
@@ -661,7 +660,7 @@ export default function MembersPage() {
               return (
                 <div
                   key={m.gymId}
-                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2] transition-colors">
+                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
                   {/* Member info */}
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
@@ -873,21 +872,6 @@ export default function MembersPage() {
           onCancel={() => setConfirmState(null)}
         />
       )}
-
-      {/* ── Toast — green for success, amber for warning ── */}
-      {toast &&
-        createPortal(
-          <div
-            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-semibold shadow-2xl border max-w-sm text-center ${
-              toastType === "warning"
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                : "bg-[#2a2a2a] border-white/15 text-white"
-            }`}
-            style={{ animation: "fadeScaleIn 0.2s ease" }}>
-            {toast}
-          </div>,
-          document.body,
-        )}
     </>
   );
 }

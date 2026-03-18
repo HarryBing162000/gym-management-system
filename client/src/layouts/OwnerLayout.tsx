@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useToastStore } from "../store/toastStore";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 
@@ -12,6 +14,82 @@ const navItems = [
   { id: "reports", label: "Reports", icon: "▤" },
   { id: "settings", label: "Settings", icon: "◌" },
 ];
+
+// ─── Logout Confirm Modal ─────────────────────────────────────────────────────
+
+function LogoutModal({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return createPortal(
+    <>
+      <style>{`
+        @keyframes logoutFadeIn {
+          from { opacity: 0; transform: scale(0.94); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
+      <div
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={onCancel}>
+        <div
+          className="w-full max-w-xs bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
+          style={{ animation: "logoutFadeIn 0.2s ease" }}
+          onClick={(e) => e.stopPropagation()}>
+          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
+                stroke="#ef4444"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <polyline
+                points="16 17 21 12 16 7"
+                stroke="#ef4444"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <line
+                x1="21"
+                y1="12"
+                x2="9"
+                y2="12"
+                stroke="#ef4444"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <div className="text-center mb-5">
+            <div className="text-white font-bold text-base mb-1">Sign out?</div>
+            <div className="text-white/40 text-sm">
+              You will be returned to the login screen.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onCancel}
+              className="flex-1 py-2.5 border border-white/10 text-white/50 hover:text-white hover:border-white/20 text-sm font-semibold rounded-xl transition-all cursor-pointer">
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              className="flex-1 py-2.5 bg-red-500 hover:bg-red-400 text-white text-sm font-bold rounded-xl transition-all active:scale-95 cursor-pointer">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
 
 interface OwnerLayoutProps {
   children: React.ReactNode;
@@ -29,9 +107,16 @@ export default function OwnerLayout({
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const { showToast } = useToastStore();
 
   const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = () => {
     logout();
+    showToast("You have been signed out.", "info");
     navigate("/login");
   };
 
@@ -125,7 +210,7 @@ export default function OwnerLayout({
             <button
               onClick={handleLogout}
               title="Logout"
-              className=" cursor-pointer text-white/30 hover:text-red-400 transition-colors text-base">
+              className="text-white/30 hover:text-red-400 transition-colors text-base">
               ⏻
             </button>
           </div>
@@ -183,6 +268,12 @@ export default function OwnerLayout({
           </button>
         ))}
       </nav>
+      {showLogoutModal && (
+        <LogoutModal
+          onConfirm={confirmLogout}
+          onCancel={() => setShowLogoutModal(false)}
+        />
+      )}
     </div>
   );
 }

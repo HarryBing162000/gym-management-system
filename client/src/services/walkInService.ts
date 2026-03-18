@@ -5,6 +5,12 @@ import type {
   WalkInRegisterResponse,
 } from "../types";
 
+interface WalkInHistoryResponse extends WalkInTodayResponse {
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 export const walkInService = {
   // Register a walk-in (staff/owner) — now accepts "couple" pass type
   register: async (
@@ -23,6 +29,14 @@ export const walkInService = {
   // Staff checkout
   checkOut: async (walkId: string) => {
     const res = await api.patch("/walkin/checkout", { walkId });
+    return res.data;
+  },
+
+  // Get walk-in history (owner only) — by date or last 7 days
+  getHistory: async (
+    params?: Record<string, string | number>,
+  ): Promise<WalkInHistoryResponse> => {
+    const res = await api.get("/walkin/history", { params });
     return res.data;
   },
 

@@ -3,12 +3,10 @@ import { AuthRequest } from "../middleware/authMiddleware";
 import WalkIn from "../models/WalkIn";
 import { WalkInInput, WalkInCheckOutInput } from "../middleware/authSchemas";
 
-// Helper — get today's date as "YYYY-MM-DD"
-const getTodayDate = (): string => {
-  return new Date().toISOString().split("T")[0];
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Helper — get today's pass price
+const getTodayDate = (): string => new Date().toISOString().split("T")[0];
+
 const getPassAmount = (passType: "regular" | "student" | "couple"): number => {
   const prices: Record<string, number> = {
     regular: 150,
@@ -18,28 +16,37 @@ const getPassAmount = (passType: "regular" | "student" | "couple"): number => {
   return prices[passType] ?? 150;
 };
 
-// Helper — generate next WALK-XXX ID for today
-// Resets daily — finds highest WALK number for today then increments
 const generateWalkId = async (): Promise<string> => {
   const today = getTodayDate();
-
   const last = await WalkIn.findOne({ date: today })
     .sort({ walkId: -1 })
     .select("walkId");
-
-  if (!last) return "WALK-001"; // first walk-in of the day
-
+  if (!last) return "WALK-001";
   const lastNum = parseInt(last.walkId.replace("WALK-", ""));
   return `WALK-${String(lastNum + 1).padStart(3, "0")}`;
 };
 
-// =================== REGISTER WALK-IN ===================
-// POST /api/walkin/register
-// Only staff and owner can register a walk-in
+const calcDuration = (checkIn: Date, checkOut: Date): string => {
+  const mins = Math.floor((checkOut.getTime() - checkIn.getTime()) / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
+const buildSummary = (walkIns: (typeof WalkIn.prototype)[]) => ({
+  total: walkIns.length,
+  revenue: walkIns.reduce((sum, w) => sum + w.amount, 0),
+  regular: walkIns.filter((w) => w.passType === "regular").length,
+  student: walkIns.filter((w) => w.passType === "student").length,
+  couple: walkIns.filter((w) => w.passType === "couple").length,
+  checkedOut: walkIns.filter((w) => w.isCheckedOut).length,
+  stillInside: walkIns.filter((w) => !w.isCheckedOut).length,
+});
+
+// ─── POST /api/walkin/register ────────────────────────────────────────────────
 export const registerWalkIn = async (req: AuthRequest, res: Response) => {
   try {
     const { name, phone, passType }: WalkInInput = req.body;
-
     const walkId = await generateWalkId();
     const today = getTodayDate();
     const amount = getPassAmount(passType);
@@ -52,13 +59,13 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
       amount,
       date: today,
       checkIn: new Date(),
-      staffId: req.user!.id, // records which staff processed it
+      staffId: req.user!.id,
       isCheckedOut: false,
     });
 
     return res.status(201).json({
       success: true,
-      message: `Walk-in registered successfully`,
+      message: "Walk-in registered successfully",
       walkIn: {
         walkId: walkIn.walkId,
         name: walkIn.name,
@@ -69,29 +76,25 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
         date: walkIn.date,
       },
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
   }
 };
 
-// =================== CHECK OUT WALK-IN ===================
-// PATCH /api/walkin/checkout
-// Can be done by staff OR by walk-in themselves via kiosk
+// ─── PATCH /api/walkin/checkout ───────────────────────────────────────────────
 export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;
     const today = getTodayDate();
 
-    // Find today's walk-in with this ID
     const walkIn = await WalkIn.findOne({ walkId, date: today });
-
     if (!walkIn) {
       return res.status(404).json({
         success: false,
-        message: `${walkId} not found for today. Make sure the ID is correct.`,
+        message: `${walkId} not found for today.`,
       });
     }
-
     if (walkIn.isCheckedOut) {
       return res.status(400).json({
         success: false,
@@ -99,17 +102,9 @@ export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Record checkout time
     walkIn.checkOut = new Date();
     walkIn.isCheckedOut = true;
     await walkIn.save();
-
-    // Calculate time spent in gym
-    const durationMs = walkIn.checkOut.getTime() - walkIn.checkIn.getTime();
-    const durationMinutes = Math.floor(durationMs / 60000);
-    const hours = Math.floor(durationMinutes / 60);
-    const minutes = durationMinutes % 60;
-    const duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
     return res.status(200).json({
       success: true,
@@ -120,54 +115,99 @@ export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
         passType: walkIn.passType,
         checkIn: walkIn.checkIn,
         checkOut: walkIn.checkOut,
-        duration, // e.g. "1h 23m"
+        duration: calcDuration(walkIn.checkIn, walkIn.checkOut),
         isCheckedOut: true,
       },
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
   }
 };
 
-// =================== GET TODAY'S WALK-INS ===================
-// GET /api/walkin/today
-// Staff and owner can view today's walk-ins
+// ─── GET /api/walkin/today ────────────────────────────────────────────────────
 export const getTodayWalkIns = async (req: AuthRequest, res: Response) => {
   try {
     const today = getTodayDate();
     const walkIns = await WalkIn.find({ date: today })
-      .populate("staffId", "name username") // show staff name instead of just ID
-      .sort({ checkIn: -1 }); // newest first
-
-    // Calculate today's revenue summary
-    const totalRevenue = walkIns.reduce((sum, w) => sum + w.amount, 0);
-    const regularCount = walkIns.filter((w) => w.passType === "regular").length;
-    const studentCount = walkIns.filter((w) => w.passType === "student").length;
-    const checkedOutCount = walkIns.filter((w) => w.isCheckedOut).length;
-    const stillInsideCount = walkIns.filter((w) => !w.isCheckedOut).length;
+      .populate("staffId", "name username")
+      .sort({ checkIn: -1 });
 
     return res.status(200).json({
       success: true,
       date: today,
-      summary: {
-        total: walkIns.length,
-        revenue: totalRevenue,
-        regular: regularCount,
-        student: studentCount,
-        checkedOut: checkedOutCount,
-        stillInside: stillInsideCount,
-      },
+      summary: buildSummary(walkIns),
       walkIns,
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
   }
 };
 
-// =================== KIOSK CHECKOUT ===================
-// POST /api/walkin/kiosk-checkout
-// Public endpoint — no auth needed (walk-in uses kiosk to check out)
-export const kioskCheckOut = async (req: any, res: Response) => {
+// ─── GET /api/walkin/history ──────────────────────────────────────────────────
+// Owner only — view walk-ins for any past date or date range
+// Query params: ?date=2026-03-18  OR  ?from=2026-03-01&to=2026-03-18
+export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      date,
+      from,
+      to,
+      page = "1",
+      limit = "50",
+    } = req.query as Record<string, string>;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const filter: Record<string, unknown> = {};
+
+    if (date) {
+      // Single date
+      filter.date = date;
+    } else if (from || to) {
+      // Date range
+      const rangeFilter: Record<string, string> = {};
+      if (from) rangeFilter.$gte = from;
+      if (to) rangeFilter.$lte = to;
+      filter.date = rangeFilter;
+    } else {
+      // Default — last 7 days
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      filter.date = { $gte: sevenDaysAgo.toISOString().split("T")[0] };
+    }
+
+    const [walkIns, total] = await Promise.all([
+      WalkIn.find(filter)
+        .populate("staffId", "name username")
+        .sort({ date: -1, checkIn: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      WalkIn.countDocuments(filter),
+    ]);
+
+    // Summary for the filtered range
+    const allForRange = await WalkIn.find(filter);
+
+    return res.status(200).json({
+      success: true,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      summary: buildSummary(allForRange),
+      walkIns,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── POST /api/walkin/kiosk-checkout (public) ─────────────────────────────────
+export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;
     const today = getTodayDate();
@@ -176,18 +216,16 @@ export const kioskCheckOut = async (req: any, res: Response) => {
       walkId: walkId.toUpperCase(),
       date: today,
     });
-
     if (!walkIn) {
       return res.status(404).json({
         success: false,
         message: `ID "${walkId}" not found for today. Please see the front desk.`,
       });
     }
-
     if (walkIn.isCheckedOut) {
       return res.status(400).json({
         success: false,
-        message: `You have already checked out. Have a great day! 👋`,
+        message: "You have already checked out. Have a great day! 👋",
       });
     }
 
@@ -195,11 +233,7 @@ export const kioskCheckOut = async (req: any, res: Response) => {
     walkIn.isCheckedOut = true;
     await walkIn.save();
 
-    const durationMs = walkIn.checkOut.getTime() - walkIn.checkIn.getTime();
-    const durationMinutes = Math.floor(durationMs / 60000);
-    const hours = Math.floor(durationMinutes / 60);
-    const minutes = durationMinutes % 60;
-    const duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    const duration = calcDuration(walkIn.checkIn, walkIn.checkOut);
 
     return res.status(200).json({
       success: true,
@@ -211,7 +245,8 @@ export const kioskCheckOut = async (req: any, res: Response) => {
         duration,
       },
     });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
   }
 };

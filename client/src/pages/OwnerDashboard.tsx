@@ -1,5 +1,6 @@
 import { useState } from "react";
 import MembersPage from "./MembersPage";
+import WalkInsPage from "./WalkInsPage";
 import OwnerLayout from "../layouts/OwnerLayout";
 import { useAuthStore } from "../store/authStore";
 
@@ -23,9 +24,7 @@ export default function OwnerDashboard() {
       pageTitle={pageTitles[activePage] ?? "Dashboard"}>
       {activePage === "dashboard" && <DashboardContent />}
       {activePage === "members" && <MembersPage />}
-      {activePage === "walkins" && (
-        <PlaceholderContent title="Walk-ins" icon="⊕" />
-      )}
+      {activePage === "walkins" && <WalkInsPage />}
       {activePage === "payments" && (
         <PlaceholderContent title="Payments" icon="◈" />
       )}
@@ -135,12 +134,6 @@ function DashboardContent() {
 
         {/* Quick Actions */}
         <div className="flex gap-2 flex-wrap">
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95">
-            <span>+</span> Add Member
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/30 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all active:scale-95">
-            <span>⊕</span> Walk-in
-          </button>
           <button className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-white/5 text-white/50 border border-white/10 text-xs font-bold rounded-lg hover:bg-white/10 transition-all">
             <span>↓</span> Export
           </button>
