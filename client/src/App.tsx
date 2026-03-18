@@ -2,13 +2,11 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "./store/authStore";
 
-// Pages (we'll create these next)
 import LoginPage from "./pages/LoginPage";
 import OwnerDashboard from "./pages/OwnerDashboard";
 import StaffDashboard from "./pages/StaffDashboard";
 import KioskPage from "./pages/KioskPage";
 
-// Create a query client for TanStack Query
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -18,7 +16,10 @@ const queryClient = new QueryClient({
   },
 });
 
-// 🔐 Protected Route — redirects to login if not authenticated
+// 🔐 Protected Route
+// Waits for Zustand to finish rehydrating from localStorage before
+// deciding whether to redirect. Without this, there's a flash to /login
+// on every page refresh even when the user is still authenticated.
 function ProtectedRoute({
   children,
   allowedRoles,
@@ -26,7 +27,10 @@ function ProtectedRoute({
   children: React.ReactNode;
   allowedRoles: string[];
 }) {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, _hasHydrated } = useAuthStore();
+
+  // Still rehydrating — render nothing to avoid flash redirect
+  if (!_hasHydrated) return null;
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

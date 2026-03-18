@@ -2,17 +2,16 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { User } from "../types";
 
-// 🧠 Think of this like a global variable that any component can read
-// persist means it saves to localStorage so user stays logged in on refresh
-
 interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  _hasHydrated: boolean;
 
   // Actions
   setAuth: (user: User, token: string) => void;
   logout: () => void;
+  setHasHydrated: (state: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -21,22 +20,30 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       isAuthenticated: false,
+      _hasHydrated: false,
 
       // Called after successful login
+      // Zustand persist handles localStorage — no manual setItem needed
       setAuth: (user, token) => {
-        localStorage.setItem("token", token);
         set({ user, token, isAuthenticated: true });
       },
 
       // Called on logout
+      // Zustand persist clears its own key — no manual removeItem needed
       logout: () => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
         set({ user: null, token: null, isAuthenticated: false });
+      },
+
+      setHasHydrated: (state) => {
+        set({ _hasHydrated: state });
       },
     }),
     {
-      name: "ironcore-auth", // localStorage key
+      name: "ironcore-auth",
+      onRehydrateStorage: () => (state) => {
+        // Mark hydration complete so ProtectedRoute doesn't flash to /login
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );

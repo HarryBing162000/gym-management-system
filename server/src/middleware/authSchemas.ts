@@ -59,8 +59,8 @@ export const loginStaffSchema = z.object({
 export const walkInSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters").max(50),
   phone: z.string().optional(),
-  passType: z.enum(["regular", "student"], {
-    error: "Pass type must be regular or student",
+  passType: z.enum(["regular", "student", "couple"], {
+    error: "Pass type must be regular, student, or couple",
   }),
 });
 
@@ -78,4 +78,5 @@ export type RegisterMemberInput = z.infer<typeof registerMemberSchema>;
 export type LoginOwnerInput = z.infer<typeof loginOwnerSchema>;
 export type LoginStaffInput = z.infer<typeof loginStaffSchema>;
 export type WalkInInput = z.infer<typeof walkInSchema>;
+// passType is now "regular" | "student" | "couple"
 export type WalkInCheckOutInput = z.infer<typeof walkInCheckOutSchema>;

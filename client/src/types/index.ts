@@ -32,7 +32,7 @@ export interface WalkIn {
   walkId: string;
   name: string;
   phone?: string;
-  passType: "regular" | "student";
+  passType: "regular" | "student" | "couple"; // aligned with server WalkIn model
   amount: number;
   date: string;
   checkIn: string;
@@ -51,6 +51,7 @@ export interface WalkInSummary {
   revenue: number;
   regular: number;
   student: number;
+  couple: number; // added to match server summary
   checkedOut: number;
   stillInside: number;
 }
@@ -60,6 +61,27 @@ export interface WalkInTodayResponse {
   date: string;
   summary: WalkInSummary;
   walkIns: WalkIn[];
+}
+
+// =================== WALK-IN REGISTER ===================
+export interface WalkInRegisterPayload {
+  name: string;
+  phone?: string;
+  passType: "regular" | "student" | "couple";
+}
+
+export interface WalkInRegisterResponse {
+  success: boolean;
+  message: string;
+  walkIn: {
+    walkId: string;
+    name: string;
+    phone?: string;
+    passType: "regular" | "student" | "couple";
+    amount: number;
+    checkIn: string;
+    date: string;
+  };
 }
 
 // =================== API RESPONSE ===================

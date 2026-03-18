@@ -4,7 +4,7 @@ export interface IWalkIn extends Document {
   walkId: string; // WALK-001 format
   name: string;
   phone?: string;
-  passType: "regular" | "student";
+  passType: "regular" | "student" | "couple";
   amount: number;
   date: string; // "2026-03-17" — used for daily reset
   checkIn: Date;
@@ -30,7 +30,7 @@ const WalkInSchema = new Schema<IWalkIn>(
     },
     passType: {
       type: String,
-      enum: ["regular", "student"],
+      enum: ["regular", "student", "couple"],
       required: [true, "Pass type is required"],
     },
     amount: {

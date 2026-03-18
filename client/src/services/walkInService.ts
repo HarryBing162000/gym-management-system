@@ -1,13 +1,15 @@
 import api from "./api";
-import type { WalkInTodayResponse } from "../types";
+import type {
+  WalkInTodayResponse,
+  WalkInRegisterPayload,
+  WalkInRegisterResponse,
+} from "../types";
 
 export const walkInService = {
-  // Register a walk-in (staff/owner)
-  register: async (payload: {
-    name: string;
-    phone?: string;
-    passType: "regular" | "student";
-  }) => {
+  // Register a walk-in (staff/owner) — now accepts "couple" pass type
+  register: async (
+    payload: WalkInRegisterPayload,
+  ): Promise<WalkInRegisterResponse> => {
     const res = await api.post("/walkin/register", payload);
     return res.data;
   },
@@ -24,7 +26,7 @@ export const walkInService = {
     return res.data;
   },
 
-  // Kiosk self checkout (public)
+  // Kiosk self checkout (public — uses fetch directly in KioskPage, not axios)
   kioskCheckOut: async (walkId: string) => {
     const res = await api.post("/walkin/kiosk-checkout", { walkId });
     return res.data;

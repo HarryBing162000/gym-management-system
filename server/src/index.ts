@@ -1,9 +1,12 @@
+// ⚠️ MUST be first — loads .env before any other module reads process.env
+import "./config/env";
+
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import connectDB from "./config/db";
 import authRoutes from "./routes/authRoutes";
 import walkInRoutes from "./routes/walkInRoutes";
+import kioskRoutes from "./routes/kioskRoutes";
 
 // Security middleware
 import {
@@ -17,8 +20,6 @@ import {
 } from "./middleware/security";
 import { globalErrorHandler, notFound } from "./middleware/errorHandler";
 import { SECURITY_CONFIG } from "./config/security";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -59,8 +60,8 @@ app.use(securityLogger);
 // ROUTES
 // ============================================================
 app.use("/api/auth", authRoutes);
-
 app.use("/api/walkin", walkInRoutes);
+app.use("/api/kiosk", kioskRoutes); // public kiosk terminal — machine-auth only
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "Server is running ✅" });

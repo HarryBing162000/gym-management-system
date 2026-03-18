@@ -13,21 +13,21 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [errorMsg, setErrorMsg] = useState(""); // renamed from "error" to avoid shadowing catch variable
 
   const handleLogin = async () => {
-    setError("");
+    setErrorMsg("");
 
     if (activeRole === "owner" && !email) {
-      setError("Please enter your email");
+      setErrorMsg("Please enter your email");
       return;
     }
     if (activeRole === "staff" && !username) {
-      setError("Please enter your username");
+      setErrorMsg("Please enter your username");
       return;
     }
     if (!password) {
-      setError("Please enter your password");
+      setErrorMsg("Please enter your password");
       return;
     }
 
@@ -42,10 +42,11 @@ export default function LoginPage() {
         setAuth(response.user, response.token);
         navigate(response.user.role === "owner" ? "/dashboard" : "/staff");
       }
-    } catch (err) {
-      const error = err as { response?: { data?: { message?: string } } };
-      setError(
-        error.response?.data?.message || "Login failed. Please try again.",
+    } catch (axiosError) {
+      // axiosError — renamed to avoid shadowing the errorMsg state above
+      const err = axiosError as { response?: { data?: { message?: string } } };
+      setErrorMsg(
+        err.response?.data?.message || "Login failed. Please try again.",
       );
     } finally {
       setLoading(false);
@@ -61,8 +62,7 @@ export default function LoginPage() {
           radial-gradient(ellipse 40% 60% at 80% 30%, rgba(255,184,0,0.05) 0%, transparent 60%)
         `,
       }}>
-      {/* Card — full width on mobile, fixed width on larger screens */}
-      <div className="w-full max-w-105  bg-[#212121] border border-white/10 rounded-2xl p-6 sm:p-10">
+      <div className="w-full max-w-105 bg-[#212121] border border-white/10 rounded-2xl p-6 sm:p-10">
         {/* Logo */}
         <div className="mb-6 sm:mb-8">
           <h1 className="text-xl sm:text-2xl font-black tracking-widest text-[#FF6B1A] text-center uppercase">
@@ -80,7 +80,7 @@ export default function LoginPage() {
               key={role}
               onClick={() => {
                 setActiveRole(role);
-                setError("");
+                setErrorMsg("");
               }}
               className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                 activeRole === role
@@ -93,9 +93,9 @@ export default function LoginPage() {
         </div>
 
         {/* Error */}
-        {error && (
+        {errorMsg && (
           <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <p className="text-red-400 text-xs sm:text-sm">{error}</p>
+            <p className="text-red-400 text-xs sm:text-sm">{errorMsg}</p>
           </div>
         )}
 
@@ -128,7 +128,7 @@ export default function LoginPage() {
             )}
           </div>
 
-          {/* Password with show/hide toggle */}
+          {/* Password */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-widest text-white/50 mb-2">
               Password
@@ -142,7 +142,6 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 pr-12 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
               />
-              {/* Show/hide password button — helpful on mobile */}
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}

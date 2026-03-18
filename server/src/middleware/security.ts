@@ -61,6 +61,22 @@ export const authRateLimiter = rateLimit({
 });
 
 // ============================================================
+// 3b. KIOSK RATE LIMITER — Tight limit on public kiosk routes
+// Protects against: member list scraping, walk-in ID enumeration
+// 20 requests per minute per IP (enough for normal use, blocks abuse)
+// ============================================================
+export const kioskRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests. Please slow down.",
+  },
+});
+
+// ============================================================
 // 4. MONGO SANITIZE — Strips NoSQL injection operators
 // Protects against: { "email": { "$gt": "" } } attacks
 // This strips out $ and . from all req.body, req.params, req.query
@@ -116,7 +132,7 @@ export const corsOptions = {
   },
   credentials: true, // allow cookies/auth headers
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Kiosk-Token"],
 };
 
 // ============================================================

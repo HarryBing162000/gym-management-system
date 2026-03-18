@@ -9,9 +9,13 @@ const getTodayDate = (): string => {
 };
 
 // Helper — get today's pass price
-const getPassAmount = (passType: "regular" | "student"): number => {
-  const prices = { regular: 150, student: 100 };
-  return prices[passType];
+const getPassAmount = (passType: "regular" | "student" | "couple"): number => {
+  const prices: Record<string, number> = {
+    regular: 150,
+    student: 100,
+    couple: 250,
+  };
+  return prices[passType] ?? 150;
 };
 
 // Helper — generate next WALK-XXX ID for today

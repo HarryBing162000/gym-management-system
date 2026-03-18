@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/authStore";
 import StaffLayout from "../layouts/StaffLayout";
+import { walkInService } from "../services/walkInService";
+import type { WalkInRegisterResponse } from "../types";
 
 // ── TYPES ──────────────────────────────────────────────────
 interface Member {
@@ -9,14 +11,6 @@ interface Member {
   plan: string;
   status: string;
   expires: string;
-}
-
-interface WalkInSuccess {
-  walkId: string;
-  name: string;
-  passType: string;
-  amount: number;
-  checkIn: string;
 }
 
 // ── MAIN COMPONENT ─────────────────────────────────────────
@@ -42,6 +36,8 @@ export default function StaffDashboard() {
 }
 
 // ── CHECK-IN DESK ──────────────────────────────────────────
+// NOTE: Member list and check-in actions are still mock data.
+// This will be wired to the real API in Phase 2 member endpoints.
 function CheckInDesk() {
   const { user } = useAuthStore();
   const [search, setSearch] = useState("");
@@ -198,7 +194,6 @@ function CheckInDesk() {
             Member Lookup
           </h3>
 
-          {/* Search */}
           <div className="relative mb-4">
             <input
               type="text"
@@ -222,7 +217,6 @@ function CheckInDesk() {
             )}
           </div>
 
-          {/* Search Results */}
           {filtered.length > 0 && !selectedMember && (
             <div className="bg-[#2a2a2a] rounded-lg overflow-hidden border border-white/10 mb-4">
               {filtered.map((m) => (
@@ -264,7 +258,6 @@ function CheckInDesk() {
             </div>
           )}
 
-          {/* Selected Member Card */}
           {selectedMember && (
             <div
               className={`rounded-xl p-4 border mb-4 ${
@@ -317,7 +310,6 @@ function CheckInDesk() {
             </div>
           )}
 
-          {/* Empty states */}
           {search.trim().length >= 2 && filtered.length === 0 && (
             <div className="text-center py-6 text-white/20">
               <div className="text-2xl mb-2">◉</div>
@@ -345,9 +337,10 @@ function CheckInDesk() {
             </span>
           </div>
           <div className="space-y-1">
-            {todayLog.map((entry, i) => (
+            {todayLog.map((entry) => (
+              // Fixed: composite key instead of array index
               <div
-                key={i}
+                key={`${entry.id}-${entry.time}-${entry.action}`}
                 className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
                 <div
                   className={`w-2 h-2 rounded-full shrink-0 ${
@@ -383,15 +376,30 @@ function CheckInDesk() {
 }
 
 // ── WALK-IN DESK ──────────────────────────────────────────
+// Wired to real API via walkInService.register()
 function WalkInDesk() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [passType, setPassType] = useState<"regular" | "student">("regular");
+  const [passType, setPassType] = useState<"regular" | "student" | "couple">(
+    "regular",
+  );
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState<WalkInSuccess | null>(null);
-  const [error, setError] = useState("");
+  const [success, setSuccess] = useState<
+    WalkInRegisterResponse["walkIn"] | null
+  >(null);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const prices = { regular: 150, student: 100 };
+  const prices: Record<string, number> = {
+    regular: 150,
+    student: 100,
+    couple: 250,
+  };
+
+  const passConfig = [
+    { type: "regular" as const, icon: "☀", label: "Regular", price: 150 },
+    { type: "student" as const, icon: "◎", label: "Student", price: 100 },
+    { type: "couple" as const, icon: "♡", label: "Couple", price: 250 },
+  ];
 
   const formatPhone = (val: string) => {
     const digits = val.replace(/\D/g, "").slice(0, 11);
@@ -402,26 +410,32 @@ function WalkInDesk() {
   };
 
   const handleSubmit = async () => {
-    setError("");
+    setErrorMsg("");
+
     if (!name.trim() || name.trim().split(" ").length < 2) {
-      setError("Please enter a full name (first and last)");
+      setErrorMsg("Please enter a full name (first and last)");
       return;
     }
+
     setLoading(true);
     try {
-      await new Promise((res) => setTimeout(res, 700));
-      setSuccess({
-        walkId: "WALK-001",
+      const response = await walkInService.register({
         name: name.trim(),
+        phone: phone.trim() || undefined,
         passType,
-        amount: prices[passType],
-        checkIn: new Date().toLocaleTimeString("en-PH", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
       });
-    } catch {
-      setError("Failed to register walk-in. Please try again.");
+
+      if (response.success) {
+        setSuccess(response.walkIn);
+      } else {
+        setErrorMsg(response.message || "Failed to register walk-in.");
+      }
+    } catch (axiosError) {
+      const err = axiosError as { response?: { data?: { message?: string } } };
+      setErrorMsg(
+        err.response?.data?.message ||
+          "Failed to register walk-in. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -432,7 +446,7 @@ function WalkInDesk() {
     setPhone("");
     setPassType("regular");
     setSuccess(null);
-    setError("");
+    setErrorMsg("");
   };
 
   if (success) {
@@ -468,7 +482,13 @@ function WalkInDesk() {
                   success.passType.slice(1),
               },
               { label: "Amount", value: `₱${success.amount}` },
-              { label: "Check-in", value: success.checkIn },
+              {
+                label: "Check-in",
+                value: new Date(success.checkIn).toLocaleTimeString("en-PH", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              },
             ].map((row) => (
               <div key={row.label} className="flex justify-between text-xs">
                 <span className="text-white/30">{row.label}</span>
@@ -504,6 +524,7 @@ function WalkInDesk() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               placeholder="e.g. Jose Rizal"
               className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
             />
@@ -523,29 +544,27 @@ function WalkInDesk() {
             />
           </div>
 
-          {/* Pass Type */}
+          {/* Pass Type — now includes couple */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
               Pass Type <span className="text-[#FF6B1A]">*</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              {(["regular", "student"] as const).map((type) => (
+            <div className="grid grid-cols-3 gap-2">
+              {passConfig.map(({ type, icon, label, price }) => (
                 <button
                   key={type}
                   onClick={() => setPassType(type)}
-                  className={`p-4 rounded-xl border text-center transition-all ${
+                  className={`p-3 rounded-xl border text-center transition-all ${
                     passType === type
                       ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
                       : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
                   }`}>
-                  <div className="text-lg mb-1">
-                    {type === "regular" ? "☀" : "◎"}
+                  <div className="text-lg mb-1">{icon}</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide">
+                    {label}
                   </div>
-                  <div className="text-xs font-bold uppercase tracking-wide">
-                    {type}
-                  </div>
-                  <div className="text-sm font-mono font-bold mt-1">
-                    ₱{prices[type]}
+                  <div className="text-xs font-mono font-bold mt-1">
+                    ₱{price}
                   </div>
                 </button>
               ))}
@@ -553,9 +572,9 @@ function WalkInDesk() {
           </div>
 
           {/* Error */}
-          {error && (
+          {errorMsg && (
             <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-red-400 text-xs">{error}</p>
+              <p className="text-red-400 text-xs">{errorMsg}</p>
             </div>
           )}
 
@@ -570,7 +589,7 @@ function WalkInDesk() {
                 Processing...
               </span>
             ) : (
-              "Register & Check In ➜"
+              `Register & Check In — ₱${prices[passType]} ➜`
             )}
           </button>
         </div>
