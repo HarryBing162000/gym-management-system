@@ -59,4 +59,28 @@ export const memberService = {
     const res = await api.patch(`/members/${gymId}/reactivate`);
     return res.data;
   },
+
+  // PATCH /api/members/:gymId/checkin — staff desk check-in
+  checkIn: async (
+    gymId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    member: { gymId: string; name: string; checkedIn: boolean };
+  }> => {
+    const res = await api.patch(`/members/${gymId}/checkin`);
+    return res.data;
+  },
+
+  // PATCH /api/members/:gymId/checkout — staff desk check-out
+  checkOut: async (
+    gymId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    member: { gymId: string; name: string; checkedIn: boolean };
+  }> => {
+    const res = await api.patch(`/members/${gymId}/checkout`);
+    return res.data;
+  },
 };

@@ -210,7 +210,7 @@ export default function OwnerLayout({
             <button
               onClick={handleLogout}
               title="Logout"
-              className="text-white/30 hover:text-red-400 transition-colors text-base">
+              className="cursor-pointer text-white/30 hover:text-red-400 transition-colors text-base">
               ⏻
             </button>
           </div>

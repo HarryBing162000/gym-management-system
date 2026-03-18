@@ -24,6 +24,8 @@ import {
   updateMember,
   deactivateMember,
   reactivateMember,
+  checkInMember,
+  checkOutMember,
 } from "../controllers/memberController";
 
 const router = Router();
@@ -77,6 +79,22 @@ router.patch(
   requireRole("owner"),
   validateParams(gymIdParamSchema),
   reactivateMember,
+);
+
+// PATCH /api/members/:gymId/checkin — owner + staff
+router.patch(
+  "/:gymId/checkin",
+  requireRole("owner", "staff"),
+  validateParams(gymIdParamSchema),
+  checkInMember,
+);
+
+// PATCH /api/members/:gymId/checkout — owner + staff
+router.patch(
+  "/:gymId/checkout",
+  requireRole("owner", "staff"),
+  validateParams(gymIdParamSchema),
+  checkOutMember,
 );
 
 export default router;

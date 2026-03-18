@@ -1,25 +1,29 @@
-import { useState } from "react";
+/**
+ * StaffDashboard.tsx
+ * IronCore GMS — Staff Portal
+ *
+ * Pages:
+ *   checkin — Member check-in / check-out desk (real API)
+ *   walkin  — Walk-in registration + checkout (real API)
+ *   members — Placeholder (Phase 3)
+ */
+
+import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../store/authStore";
 import StaffLayout from "../layouts/StaffLayout";
+import { memberService } from "../services/memberService";
 import { walkInService } from "../services/walkInService";
-import type { WalkInRegisterResponse } from "../types";
+import { useToastStore } from "../store/toastStore";
+import type { Member, WalkIn, WalkInRegisterResponse } from "../types";
 
-// ── TYPES ──────────────────────────────────────────────────
-interface Member {
-  id: string;
-  name: string;
-  plan: string;
-  status: string;
-  expires: string;
-}
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
-// ── MAIN COMPONENT ─────────────────────────────────────────
 export default function StaffDashboard() {
   const [activePage, setActivePage] = useState("checkin");
 
   const pageTitles: Record<string, string> = {
     checkin: "Check-in Desk",
-    walkin: "Walk-in Registration",
+    walkin: "Walk-in Desk",
     members: "Members",
   };
 
@@ -35,126 +39,121 @@ export default function StaffDashboard() {
   );
 }
 
-// ── CHECK-IN DESK ──────────────────────────────────────────
-// NOTE: Member list and check-in actions are still mock data.
-// This will be wired to the real API in Phase 2 member endpoints.
+// ─── Check-in Desk ────────────────────────────────────────────────────────────
+
 function CheckInDesk() {
   const { user } = useAuthStore();
+  const { showToast } = useToastStore();
   const [search, setSearch] = useState("");
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [checkedInIds, setCheckedInIds] = useState<Set<string>>(new Set());
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastType, setToastType] = useState<"success" | "info">("success");
+  const [results, setResults] = useState<Member[]>([]);
+  const [selected, setSelected] = useState<Member | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [todayLog, setTodayLog] = useState<
+    { gymId: string; name: string; time: string; action: "in" | "out" }[]
+  >([]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const members: Member[] = [
-    {
-      id: "GYM-1042",
-      name: "Juan dela Cruz",
-      plan: "Monthly",
-      status: "Active",
-      expires: "Apr 13, 2026",
-    },
-    {
-      id: "GYM-0987",
-      name: "Maria Santos",
-      plan: "Annual",
-      status: "Active",
-      expires: "Jan 5, 2027",
-    },
-    {
-      id: "GYM-1103",
-      name: "Pedro Mendoza",
-      plan: "Monthly",
-      status: "Expiring",
-      expires: "Mar 19, 2026",
-    },
-    {
-      id: "GYM-0234",
-      name: "Carlo Reyes",
-      plan: "VIP",
-      status: "Active",
-      expires: "Dec 31, 2026",
-    },
-    {
-      id: "GYM-0445",
-      name: "Ana Lim",
-      plan: "Monthly",
-      status: "Overdue",
-      expires: "Mar 1, 2026",
-    },
-    {
-      id: "GYM-1188",
-      name: "Rico Villanueva",
-      plan: "Annual",
-      status: "Active",
-      expires: "Mar 13, 2027",
-    },
-    {
-      id: "GYM-0312",
-      name: "Jasmine Aquino",
-      plan: "Monthly",
-      status: "Active",
-      expires: "Apr 1, 2026",
-    },
-    {
-      id: "GYM-0576",
-      name: "Dante Garcia",
-      plan: "VIP",
-      status: "Active",
-      expires: "Jun 30, 2026",
-    },
-  ];
+  // Focus search on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
-  const filtered =
-    search.trim().length >= 2
-      ? members.filter(
-          (m) =>
-            m.name.toLowerCase().includes(search.toLowerCase()) ||
-            m.id.toLowerCase().includes(search.toLowerCase()),
-        )
-      : [];
-
-  const showToast = (msg: string, type: "success" | "info" = "success") => {
-    setToastMsg(msg);
-    setToastType(type);
-    setTimeout(() => setToastMsg(""), 3000);
-  };
-
-  const handleCheckIn = (member: Member) => {
-    if (member.status === "Overdue") return;
-    const isCheckedIn = checkedInIds.has(member.id);
-    const newSet = new Set(checkedInIds);
-
-    if (isCheckedIn) {
-      newSet.delete(member.id);
-      setCheckedInIds(newSet);
-      showToast(`${member.name.split(" ")[0]} checked out.`, "info");
-    } else {
-      newSet.add(member.id);
-      setCheckedInIds(newSet);
-      showToast(`Welcome back, ${member.name.split(" ")[0]}! ✓`, "success");
+  // Debounced search
+  useEffect(() => {
+    if (!search.trim()) {
+      setResults([]);
+      setSelected(null);
+      return;
     }
-    setSearch("");
-    setSelectedMember(null);
+    const id = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await memberService.getAll({
+          search: search.trim(),
+          limit: 6,
+        });
+        setResults(res.members);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  const selectMember = (m: Member) => {
+    setSelected(m);
+    setSearch(m.name);
+    setResults([]);
   };
 
-  const getStatusColor = (status: string) => {
-    if (status === "Active")
-      return "text-[#FF6B1A] bg-[#FF6B1A]/10 border-[#FF6B1A]/20";
-    if (status === "Expiring")
-      return "text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/20";
-    if (status === "Overdue")
-      return "text-red-400 bg-red-400/10 border-red-400/20";
-    return "text-white/40 bg-white/5 border-white/10";
+  const handleCheckIn = async (member: Member) => {
+    setActionLoading(true);
+    try {
+      await memberService.checkIn(member.gymId);
+      showToast(`Welcome back, ${member.name.split(" ")[0]}! ✓`, "success");
+      setTodayLog((prev) => [
+        {
+          gymId: member.gymId,
+          name: member.name,
+          time: new Date().toLocaleTimeString("en-PH", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }),
+          action: "in",
+        },
+        ...prev.slice(0, 19),
+      ]);
+      setSearch("");
+      setSelected(null);
+      setResults([]);
+      inputRef.current?.focus();
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      showToast(err.response?.data?.message || "Check-in failed.", "error");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const todayLog = [
-    { id: "GYM-1042", name: "Juan dela Cruz", time: "11:34", action: "in" },
-    { id: "GYM-0987", name: "Maria Santos", time: "11:29", action: "in" },
-    { id: "GYM-0234", name: "Carlo Reyes", time: "11:02", action: "in" },
-    { id: "GYM-0987", name: "Maria Santos", time: "10:55", action: "out" },
-    { id: "GYM-0576", name: "Dante Garcia", time: "10:33", action: "in" },
-  ];
+  const handleCheckOut = async (member: Member) => {
+    setActionLoading(true);
+    try {
+      await memberService.checkOut(member.gymId);
+      showToast(`${member.name.split(" ")[0]} checked out.`, "info");
+      setTodayLog((prev) => [
+        {
+          gymId: member.gymId,
+          name: member.name,
+          time: new Date().toLocaleTimeString("en-PH", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }),
+          action: "out",
+        },
+        ...prev.slice(0, 19),
+      ]);
+      setSearch("");
+      setSelected(null);
+      setResults([]);
+      inputRef.current?.focus();
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      showToast(err.response?.data?.message || "Check-out failed.", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const STATUS_STYLES: Record<string, string> = {
+    active: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
+    inactive: "text-amber-400 bg-amber-400/10 border-amber-400/20",
+    expired: "text-red-400 bg-red-400/10 border-red-400/20",
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 pb-24 lg:pb-6">
@@ -172,58 +171,55 @@ function CheckInDesk() {
         </p>
       </div>
 
-      {/* Toast */}
-      {toastMsg && (
-        <div
-          className={`fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-semibold shadow-lg ${
-            toastType === "success"
-              ? "bg-[#FF6B1A] text-black"
-              : "bg-blue-500 text-white"
-          }`}>
-          {toastMsg}
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Member Lookup */}
+        {/* ── Member Lookup ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5">
           <h3 className="text-xs font-bold uppercase tracking-widest text-white/50 mb-4">
             Member Lookup
           </h3>
 
-          <div className="relative mb-4">
+          {/* Search input */}
+          <div className="relative mb-3">
             <input
+              ref={inputRef}
               type="text"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
-                setSelectedMember(null);
+                setSelected(null);
               }}
-              placeholder="Search by name or GYM-0000..."
+              placeholder="Name or GYM-ID..."
               className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors pr-10"
             />
             {search && (
               <button
                 onClick={() => {
                   setSearch("");
-                  setSelectedMember(null);
+                  setSelected(null);
+                  setResults([]);
+                  inputRef.current?.focus();
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-xs">
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-xs cursor-pointer">
                 ✕
               </button>
             )}
           </div>
 
-          {filtered.length > 0 && !selectedMember && (
-            <div className="bg-[#2a2a2a] rounded-lg overflow-hidden border border-white/10 mb-4">
-              {filtered.map((m) => (
+          {/* Searching indicator */}
+          {searching && (
+            <div className="text-center py-4 text-white/20 text-xs">
+              Searching...
+            </div>
+          )}
+
+          {/* Results dropdown */}
+          {!searching && results.length > 0 && !selected && (
+            <div className="bg-[#2a2a2a] rounded-lg border border-white/10 mb-3 overflow-hidden">
+              {results.map((m) => (
                 <button
-                  key={m.id}
-                  onClick={() => {
-                    setSelectedMember(m);
-                    setSearch(m.name);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0 transition-colors text-left">
+                  key={m.gymId}
+                  onClick={() => selectMember(m)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0 transition-colors text-left cursor-pointer">
                   <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
                     {m.name
                       .split(" ")
@@ -236,17 +232,17 @@ function CheckInDesk() {
                       {m.name}
                     </div>
                     <div className="text-xs text-white/30">
-                      {m.id} · {m.plan}
+                      {m.gymId} · {m.plan}
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-col items-end gap-1 shrink-0">
                     <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getStatusColor(m.status)}`}>
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_STYLES[m.status] ?? "text-white/30"}`}>
                       {m.status}
                     </span>
-                    {checkedInIds.has(m.id) && (
+                    {m.checkedIn && (
                       <span className="text-[10px] text-[#FF6B1A]">
-                        ● In gym
+                        ● Inside
                       </span>
                     )}
                   </div>
@@ -255,75 +251,83 @@ function CheckInDesk() {
             </div>
           )}
 
-          {selectedMember && (
+          {/* No results */}
+          {!searching && search.trim() && results.length === 0 && !selected && (
+            <div className="text-center py-6 text-white/20">
+              <div className="text-2xl mb-2">◉</div>
+              <div className="text-xs">No member found</div>
+              <div className="text-xs mt-1">Check the name or GYM-ID</div>
+            </div>
+          )}
+
+          {/* Selected member card */}
+          {selected && (
             <div
-              className={`rounded-xl p-4 border mb-4 ${
-                checkedInIds.has(selectedMember.id)
+              className={`rounded-xl p-4 border mb-1 ${
+                selected.checkedIn
                   ? "bg-blue-400/5 border-blue-400/20"
                   : "bg-[#FF6B1A]/5 border-[#FF6B1A]/20"
               }`}>
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 flex items-center justify-center text-sm font-bold text-[#FF6B1A]">
-                  {selectedMember.name
+                <div className="w-10 h-10 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 flex items-center justify-center text-sm font-bold text-[#FF6B1A] shrink-0">
+                  {selected.name
                     .split(" ")
                     .map((n) => n[0])
                     .join("")
                     .slice(0, 2)}
                 </div>
-                <div className="flex-1">
-                  <div className="font-bold text-white">
-                    {selectedMember.name}
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-white">{selected.name}</div>
                   <div className="text-xs text-white/40">
-                    {selectedMember.id} · {selectedMember.plan} · Expires{" "}
-                    {selectedMember.expires}
+                    {selected.gymId} · {selected.plan} · Expires{" "}
+                    {new Date(selected.expiresAt).toLocaleDateString("en-PH", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
                   </div>
                 </div>
                 <span
-                  className={`text-xs font-semibold px-2 py-1 rounded-full border ${getStatusColor(selectedMember.status)}`}>
-                  {selectedMember.status}
+                  className={`text-xs font-semibold px-2 py-1 rounded-full border ${STATUS_STYLES[selected.status] ?? "text-white/30"}`}>
+                  {selected.status}
                 </span>
               </div>
 
-              {selectedMember.status === "Overdue" ? (
+              {/* Action button */}
+              {selected.status === "expired" ||
+              selected.status === "inactive" ? (
                 <button
                   disabled
-                  className="w-full py-3 bg-transparent border border-[#FFB800]/30 text-[#FFB800] text-sm font-bold rounded-lg cursor-not-allowed opacity-60">
-                  ⚠ Membership Overdue — See Front Desk
+                  className="w-full py-3 bg-transparent border border-amber-400/30 text-amber-400 text-sm font-bold rounded-lg cursor-not-allowed opacity-60">
+                  ⚠ Membership {selected.status} — See Front Desk
                 </button>
-              ) : checkedInIds.has(selectedMember.id) ? (
+              ) : selected.checkedIn ? (
                 <button
-                  onClick={() => handleCheckIn(selectedMember)}
-                  className="w-full py-3 bg-transparent border border-blue-400/40 text-blue-400 text-sm font-bold rounded-lg hover:bg-blue-400/10 transition-all active:scale-95">
-                  ← Check Out
+                  onClick={() => handleCheckOut(selected)}
+                  disabled={actionLoading}
+                  className="w-full py-3 bg-transparent border border-blue-400/40 text-blue-400 text-sm font-bold rounded-lg hover:bg-blue-400/10 transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                  {actionLoading ? "Processing..." : "← Check Out"}
                 </button>
               ) : (
                 <button
-                  onClick={() => handleCheckIn(selectedMember)}
-                  className="w-full py-3 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95">
-                  ✓ Check In
+                  onClick={() => handleCheckIn(selected)}
+                  disabled={actionLoading}
+                  className="w-full py-3 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                  {actionLoading ? "Processing..." : "✓ Check In"}
                 </button>
               )}
             </div>
           )}
 
-          {search.trim().length >= 2 && filtered.length === 0 && (
+          {/* Idle hint */}
+          {!search && !selected && (
             <div className="text-center py-6 text-white/20">
-              <div className="text-2xl mb-2">◉</div>
-              <div className="text-xs">No member found</div>
-              <div className="text-xs mt-1">Please see the front desk</div>
-            </div>
-          )}
-          {!search && (
-            <div className="text-center py-6 text-white/20">
-              <div className="text-xs">
-                Type at least 2 characters to search
-              </div>
+              <div className="text-xs">Type a name or GYM-ID to search</div>
             </div>
           )}
         </div>
 
-        {/* Today's Log */}
+        {/* ── Today's Log ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
@@ -333,48 +337,55 @@ function CheckInDesk() {
               {todayLog.length} entries
             </span>
           </div>
-          <div className="space-y-1">
-            {todayLog.map((entry) => (
-              // Fixed: composite key instead of array index
-              <div
-                key={`${entry.id}-${entry.time}-${entry.action}`}
-                className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+
+          {todayLog.length === 0 ? (
+            <div className="text-center py-10 text-white/20">
+              <div className="text-2xl mb-2">◉</div>
+              <div className="text-xs">No activity yet today</div>
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {todayLog.map((entry, i) => (
                 <div
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    entry.action === "in" ? "bg-[#FF6B1A]" : "bg-blue-400"
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-mono text-[#FF6B1A] mr-2">
-                    {entry.id}
-                  </span>
-                  <span className="text-xs text-white/60 truncate">
-                    {entry.name}
-                  </span>
+                  key={i}
+                  className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+                  <div
+                    className={`w-2 h-2 rounded-full shrink-0 ${entry.action === "in" ? "bg-[#FF6B1A]" : "bg-blue-400"}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-mono text-[#FF6B1A] mr-2">
+                      {entry.gymId}
+                    </span>
+                    <span className="text-xs text-white/60 truncate">
+                      {entry.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`text-[10px] font-semibold ${entry.action === "in" ? "text-[#FF6B1A]" : "text-blue-400"}`}>
+                      {entry.action === "in" ? "IN" : "OUT"}
+                    </span>
+                    <span className="text-[11px] font-mono text-white/30">
+                      {entry.time}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span
-                    className={`text-[10px] font-semibold ${
-                      entry.action === "in" ? "text-[#FF6B1A]" : "text-blue-400"
-                    }`}>
-                    {entry.action === "in" ? "IN" : "OUT"}
-                  </span>
-                  <span className="text-[11px] font-mono text-white/30">
-                    {entry.time}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ── WALK-IN DESK ──────────────────────────────────────────
-// Wired to real API via walkInService.register()
+// ─── Walk-in Desk ─────────────────────────────────────────────────────────────
+
 function WalkInDesk() {
+  const { showToast } = useToastStore();
+  const [tab, setTab] = useState<"register" | "checkout">("register");
+
+  // Register state
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [passType, setPassType] = useState<"regular" | "student" | "couple">(
@@ -386,11 +397,10 @@ function WalkInDesk() {
   >(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const prices: Record<string, number> = {
-    regular: 150,
-    student: 100,
-    couple: 250,
-  };
+  // Checkout state
+  const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
+  const [todayLoading, setTodayLoading] = useState(false);
+  const [checkingOut, setCheckingOut] = useState<string | null>(null);
 
   const passConfig = [
     { type: "regular" as const, icon: "☀", label: "Regular", price: 150 },
@@ -406,14 +416,30 @@ function WalkInDesk() {
     return digits;
   };
 
-  const handleSubmit = async () => {
-    setErrorMsg("");
+  // Load today's walk-ins when switching to checkout tab
+  useEffect(() => {
+    if (tab !== "checkout") return;
+    const load = async () => {
+      setTodayLoading(true);
+      try {
+        const res = await walkInService.getToday();
+        // Only show still-inside walk-ins at the top, checked out below
+        setWalkIns(res.walkIns);
+      } catch {
+        showToast("Failed to load today's walk-ins.", "error");
+      } finally {
+        setTodayLoading(false);
+      }
+    };
+    load();
+  }, [tab, showToast]);
 
+  const handleRegister = async () => {
+    setErrorMsg("");
     if (!name.trim() || name.trim().split(" ").length < 2) {
-      setErrorMsg("Please enter a full name (first and last)");
+      setErrorMsg("Please enter a full name (first and last).");
       return;
     }
-
     setLoading(true);
     try {
       const response = await walkInService.register({
@@ -421,20 +447,34 @@ function WalkInDesk() {
         phone: phone.trim() || undefined,
         passType,
       });
-
-      if (response.success) {
-        setSuccess(response.walkIn);
-      } else {
-        setErrorMsg(response.message || "Failed to register walk-in.");
-      }
-    } catch (axiosError) {
-      const err = axiosError as { response?: { data?: { message?: string } } };
+      setSuccess(response.walkIn);
+      showToast(`${name.split(" ")[0]} registered successfully.`, "success");
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
       setErrorMsg(
         err.response?.data?.message ||
           "Failed to register walk-in. Please try again.",
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCheckOut = async (walkId: string, guestName: string) => {
+    setCheckingOut(walkId);
+    try {
+      await walkInService.checkOut(walkId);
+      showToast(`${guestName.split(" ")[0]} checked out.`, "info");
+      setWalkIns((prev) =>
+        prev.map((w) =>
+          w.walkId === walkId ? { ...w, isCheckedOut: true } : w,
+        ),
+      );
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      showToast(err.response?.data?.message || "Checkout failed.", "error");
+    } finally {
+      setCheckingOut(null);
     }
   };
 
@@ -446,156 +486,259 @@ function WalkInDesk() {
     setErrorMsg("");
   };
 
-  if (success) {
-    return (
-      <div className="max-w-md mx-auto pb-24 lg:pb-6">
-        <div className="bg-[#212121] border border-[#FF6B1A]/20 rounded-xl p-6 sm:p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-[#FF6B1A]/10 border-2 border-[#FF6B1A] flex items-center justify-center text-2xl mx-auto mb-4">
-            ✓
-          </div>
-          <h3 className="text-xl font-bold text-[#FF6B1A] mb-1">
-            Welcome, {success.name.split(" ")[0]}!
-          </h3>
-          <p className="text-xs text-white/40 mb-5">
-            Walk-in registered successfully
-          </p>
-
-          <div className="bg-[#2a2a2a] rounded-xl p-4 mb-4">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-white/30 mb-2">
-              Temporary ID
-            </div>
-            <div className="text-3xl font-mono font-bold text-[#FF6B1A] tracking-widest">
-              {success.walkId}
-            </div>
-          </div>
-
-          <div className="space-y-2 mb-6 text-left">
-            {[
-              { label: "Name", value: success.name },
-              {
-                label: "Pass Type",
-                value:
-                  success.passType.charAt(0).toUpperCase() +
-                  success.passType.slice(1),
-              },
-              { label: "Amount", value: `₱${success.amount}` },
-              {
-                label: "Check-in",
-                value: new Date(success.checkIn).toLocaleTimeString("en-PH", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }),
-              },
-            ].map((row) => (
-              <div key={row.label} className="flex justify-between text-xs">
-                <span className="text-white/30">{row.label}</span>
-                <span className="font-semibold text-white">{row.value}</span>
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={handleReset}
-            className="w-full py-3 bg-[#FF6B1A] text-black font-bold text-sm rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95">
-            Register Another ➜
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const inside = walkIns.filter((w) => !w.isCheckedOut);
+  const checkedOut = walkIns.filter((w) => w.isCheckedOut);
 
   return (
-    <div className="max-w-md mx-auto pb-24 lg:pb-6">
-      <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-6">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-white/50 mb-5">
-          New Walk-in Registration
-        </h3>
+    <div className="max-w-md mx-auto pb-24 lg:pb-6 space-y-4">
+      {/* Tabs */}
+      <div className="flex gap-1 bg-[#212121] border border-white/10 rounded-lg p-1">
+        {(["register", "checkout"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => {
+              setTab(t);
+              setSuccess(null);
+              setErrorMsg("");
+            }}
+            className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wide rounded-md transition-all cursor-pointer ${
+              tab === t
+                ? "bg-[#FFB800]/15 text-[#FFB800] border border-[#FFB800]/30"
+                : "text-white/40 hover:text-white/60"
+            }`}>
+            {t === "register"
+              ? "Register"
+              : `Check Out ${inside.length > 0 && tab === "checkout" ? `(${inside.length})` : ""}`}
+          </button>
+        ))}
+      </div>
 
-        <div className="space-y-4">
-          {/* Full Name */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
-              Full Name <span className="text-[#FF6B1A]">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-              placeholder="e.g. Jose Rizal"
-              className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-            />
-          </div>
-
-          {/* Phone */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
-              Phone <span className="text-white/20">(optional)</span>
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(formatPhone(e.target.value))}
-              placeholder="09XX XXX XXXX"
-              className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-            />
-          </div>
-
-          {/* Pass Type — now includes couple */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
-              Pass Type <span className="text-[#FF6B1A]">*</span>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {passConfig.map(({ type, icon, label, price }) => (
-                <button
-                  key={type}
-                  onClick={() => setPassType(type)}
-                  className={`p-3 rounded-xl border text-center transition-all ${
-                    passType === type
-                      ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
-                      : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
-                  }`}>
-                  <div className="text-lg mb-1">{icon}</div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide">
-                    {label}
+      {/* ── Register Tab ── */}
+      {tab === "register" && (
+        <>
+          {success ? (
+            <div className="bg-[#212121] border border-[#FF6B1A]/20 rounded-xl p-6 sm:p-8 text-center">
+              <div className="w-16 h-16 rounded-full bg-[#FF6B1A]/10 border-2 border-[#FF6B1A] flex items-center justify-center text-2xl mx-auto mb-4">
+                ✓
+              </div>
+              <h3 className="text-xl font-bold text-[#FF6B1A] mb-1">
+                Welcome, {success.name.split(" ")[0]}!
+              </h3>
+              <p className="text-xs text-white/40 mb-5">
+                Walk-in registered successfully
+              </p>
+              <div className="bg-[#2a2a2a] rounded-xl p-4 mb-4">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-white/30 mb-2">
+                  Temporary ID
+                </div>
+                <div className="text-3xl font-mono font-bold text-[#FF6B1A] tracking-widest">
+                  {success.walkId}
+                </div>
+              </div>
+              <div className="space-y-2 mb-6 text-left">
+                {[
+                  { label: "Name", value: success.name },
+                  {
+                    label: "Pass Type",
+                    value:
+                      success.passType.charAt(0).toUpperCase() +
+                      success.passType.slice(1),
+                  },
+                  { label: "Amount", value: `₱${success.amount}` },
+                  {
+                    label: "Check-in",
+                    value: new Date(success.checkIn).toLocaleTimeString(
+                      "en-PH",
+                      { hour: "2-digit", minute: "2-digit" },
+                    ),
+                  },
+                ].map((row) => (
+                  <div key={row.label} className="flex justify-between text-xs">
+                    <span className="text-white/30">{row.label}</span>
+                    <span className="font-semibold text-white">
+                      {row.value}
+                    </span>
                   </div>
-                  <div className="text-xs font-mono font-bold mt-1">
-                    ₱{price}
-                  </div>
-                </button>
-              ))}
+                ))}
+              </div>
+              <button
+                onClick={handleReset}
+                className="w-full py-3 bg-[#FF6B1A] text-black font-bold text-sm rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer">
+                Register Another ➜
+              </button>
             </div>
+          ) : (
+            <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-6">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-white/50 mb-5">
+                New Walk-in
+              </h3>
+              <div className="space-y-4">
+                {/* Name */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
+                    Full Name <span className="text-[#FF6B1A]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleRegister()}
+                    placeholder="e.g. Jose Rizal"
+                    className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                  />
+                </div>
+                {/* Phone */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
+                    Phone <span className="text-white/20">(optional)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(formatPhone(e.target.value))}
+                    placeholder="09XX XXX XXXX"
+                    className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                  />
+                </div>
+                {/* Pass type */}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
+                    Pass Type <span className="text-[#FF6B1A]">*</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {passConfig.map(({ type, icon, label, price }) => (
+                      <button
+                        key={type}
+                        onClick={() => setPassType(type)}
+                        className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                          passType === type
+                            ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
+                            : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
+                        }`}>
+                        <div className="text-lg mb-1">{icon}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wide">
+                          {label}
+                        </div>
+                        <div className="text-xs font-mono font-bold mt-1">
+                          ₱{price}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Error */}
+                {errorMsg && (
+                  <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                    <p className="text-red-400 text-xs">{errorMsg}</p>
+                  </div>
+                )}
+                {/* Submit */}
+                <button
+                  onClick={handleRegister}
+                  disabled={loading}
+                  className="w-full py-3.5 bg-[#FFB800] text-black font-bold text-sm uppercase tracking-widest rounded-lg hover:bg-[#ffc933] transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed mt-2 cursor-pointer">
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                      Processing...
+                    </span>
+                  ) : (
+                    `Register & Check In — ₱${passConfig.find((p) => p.type === passType)?.price} ➜`
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Checkout Tab ── */}
+      {tab === "checkout" && (
+        <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-widest text-white/50">
+              Today's Walk-ins
+            </span>
+            <span className="text-xs font-mono text-white/30">
+              {inside.length} inside
+            </span>
           </div>
 
-          {/* Error */}
-          {errorMsg && (
-            <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-red-400 text-xs">{errorMsg}</p>
+          {todayLoading && (
+            <div className="py-10 text-center text-white/20 text-xs">
+              Loading...
             </div>
           )}
 
-          {/* Submit */}
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full py-3.5 bg-[#FFB800] text-black font-bold text-sm uppercase tracking-widest rounded-lg hover:bg-[#ffc933] transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed mt-2">
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                Processing...
-              </span>
-            ) : (
-              `Register & Check In — ₱${prices[passType]} ➜`
-            )}
-          </button>
+          {!todayLoading && inside.length === 0 && (
+            <div className="py-10 text-center text-white/20">
+              <div className="text-2xl mb-2">⊕</div>
+              <div className="text-xs">No one currently inside</div>
+            </div>
+          )}
+
+          {/* Still inside — can check out */}
+          {inside.map((w) => (
+            <div
+              key={w._id}
+              className="flex items-center gap-3 px-5 py-3.5 border-b border-white/5 last:border-0">
+              <div
+                className="w-2 h-2 rounded-full bg-[#FF6B1A] shrink-0"
+                style={{ animation: "pulse 2s infinite" }}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-white truncate">
+                  {w.name}
+                </div>
+                <div className="text-[10px] text-white/30 font-mono">
+                  {w.walkId} · {w.passType}
+                </div>
+              </div>
+              <button
+                onClick={() => handleCheckOut(w.walkId, w.name)}
+                disabled={checkingOut === w.walkId}
+                className="px-3 py-1.5 text-xs font-semibold border border-blue-400/30 text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all cursor-pointer disabled:opacity-50">
+                {checkingOut === w.walkId ? "..." : "Check Out"}
+              </button>
+            </div>
+          ))}
+
+          {/* Already checked out */}
+          {checkedOut.length > 0 && (
+            <>
+              <div className="px-5 py-2 bg-white/2 border-t border-white/5">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/20">
+                  Already checked out
+                </span>
+              </div>
+              {checkedOut.map((w) => (
+                <div
+                  key={w._id}
+                  className="flex items-center gap-3 px-5 py-3 border-b border-white/5 last:border-0 opacity-40">
+                  <div className="w-2 h-2 rounded-full bg-white/20 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-white truncate">
+                      {w.name}
+                    </div>
+                    <div className="text-[10px] text-white/30 font-mono">
+                      {w.walkId} · {w.passType}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-white/30 font-mono">
+                    Out
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-// ── PLACEHOLDER ──────────────────────────────────────────
+// ─── Placeholder ──────────────────────────────────────────────────────────────
+
 function PlaceholderContent() {
   return (
     <div className="flex flex-col items-center justify-center h-64 text-white/20 pb-24 lg:pb-0">

@@ -416,3 +416,81 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ success: false, message });
   }
 };
+
+// ─── PATCH /api/members/:gymId/checkin ───────────────────────────────────────
+// Staff or owner checks a member in at the desk.
+export const checkInMember = async (req: AuthRequest, res: Response) => {
+  try {
+    const { gymId } = req.params;
+
+    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    if (!member) {
+      return res
+        .status(404)
+        .json({ success: false, message: `Member ${gymId} not found.` });
+    }
+    if (!member.isActive || member.status === "inactive") {
+      return res.status(403).json({
+        success: false,
+        message: `${member.name}'s membership is inactive.`,
+      });
+    }
+    if (member.status === "expired") {
+      return res.status(403).json({
+        success: false,
+        message: `${member.name}'s membership has expired.`,
+      });
+    }
+    if (member.checkedIn) {
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} is already checked in.`,
+      });
+    }
+
+    member.checkedIn = true;
+    await member.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${member.name} checked in successfully.`,
+      member: { gymId: member.gymId, name: member.name, checkedIn: true },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── PATCH /api/members/:gymId/checkout ──────────────────────────────────────
+// Staff or owner checks a member out at the desk.
+export const checkOutMember = async (req: AuthRequest, res: Response) => {
+  try {
+    const { gymId } = req.params;
+
+    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    if (!member) {
+      return res
+        .status(404)
+        .json({ success: false, message: `Member ${gymId} not found.` });
+    }
+    if (!member.checkedIn) {
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} is not currently checked in.`,
+      });
+    }
+
+    member.checkedIn = false;
+    await member.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${member.name} checked out successfully.`,
+      member: { gymId: member.gymId, name: member.name, checkedIn: false },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
