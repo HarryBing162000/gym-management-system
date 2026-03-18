@@ -1,26 +1,49 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodSchema, ZodError } from "zod";
 
+// Validates req.body against a Zod schema
 export const validate = (schema: ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
-      schema.parse(req.body);
+      req.body = schema.parse(req.body);
       next();
     } catch (err) {
       if (err instanceof ZodError) {
-        // ✅ Fix 1: use .issues instead of .errors (correct Zod v3 API)
-        // ✅ Fix 2: ZodIssue is the proper type so 'e' is no longer implicit any
         const errors = err.issues.map((e) => ({
           field: e.path.join("."),
           message: e.message,
         }));
-
         res.status(400).json({
           success: false,
           message: "Validation failed",
           errors,
         });
-        return; // ✅ Fix 3: explicit return after sending response (avoids void conflict)
+        return;
+      }
+      next(err);
+    }
+  };
+};
+
+// Validates req.params against a Zod schema
+// Used for route params like :gymId to prevent injection via URL
+export const validateParams = (schema: ZodSchema) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    try {
+      schema.parse(req.params);
+      next();
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const errors = err.issues.map((e) => ({
+          field: e.path.join("."),
+          message: e.message,
+        }));
+        res.status(400).json({
+          success: false,
+          message: "Invalid route parameter",
+          errors,
+        });
+        return;
       }
       next(err);
     }

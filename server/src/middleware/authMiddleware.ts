@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 export interface AuthRequest extends Request {
   user?: {
     id: string;
-    role: "owner" | "staff" | "member";
+    role: "owner" | "staff";
   };
 }
 
@@ -38,7 +38,7 @@ export const protect = (
     // If token is expired or tampered with, this throws an error
     const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as {
       id: string;
-      role: "owner" | "staff" | "member";
+      role: "owner" | "staff";
     };
 
     // Attach user info to the request — available in all controllers after this

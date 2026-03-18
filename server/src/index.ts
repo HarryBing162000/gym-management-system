@@ -7,6 +7,7 @@ import connectDB from "./config/db";
 import authRoutes from "./routes/authRoutes";
 import walkInRoutes from "./routes/walkInRoutes";
 import kioskRoutes from "./routes/kioskRoutes";
+import memberRoutes from "./routes/memberRoutes";
 
 // Security middleware
 import {
@@ -61,7 +62,8 @@ app.use(securityLogger);
 // ============================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/walkin", walkInRoutes);
-app.use("/api/kiosk", kioskRoutes); // public kiosk terminal — machine-auth only
+app.use("/api/kiosk", kioskRoutes);
+app.use("/api/members", memberRoutes); // member management — JWT protected // public kiosk terminal — machine-auth only
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "Server is running ✅" });

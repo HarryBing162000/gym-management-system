@@ -2,10 +2,10 @@
 export interface User {
   id: string;
   name: string;
-  email?: string; // Owner only
-  username?: string; // Staff only
+  email?: string;
+  username?: string;
   role: "owner" | "staff" | "member";
-  gymId?: string; // Member only
+  gymId?: string;
 }
 
 // =================== AUTH ===================
@@ -26,13 +26,58 @@ export interface AuthResponse {
   user: User;
 }
 
+// =================== MEMBER ===================
+export type MemberStatus = "active" | "inactive" | "expired";
+export type MemberPlan = "Monthly" | "Quarterly" | "Annual" | "Student";
+
+export interface Member {
+  gymId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  plan: MemberPlan;
+  status: MemberStatus;
+  expiresAt: string;
+  checkedIn: boolean;
+  photoUrl?: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface MembersResponse {
+  success: boolean;
+  total: number;
+  page: number;
+  totalPages: number;
+  members: Member[];
+}
+
+export interface CreateMemberPayload {
+  name: string;
+  email?: string;
+  phone?: string;
+  plan: MemberPlan;
+  status: "active" | "inactive";
+  expiresAt: string;
+}
+
+export interface UpdateMemberPayload {
+  name?: string;
+  email?: string;
+  phone?: string;
+  plan?: MemberPlan;
+  status?: MemberStatus;
+  expiresAt?: string;
+  photoUrl?: string;
+}
+
 // =================== WALK-IN ===================
 export interface WalkIn {
   _id: string;
   walkId: string;
   name: string;
   phone?: string;
-  passType: "regular" | "student" | "couple"; // aligned with server WalkIn model
+  passType: "regular" | "student" | "couple";
   amount: number;
   date: string;
   checkIn: string;
@@ -51,7 +96,7 @@ export interface WalkInSummary {
   revenue: number;
   regular: number;
   student: number;
-  couple: number; // added to match server summary
+  couple: number;
   checkedOut: number;
   stillInside: number;
 }
@@ -63,7 +108,6 @@ export interface WalkInTodayResponse {
   walkIns: WalkIn[];
 }
 
-// =================== WALK-IN REGISTER ===================
 export interface WalkInRegisterPayload {
   name: string;
   phone?: string;

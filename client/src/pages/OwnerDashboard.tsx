@@ -1,4 +1,5 @@
 import { useState } from "react";
+import MembersPage from "./MembersPage";
 import OwnerLayout from "../layouts/OwnerLayout";
 import { useAuthStore } from "../store/authStore";
 
@@ -21,9 +22,7 @@ export default function OwnerDashboard() {
       onPageChange={setActivePage}
       pageTitle={pageTitles[activePage] ?? "Dashboard"}>
       {activePage === "dashboard" && <DashboardContent />}
-      {activePage === "members" && (
-        <PlaceholderContent title="Members" icon="◉" />
-      )}
+      {activePage === "members" && <MembersPage />}
       {activePage === "walkins" && (
         <PlaceholderContent title="Walk-ins" icon="⊕" />
       )}

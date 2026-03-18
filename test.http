@@ -82,3 +82,37 @@ Content-Type: application/json
 {
   "walkId": "WALK-002"
 }
+
+//----------------------------------------------------------
+
+### 10. Get all members
+GET {{baseUrl}}/api/members
+Authorization: Bearer {{ownerToken}}
+
+### 11. Create a member
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+Authorization: Bearer {{ownerToken}}
+
+{
+  "name": "Juan Dela Cruz",
+  "email": "juan@ironcore.gym",
+  "plan": "Monthly",
+  "status": "active",
+  "expiresAt": "2026-12-31"
+}
+
+### 12. Get member by GYM-ID
+GET {{baseUrl}}/api/members/GYM-1001
+Authorization: Bearer {{ownerToken}}
+
+### 13. Update member
+PATCH {{baseUrl}}/api/members/GYM-1001
+Content-Type: application/json
+Authorization: Bearer {{ownerToken}}
+
+{
+  "plan": "Annual",
+  "status": "active",
+  "expiresAt": "2027-12-31"
+}

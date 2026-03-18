@@ -10,19 +10,10 @@ import {
 } from "../middleware/authSchemas";
 
 // Helper — generate JWT token
-const generateToken = (id: string, role: string): string => {
+const generateToken = (id: string, role: "owner" | "staff"): string => {
   return jwt.sign({ id, role }, process.env.JWT_SECRET as string, {
     expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any,
   });
-};
-// Helper — generate GYM-XXXX member ID
-const generateGymId = async (): Promise<string> => {
-  const lastMember = await User.findOne({ gymId: { $exists: true } })
-    .sort({ gymId: -1 })
-    .select("gymId");
-  if (!lastMember?.gymId) return "GYM-1001";
-  const lastNum = parseInt(lastMember.gymId.replace("GYM-", ""));
-  return `GYM-${String(lastNum + 1).padStart(4, "0")}`;
 };
 
 // =================== REGISTER OWNER ===================
@@ -84,47 +75,6 @@ export const registerStaff = async (req: Request, res: Response) => {
         name: user.name,
         username: user.username,
         role: user.role,
-      },
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// =================== REGISTER MEMBER ===================
-// POST /api/auth/register/member
-export const registerMember = async (req: Request, res: Response) => {
-  try {
-    const { name, email, password }: RegisterMemberInput = req.body;
-
-    const exists = await User.findOne({ email });
-    if (exists) {
-      return res.status(409).json({
-        success: false,
-        message: "Email already registered",
-      });
-    }
-
-    const gymId = await generateGymId();
-    const user = await User.create({
-      name,
-      email,
-      password,
-      role: "member",
-      gymId,
-    });
-    const token = generateToken(user._id.toString(), user.role);
-
-    return res.status(201).json({
-      success: true,
-      message: "Member registered successfully",
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        gymId: user.gymId,
       },
     });
   } catch (err: any) {
@@ -250,7 +200,6 @@ export const getMe = async (req: any, res: Response) => {
         email: user.email,
         username: user.username,
         role: user.role,
-        gymId: user.gymId,
       },
     });
   } catch (err: any) {

@@ -14,7 +14,8 @@
  */
 
 import { Request, Response } from "express";
-import User from "../models/User";
+import Member from "../models/Member";
+import User from "../models/User"; // still needed for staff auth context if required
 import WalkIn from "../models/WalkIn";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -65,16 +66,14 @@ export const kioskSearch = async (req: Request, res: Response) => {
 
     // GYM-ID exact match
     if (/^GYM-\d+$/i.test(q)) {
-      members = await User.find({
+      members = await Member.find({
         gymId: q.toUpperCase(),
-        role: "member",
       }).select(MEMBER_PROJECTION);
     } else {
       // Name search — case-insensitive partial match
       // Capped at 5 results to prevent full-list scraping
-      members = await User.find({
+      members = await Member.find({
         name: { $regex: q, $options: "i" },
-        role: "member",
       })
         .select(MEMBER_PROJECTION)
         .limit(5);
@@ -111,9 +110,8 @@ export const kioskMemberCheckIn = async (req: Request, res: Response) => {
       });
     }
 
-    const member = await User.findOne({
+    const member = await Member.findOne({
       gymId: String(gymId).toUpperCase(),
-      role: "member",
     });
 
     if (!member) {
@@ -181,9 +179,8 @@ export const kioskMemberCheckOut = async (req: Request, res: Response) => {
       });
     }
 
-    const member = await User.findOne({
+    const member = await Member.findOne({
       gymId: String(gymId).toUpperCase(),
-      role: "member",
     });
 
     if (!member) {

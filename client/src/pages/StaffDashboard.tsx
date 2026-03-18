@@ -390,15 +390,15 @@ function WalkInDesk() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const prices: Record<string, number> = {
-    regular: 150,
-    student: 100,
-    couple: 250,
+    regular: 75,
+    student: 60,
+    couple: 140,
   };
 
   const passConfig = [
-    { type: "regular" as const, icon: "☀", label: "Regular", price: 150 },
-    { type: "student" as const, icon: "◎", label: "Student", price: 100 },
-    { type: "couple" as const, icon: "♡", label: "Couple", price: 250 },
+    { type: "regular" as const, icon: "☀", label: "Regular", price: 75 },
+    { type: "student" as const, icon: "◎", label: "Student", price: 60 },
+    { type: "couple" as const, icon: "♡", label: "Couple", price: 140 },
   ];
 
   const formatPhone = (val: string) => {
