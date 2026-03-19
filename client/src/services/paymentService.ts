@@ -55,6 +55,7 @@ export const paymentService = {
   getAll: async (params?: {
     method?: string;
     type?: string;
+    partial?: string;
     search?: string;
     from?: string;
     to?: string;

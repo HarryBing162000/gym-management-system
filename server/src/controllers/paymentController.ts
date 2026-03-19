@@ -50,22 +50,26 @@ const getDateRange = (range: string): { from: Date; to: Date } => {
   return { from, to };
 };
 
-const buildSummary = (payments: IPayment[]) => ({
-  total: payments.length,
-  revenue: payments.reduce((s, p) => s + p.amountPaid, 0),
-  cash: payments.filter((p) => p.method === "cash").length,
-  online: payments.filter((p) => p.method === "online").length,
-  cashRev: payments
-    .filter((p) => p.method === "cash")
-    .reduce((s, p) => s + p.amountPaid, 0),
-  onlineRev: payments
-    .filter((p) => p.method === "online")
-    .reduce((s, p) => s + p.amountPaid, 0),
-  partial: payments.filter((p) => p.isPartial).length,
-  outstanding: payments
-    .filter((p) => p.isPartial)
-    .reduce((s, p) => s + p.balance, 0),
-});
+const buildSummary = (payments: IPayment[]) => {
+  // Fall back to amount for older records that predate amountPaid field
+  const paid = (p: IPayment) => p.amountPaid ?? p.amount ?? 0;
+  return {
+    total: payments.length,
+    revenue: payments.reduce((s, p) => s + paid(p), 0),
+    cash: payments.filter((p) => p.method === "cash").length,
+    online: payments.filter((p) => p.method === "online").length,
+    cashRev: payments
+      .filter((p) => p.method === "cash")
+      .reduce((s, p) => s + paid(p), 0),
+    onlineRev: payments
+      .filter((p) => p.method === "online")
+      .reduce((s, p) => s + paid(p), 0),
+    partial: payments.filter((p) => p.isPartial).length,
+    outstanding: payments
+      .filter((p) => p.isPartial)
+      .reduce((s, p) => s + (p.balance ?? 0), 0),
+  };
+};
 
 // ─── GET /api/payments ────────────────────────────────────────────────────────
 export const getPayments = async (req: AuthRequest, res: Response) => {
@@ -76,6 +80,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
       search,
       from,
       to,
+      partial,
       page = "1",
       limit = "20",
     } = req.query as Record<string, string>;
@@ -91,6 +96,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
       ["new_member", "renewal", "manual", "balance_settlement"].includes(type)
     )
       filter.type = type;
+    if (partial === "true") filter.isPartial = true;
     if (search) {
       const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "");
       filter.$or = [

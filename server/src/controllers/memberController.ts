@@ -27,6 +27,7 @@ const MEMBER_SAFE_FIELDS = {
   checkedIn: 1,
   photoUrl: 1,
   isActive: 1,
+  balance: 1,
   createdAt: 1,
 };
 
@@ -40,9 +41,20 @@ const generateGymId = async (): Promise<string> => {
   return `GYM-${String(lastNum + 1).padStart(4, "0")}`;
 };
 
+// ─── Helper — auto-expire members whose expiresAt has passed ─────────────────
+const autoExpireMembers = async (): Promise<void> => {
+  await Member.updateMany(
+    { status: "active", expiresAt: { $lt: new Date() } },
+    { $set: { status: "expired" } },
+  );
+};
+
 // ─── GET /api/members ─────────────────────────────────────────────────────────
 export const getMembers = async (req: AuthRequest, res: Response) => {
   try {
+    // Auto-expire any members whose plan has lapsed
+    await autoExpireMembers();
+
     const {
       status,
       plan,
@@ -358,6 +370,26 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         success: false,
         message: `Member ${gymId} not found.`,
       });
+    }
+
+    // Auto-log renewal payment if plan or expiresAt was updated
+    if (setPayload.plan || setPayload.expiresAt) {
+      try {
+        await autoLogPayment({
+          gymId: member!.gymId,
+          memberName: member!.name,
+          plan: String(setPayload.plan ?? member!.plan),
+          method: (req.body.paymentMethod as "cash" | "online") ?? "cash",
+          type: "renewal",
+          processedBy: req.user!.id,
+          amountPaid:
+            req.body.amountPaid != null
+              ? Number(req.body.amountPaid)
+              : undefined,
+        });
+      } catch {
+        /* non-critical */
+      }
     }
 
     return res.status(200).json({

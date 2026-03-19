@@ -520,6 +520,7 @@ export default function PaymentsPage() {
   const [search, setSearch] = useState("");
   const [filterMethod, setFilterMethod] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [filterPartial, setFilterPartial] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
@@ -549,6 +550,7 @@ export default function PaymentsPage() {
         search: search.trim() || undefined,
         method: filterMethod || undefined,
         type: filterType || undefined,
+        partial: filterPartial ? "true" : undefined,
         from: fromDate || undefined,
         to: toDate || undefined,
         page,
@@ -562,7 +564,7 @@ export default function PaymentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterMethod, filterType, fromDate, toDate, page]);
+  }, [search, filterMethod, filterType, filterPartial, fromDate, toDate, page]);
 
   useEffect(() => {
     fetchSummary();
@@ -575,7 +577,7 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, filterMethod, filterType, fromDate, toDate]);
+  }, [search, filterMethod, filterType, filterPartial, fromDate, toDate]);
 
   const handleLogged = () => {
     fetchSummary();
@@ -688,6 +690,18 @@ export default function PaymentsPage() {
             <option value="manual">Manual</option>
             <option value="balance_settlement">Settlement</option>
           </select>
+
+          {/* Outstanding balance filter */}
+          <button
+            onClick={() => setFilterPartial((p) => !p)}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+              filterPartial
+                ? "bg-amber-400/15 text-amber-400 border-amber-400/30"
+                : "bg-[#212121] text-white/40 border-white/10 hover:text-white hover:border-white/20"
+            }`}>
+            <span>⚠</span>
+            Outstanding
+          </button>
 
           {/* Date range */}
           <input

@@ -92,6 +92,7 @@ function CheckInDesk() {
         const res = await memberService.getAll({
           search: search.trim(),
           limit: 6,
+          status: "active",
         });
         setResults(res.members);
       } catch {
@@ -726,7 +727,7 @@ function WalkInDesk() {
           {/* Already checked out */}
           {checkedOut.length > 0 && (
             <>
-              <div className="px-5 py-2 bg-white/2 border-t border-white/5">
+              <div className="px-5 py-2 bg-white/[0.02] border-t border-white/5">
                 <span className="text-[10px] font-semibold uppercase tracking-widest text-white/20">
                   Already checked out
                 </span>

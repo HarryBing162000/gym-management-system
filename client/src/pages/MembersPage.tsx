@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/authStore";
 import { useToastStore } from "../store/toastStore";
 import { memberService } from "../services/memberService";
+import { paymentService } from "../services/paymentService";
 import type {
   Member,
   MemberStatus,
@@ -497,6 +498,9 @@ export default function MembersPage({
   const [drawerMode, setDrawerMode] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | undefined>();
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [settleTarget, setSettleTarget] = useState<Member | null>(null);
+  const [settleMethod, setSettleMethod] = useState<"cash" | "online">("cash");
+  const [settleLoading, setSettleLoading] = useState(false);
 
   const { showToast } = useToastStore();
 
@@ -564,6 +568,25 @@ export default function MembersPage({
       showToast("Action failed. Please try again.", "error");
     } finally {
       setConfirmState(null);
+    }
+  };
+
+  const handleSettle = async () => {
+    if (!settleTarget) return;
+    setSettleLoading(true);
+    try {
+      const res = await paymentService.settle(settleTarget.gymId, settleMethod);
+      showToast(res.message, "success");
+      setSettleTarget(null);
+      fetchMembers();
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      showToast(
+        err.response?.data?.message || "Failed to settle balance.",
+        "error",
+      );
+    } finally {
+      setSettleLoading(false);
     }
   };
 
@@ -929,6 +952,69 @@ export default function MembersPage({
           onSaved={(savedMode) => handleSaved(savedMode)}
         />
       )}
+
+      {/* ── Settle Balance Modal ── */}
+      {settleTarget &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={() => setSettleTarget(null)}>
+              <div
+                className="w-full max-w-xs bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
+                style={{ animation: "fadeScaleIn 0.2s ease" }}
+                onClick={(e) => e.stopPropagation()}>
+                <div className="text-xs font-semibold uppercase tracking-widest text-amber-400 mb-1">
+                  Settle Balance
+                </div>
+                <div className="text-white font-bold text-base mb-1">
+                  {settleTarget.name}
+                </div>
+                <div className="text-white/40 text-sm mb-4">
+                  Outstanding:{" "}
+                  <span className="text-amber-400 font-mono font-bold">
+                    ₱{settleTarget.balance.toLocaleString()}
+                  </span>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                    Payment Method
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["cash", "online"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setSettleMethod(m)}
+                        className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
+                          settleMethod === m
+                            ? m === "cash"
+                              ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
+                              : "border-blue-400 bg-blue-400/10 text-blue-400"
+                            : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
+                        }`}>
+                        {m === "cash" ? "💵 Cash" : "🏦 Online"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSettleTarget(null)}
+                    className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-xl transition-all cursor-pointer">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSettle}
+                    disabled={settleLoading}
+                    className="flex-1 py-2.5 bg-amber-400 text-black text-sm font-bold rounded-xl hover:bg-amber-300 transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                    {settleLoading ? "Settling..." : "Settle ✓"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
 
       {/* ── Confirm dialog ── */}
       {confirmState && (
