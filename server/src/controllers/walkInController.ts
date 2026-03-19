@@ -5,7 +5,10 @@ import { WalkInInput, WalkInCheckOutInput } from "../middleware/authSchemas";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const getTodayDate = (): string => new Date().toISOString().split("T")[0];
+const getTodayDate = (): string =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
+    new Date(),
+  );
 
 const getPassAmount = (passType: "regular" | "student" | "couple"): number => {
   const prices: Record<string, number> = {
@@ -174,10 +177,14 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
       if (to) rangeFilter.$lte = to;
       filter.date = rangeFilter;
     } else {
-      // Default — last 7 days
+      // Default — last 7 days (Manila time)
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      filter.date = { $gte: sevenDaysAgo.toISOString().split("T")[0] };
+      filter.date = {
+        $gte: new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Manila",
+        }).format(sevenDaysAgo),
+      };
     }
 
     const [walkIns, total] = await Promise.all([
@@ -212,7 +219,9 @@ export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
   try {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split("T")[0];
+    const yesterdayStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+    }).format(yesterday);
 
     const walkIns = await WalkIn.find({ date: yesterdayStr });
     const revenue = walkIns.reduce((sum, w) => sum + w.amount, 0);

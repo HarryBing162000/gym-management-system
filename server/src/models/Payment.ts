@@ -112,4 +112,5 @@ PaymentSchema.index({ gymId: 1, createdAt: -1 });
 PaymentSchema.index({ method: 1, createdAt: -1 });
 PaymentSchema.index({ type: 1, createdAt: -1 });
 
-export default mongoose.model<IPayment>("Payment", PaymentSchema);
+export default (mongoose.models.Payment as mongoose.Model<IPayment>) ||
+  mongoose.model<IPayment>("Payment", PaymentSchema);

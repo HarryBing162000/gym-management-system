@@ -103,18 +103,6 @@ async function fetchWithTimeout(
 async function searchKiosk(query: string): Promise<SearchResult> {
   const trimmed = query.trim().toUpperCase();
 
-  if (/^WALK-\d+$/.test(trimmed)) {
-    const res = await fetchWithTimeout(
-      `${API_BASE}/api/kiosk/walkin/${trimmed}`,
-      {
-        headers: kioskHeaders,
-      },
-    );
-    if (!res.ok) return null;
-    const body = await res.json();
-    return { type: "walkin", data: body.walkIn };
-  }
-
   const res = await fetchWithTimeout(
     `${API_BASE}/api/kiosk/search?q=${encodeURIComponent(query.trim())}`,
     { headers: kioskHeaders },
@@ -122,9 +110,24 @@ async function searchKiosk(query: string): Promise<SearchResult> {
   if (!res.ok) return null;
   const body = await res.json();
   const members: Member[] = body.members ?? [];
-  if (!members.length) return null;
-  if (members.length === 1) return { type: "member", data: members[0] };
-  return { type: "member_list", data: members };
+  const walkIns: WalkIn[] = body.walkIns ?? [];
+
+  // Single walk-in result — go directly
+  if (!members.length && walkIns.length === 1)
+    return { type: "walkin", data: walkIns[0] };
+
+  // Exact WALK-ID typed — pick the matching one
+  if (/^WALK-\d+$/.test(trimmed) && walkIns.length) {
+    const exact = walkIns.find((w) => w.walkId === trimmed);
+    if (exact) return { type: "walkin", data: exact };
+  }
+
+  if (!members.length && !walkIns.length) return null;
+  if (members.length === 1 && !walkIns.length)
+    return { type: "member", data: members[0] };
+  if (members.length > 1 || walkIns.length > 0)
+    return { type: "member_list", data: members };
+  return { type: "member", data: members[0] };
 }
 
 async function performMemberAction(
@@ -151,18 +154,16 @@ async function performMemberAction(
 
 async function performWalkInAction(
   walkId: string,
-  action: "checkin" | "checkout",
 ): Promise<{ ok: boolean; error?: string }> {
-  const url =
-    action === "checkout"
-      ? `${API_BASE}/api/kiosk/walkin/checkout`
-      : `${API_BASE}/api/kiosk/walkin/checkin`;
   try {
-    const res = await fetchWithTimeout(url, {
-      method: "POST",
-      headers: kioskHeaders,
-      body: JSON.stringify({ walkId }),
-    });
+    const res = await fetchWithTimeout(
+      `${API_BASE}/api/kiosk/walkin/checkout`,
+      {
+        method: "POST",
+        headers: kioskHeaders,
+        body: JSON.stringify({ walkId }),
+      },
+    );
     const body = await res.json();
     if (!res.ok) return { ok: false, error: body.error };
     return { ok: true };
@@ -826,7 +827,7 @@ function SelectionList({ members, onSelect }: SelectionListProps) {
           letterSpacing: "0.15em",
           marginBottom: 12,
         }}>
-        MULTIPLE MEMBERS FOUND — TAP YOUR NAME
+        MULTIPLE MEMBERS FOUND — TAP YOUR NAME · USE GYM-ID FOR EXACT MATCH
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {members.map((m) => (
@@ -926,7 +927,7 @@ function SelectionList({ members, onSelect }: SelectionListProps) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const RESET_DELAY_MS = 5500;
+const RESET_DELAY_MS = 8000;
 
 export default function KioskPage() {
   const [query, setQuery] = useState("");
@@ -935,6 +936,9 @@ export default function KioskPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [offline, setOffline] = useState(!navigator.onLine);
+  const [suggestions, setSuggestions] = useState<Member[]>([]);
+  const [walkInSuggestions, setWalkInSuggestions] = useState<WalkIn[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -961,8 +965,51 @@ export default function KioskPage() {
     setPhase("idle");
     setStatusMessage("");
     setErrorMessage("");
+    setSuggestions([]);
+    setWalkInSuggestions([]);
+    setShowSuggestions(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
+
+  // Auto-suggest: debounced fetch for names, GYM-IDs, and WALK-IDs
+  useEffect(() => {
+    const trimmed = query.trim();
+    const shouldSkip = trimmed.length < 2 || phase !== "idle";
+    const id = setTimeout(
+      async () => {
+        if (shouldSkip) {
+          setSuggestions([]);
+          setWalkInSuggestions([]);
+          setShowSuggestions(false);
+          return;
+        }
+        try {
+          const res = await fetchWithTimeout(
+            `${API_BASE}/api/kiosk/search?q=${encodeURIComponent(trimmed)}`,
+            { headers: kioskHeaders },
+          );
+          if (!res.ok) {
+            setSuggestions([]);
+            setWalkInSuggestions([]);
+            setShowSuggestions(false);
+            return;
+          }
+          const body = await res.json();
+          const members: Member[] = body.members ?? [];
+          const walkIns: WalkIn[] = body.walkIns ?? [];
+          setSuggestions(members.slice(0, 5));
+          setWalkInSuggestions(walkIns.slice(0, 3));
+          setShowSuggestions(members.length > 0 || walkIns.length > 0);
+        } catch {
+          setSuggestions([]);
+          setWalkInSuggestions([]);
+          setShowSuggestions(false);
+        }
+      },
+      shouldSkip ? 0 : 300,
+    );
+    return () => clearTimeout(id);
+  }, [query, phase]);
 
   const scheduleReset = useCallback(
     (delay = RESET_DELAY_MS) => {
@@ -978,6 +1025,32 @@ export default function KioskPage() {
     },
     [],
   );
+
+  // #4 — Idle timeout: auto-reset 30s after result shown with no action
+  useEffect(() => {
+    if (phase === "found" || phase === "selecting") {
+      const id = setTimeout(resetKiosk, 30000);
+      return () => clearTimeout(id);
+    }
+  }, [phase, resetKiosk]);
+
+  // #6 — Audio feedback on success
+  const playSuccessBeep = useCallback(() => {
+    try {
+      const ctx = new AudioContext();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.3, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      o.start();
+      o.stop(ctx.currentTime + 0.3);
+    } catch {
+      /* AudioContext not available */
+    }
+  }, []);
 
   const handleSearch = useCallback(async () => {
     const trimmed = query.trim();
@@ -1018,6 +1091,24 @@ export default function KioskPage() {
     setPhase("found");
   }, []);
 
+  const handleSuggestionSelect = useCallback((member: Member) => {
+    setQuery(member.name);
+    setSuggestions([]);
+    setWalkInSuggestions([]);
+    setShowSuggestions(false);
+    setResult({ type: "member", data: member });
+    setPhase("found");
+  }, []);
+
+  const handleWalkInSuggestionSelect = useCallback((walkIn: WalkIn) => {
+    setQuery(walkIn.walkId);
+    setSuggestions([]);
+    setWalkInSuggestions([]);
+    setShowSuggestions(false);
+    setResult({ type: "walkin", data: walkIn });
+    setPhase("found");
+  }, []);
+
   const handleAction = useCallback(async () => {
     if (!result || phase === "processing") return;
     setPhase("processing");
@@ -1042,36 +1133,34 @@ export default function KioskPage() {
         );
       } else if (result.type === "walkin") {
         const w = result.data;
-        const action = w.isCheckedOut ? "checkin" : "checkout";
-        const { ok, error } = await performWalkInAction(w.walkId, action);
+        const { ok, error } = await performWalkInAction(w.walkId);
         if (!ok) {
           setPhase("error");
           setErrorMessage(resolveErrorMessage(error));
           scheduleReset(4000);
           return;
         }
-        setResult({
-          type: "walkin",
-          data: { ...w, isCheckedOut: !w.isCheckedOut },
-        });
-        setStatusMessage(
-          action === "checkout"
-            ? `Goodbye ${w.name}! Thanks for visiting IronCore! 💪`
-            : `Welcome, ${w.name}! Enjoy your workout!`,
-        );
+        setResult({ type: "walkin", data: { ...w, isCheckedOut: true } });
+        setStatusMessage(`Goodbye ${w.name}! Thanks for visiting IronCore! 💪`);
       }
       setPhase("success");
+      playSuccessBeep();
       scheduleReset(RESET_DELAY_MS);
     } catch {
       setPhase("error");
       setErrorMessage(resolveErrorMessage("NETWORK_ERROR"));
       scheduleReset(4000);
     }
-  }, [result, phase, scheduleReset]);
+  }, [result, phase, scheduleReset, playSuccessBeep]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSearch();
-    if (e.key === "Escape") resetKiosk();
+    if (e.key === "Escape") {
+      resetKiosk();
+      setSuggestions([]);
+      setWalkInSuggestions([]);
+      setShowSuggestions(false);
+    }
   };
 
   const inputDisabled = ["searching", "processing", "success"].includes(phase);
@@ -1314,45 +1403,324 @@ export default function KioskPage() {
           <div className="divider" style={{ marginBottom: 22 }} />
 
           {/* Search */}
-          <div className="kiosk-input-wrap" style={{ marginBottom: 14 }}>
-            <svg
-              width="17"
-              height="17"
-              viewBox="0 0 18 18"
-              fill="none"
-              style={{ flexShrink: 0, opacity: 0.28 }}>
-              <circle
-                cx="8"
-                cy="8"
-                r="5.5"
-                stroke="#FF6B1A"
-                strokeWidth="1.5"
+          <div style={{ position: "relative", marginBottom: 14 }}>
+            <div className="kiosk-input-wrap">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 18 18"
+                fill="none"
+                style={{ flexShrink: 0, opacity: 0.28 }}>
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="5.5"
+                  stroke="#FF6B1A"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M12.5 12.5L16 16"
+                  stroke="#FF6B1A"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                ref={inputRef}
+                className="kiosk-input"
+                type="text"
+                placeholder="e.g.  Juan Dela Cruz  ·  GYM-1001  ·  WALK-001"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (!e.target.value.trim()) {
+                    setSuggestions([]);
+                    setWalkInSuggestions([]);
+                    setShowSuggestions(false);
+                  }
+                }}
+                onKeyDown={handleKeyDown}
+                disabled={inputDisabled}
+                autoComplete="new-password"
+                spellCheck={false}
               />
-              <path
-                d="M12.5 12.5L16 16"
-                stroke="#FF6B1A"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-            <input
-              ref={inputRef}
-              className="kiosk-input"
-              type="text"
-              placeholder="e.g.  Juan Dela Cruz  ·  GYM-1001  ·  WALK-001"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={inputDisabled}
-              autoComplete="new-password"
-              spellCheck={false}
-            />
-            <button
-              className="search-btn"
-              onClick={handleSearch}
-              disabled={inputDisabled || !query.trim()}>
-              {phase === "searching" ? "..." : "SEARCH"}
-            </button>
+              <button
+                className="search-btn"
+                onClick={handleSearch}
+                disabled={inputDisabled || !query.trim()}>
+                {phase === "searching" ? "..." : "SEARCH"}
+              </button>
+            </div>
+
+            {/* Auto-suggest dropdown */}
+            {showSuggestions &&
+              (suggestions.length > 0 || walkInSuggestions.length > 0) &&
+              phase === "idle" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    right: 0,
+                    background: "#212121",
+                    border: "1px solid rgba(255,107,26,0.3)",
+                    borderRadius: 4,
+                    zIndex: 50,
+                    overflow: "hidden",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                  }}>
+                  {/* Member suggestions */}
+                  {suggestions.length > 0 && (
+                    <>
+                      {walkInSuggestions.length > 0 && (
+                        <div
+                          style={{
+                            padding: "6px 18px 4px",
+                            fontFamily: "'Space Mono', monospace",
+                            fontSize: "0.52rem",
+                            color: "#444",
+                            letterSpacing: "0.12em",
+                          }}>
+                          MEMBERS
+                        </div>
+                      )}
+                      {suggestions.map((m, i) => (
+                        <button
+                          key={m.gymId}
+                          onClick={() => handleSuggestionSelect(m)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 14,
+                            padding: "12px 18px",
+                            background: "transparent",
+                            border: "none",
+                            borderBottom:
+                              i < suggestions.length - 1 ||
+                              walkInSuggestions.length > 0
+                                ? "1px solid rgba(255,255,255,0.05)"
+                                : "none",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            transition: "background 0.15s",
+                          }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.background =
+                              "rgba(255,107,26,0.08)")
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.background = "transparent")
+                          }>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 3,
+                              flexShrink: 0,
+                              background: "rgba(255,107,26,0.1)",
+                              border: "1px solid rgba(255,107,26,0.2)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}>
+                            <span
+                              style={{
+                                fontFamily: "'Bebas Neue', sans-serif",
+                                fontSize: "0.95rem",
+                                color: "#FF6B1A",
+                              }}>
+                              {getInitials(m.name)}
+                            </span>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontFamily: "'Bebas Neue', sans-serif",
+                                fontSize: "1rem",
+                                color: "#f0f0f0",
+                                letterSpacing: "0.05em",
+                              }}>
+                              {m.name}
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 10,
+                                marginTop: 2,
+                              }}>
+                              <span
+                                style={{
+                                  fontFamily: "'Space Mono', monospace",
+                                  fontSize: "0.58rem",
+                                  color: "#FF6B1A",
+                                }}>
+                                {m.gymId}
+                              </span>
+                              {m.plan && (
+                                <span
+                                  style={{
+                                    fontFamily: "'Space Mono', monospace",
+                                    fontSize: "0.58rem",
+                                    color: "#444",
+                                  }}>
+                                  {m.plan}
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  fontFamily: "'Space Mono', monospace",
+                                  fontSize: "0.55rem",
+                                  color:
+                                    m.status === "active"
+                                      ? "#22c55e"
+                                      : m.status === "expired"
+                                        ? "#ef4444"
+                                        : "#FFB800",
+                                  border: `1px solid ${m.status === "active" ? "#22c55e44" : m.status === "expired" ? "#ef444444" : "#FFB80044"}`,
+                                  padding: "0 4px",
+                                  borderRadius: 2,
+                                }}>
+                                {m.status.toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          {m.checkedIn && (
+                            <span
+                              style={{
+                                fontFamily: "'Space Mono', monospace",
+                                fontSize: "0.55rem",
+                                color: "#FF6B1A",
+                                flexShrink: 0,
+                              }}>
+                              ● INSIDE
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Walk-in suggestions */}
+                  {walkInSuggestions.length > 0 && (
+                    <>
+                      {suggestions.length > 0 && (
+                        <div
+                          style={{
+                            padding: "6px 18px 4px",
+                            fontFamily: "'Space Mono', monospace",
+                            fontSize: "0.52rem",
+                            color: "#444",
+                            letterSpacing: "0.12em",
+                          }}>
+                          WALK-INS TODAY
+                        </div>
+                      )}
+                      {walkInSuggestions.map((w, i) => {
+                        const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
+                        return (
+                          <button
+                            key={w.walkId}
+                            onClick={() => handleWalkInSuggestionSelect(w)}
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 14,
+                              padding: "12px 18px",
+                              background: "transparent",
+                              border: "none",
+                              borderBottom:
+                                i < walkInSuggestions.length - 1
+                                  ? "1px solid rgba(255,255,255,0.05)"
+                                  : "none",
+                              cursor: "pointer",
+                              textAlign: "left",
+                              transition: "background 0.15s",
+                            }}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.background = `${passColor}12`)
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.background = "transparent")
+                            }>
+                            <div
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 3,
+                                flexShrink: 0,
+                                background: `${passColor}14`,
+                                border: `1px solid ${passColor}38`,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}>
+                              <span style={{ fontSize: "1rem" }}>🎫</span>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontFamily: "'Bebas Neue', sans-serif",
+                                  fontSize: "1rem",
+                                  color: "#f0f0f0",
+                                  letterSpacing: "0.05em",
+                                }}>
+                                {w.name}
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 10,
+                                  marginTop: 2,
+                                }}>
+                                <span
+                                  style={{
+                                    fontFamily: "'Space Mono', monospace",
+                                    fontSize: "0.58rem",
+                                    color: passColor,
+                                  }}>
+                                  {w.walkId}
+                                </span>
+                                <span
+                                  style={{
+                                    fontFamily: "'Space Mono', monospace",
+                                    fontSize: "0.58rem",
+                                    color: "#444",
+                                  }}>
+                                  {w.passType.toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                            {!w.isCheckedOut && (
+                              <span
+                                style={{
+                                  fontFamily: "'Space Mono', monospace",
+                                  fontSize: "0.55rem",
+                                  color: "#22c55e",
+                                  flexShrink: 0,
+                                }}>
+                                ● INSIDE
+                              </span>
+                            )}
+                            {w.isCheckedOut && (
+                              <span
+                                style={{
+                                  fontFamily: "'Space Mono', monospace",
+                                  fontSize: "0.55rem",
+                                  color: "#444",
+                                  flexShrink: 0,
+                                }}>
+                                OUT
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              )}
           </div>
 
           {/* Hints */}

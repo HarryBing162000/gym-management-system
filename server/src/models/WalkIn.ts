@@ -61,4 +61,5 @@ const WalkInSchema = new Schema<IWalkIn>(
   { timestamps: true },
 );
 
-export default mongoose.model<IWalkIn>("WalkIn", WalkInSchema);
+export default (mongoose.models.WalkIn as mongoose.Model<IWalkIn>) ||
+  mongoose.model<IWalkIn>("WalkIn", WalkInSchema);

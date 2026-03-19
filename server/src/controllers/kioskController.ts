@@ -20,7 +20,10 @@ import WalkIn from "../models/WalkIn";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const getTodayDate = (): string => new Date().toISOString().split("T")[0];
+const getTodayDate = (): string =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
+    new Date(),
+  );
 
 // Strip regex metacharacters to prevent ReDoS / injection via search query
 const sanitizeSearchQuery = (q: string): string =>
@@ -39,57 +42,69 @@ const MEMBER_PROJECTION = {
 };
 
 // ─── GET /api/kiosk/search?q= ─────────────────────────────────────────────────
-// Search members by name or GYM-ID.
-// Returns array — UI must handle multiple results for name disambiguation.
+// Search members by name or GYM-ID, and walk-ins by name or WALK-ID.
+// Returns members array + walkIns array for the UI to handle.
 
 export const kioskSearch = async (req: Request, res: Response) => {
   try {
     const raw = String(req.query.q ?? "").trim();
 
     if (!raw) {
-      return res.status(400).json({
-        success: false,
-        message: "Search query is required.",
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Search query is required." });
     }
 
     const q = sanitizeSearchQuery(raw);
 
     if (q.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: "Search query must be at least 2 characters.",
-      });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Search query must be at least 2 characters.",
+        });
     }
 
-    let members;
+    const today = getTodayDate();
+    let members: (typeof Member.prototype)[] = [];
+    let walkIns: (typeof WalkIn.prototype)[] = [];
 
-    // GYM-ID exact match
     if (/^GYM-\d+$/i.test(q)) {
-      members = await Member.find({
-        gymId: q.toUpperCase(),
-      }).select(MEMBER_PROJECTION);
-    } else {
-      // Name search — case-insensitive partial match
-      // Capped at 5 results to prevent full-list scraping
-      members = await Member.find({
-        name: { $regex: q, $options: "i" },
+      // Exact GYM-ID match
+      members = await Member.find({ gymId: q.toUpperCase() }).select(
+        MEMBER_PROJECTION,
+      );
+    } else if (/^WALK-?\d*/i.test(q)) {
+      // Partial WALK-ID match — search today's walk-ins
+      walkIns = await WalkIn.find({
+        walkId: { $regex: `^${q.toUpperCase()}` },
+        date: today,
       })
-        .select(MEMBER_PROJECTION)
+        .select("walkId name passType checkIn isCheckedOut date")
         .limit(5);
+    } else {
+      // Name search — members + today's walk-ins
+      [members, walkIns] = await Promise.all([
+        Member.find({ name: { $regex: q, $options: "i" } })
+          .select(MEMBER_PROJECTION)
+          .limit(5),
+        WalkIn.find({ name: { $regex: q, $options: "i" }, date: today })
+          .select("walkId name passType checkIn isCheckedOut date")
+          .limit(3),
+      ]);
     }
 
-    if (!members.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No member found. Please check your name or GYM-ID.",
-      });
+    if (!members.length && !walkIns.length) {
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: "No results found. Please check your name or ID.",
+        });
     }
 
-    return res.status(200).json({
-      success: true,
-      members,
-    });
+    return res.status(200).json({ success: true, members, walkIns });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -121,6 +136,12 @@ export const kioskMemberCheckIn = async (req: Request, res: Response) => {
       });
     }
 
+    // Auto-expire if past expiresAt but status not yet updated
+    if (member.status === "active" && member.expiresAt < new Date()) {
+      member.status = "expired";
+      await member.save();
+    }
+
     // Status enforcement — backend is the source of truth, not the UI
     if (member.status === "expired") {
       return res.status(403).json({
@@ -147,6 +168,7 @@ export const kioskMemberCheckIn = async (req: Request, res: Response) => {
     }
 
     member.checkedIn = true;
+    member.lastCheckIn = new Date();
     await member.save();
 
     return res.status(200).json({

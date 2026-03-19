@@ -39,6 +39,7 @@ export interface Member {
   status: MemberStatus;
   expiresAt: string;
   checkedIn: boolean;
+  lastCheckIn?: string;
   photoUrl?: string;
   isActive: boolean;
   balance: number;

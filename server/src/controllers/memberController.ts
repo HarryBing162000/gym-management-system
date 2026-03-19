@@ -25,6 +25,7 @@ const MEMBER_SAFE_FIELDS = {
   status: 1,
   expiresAt: 1,
   checkedIn: 1,
+  lastCheckIn: 1,
   photoUrl: 1,
   isActive: 1,
   balance: 1,
@@ -372,8 +373,12 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Auto-log renewal payment if plan or expiresAt was updated
-    if (setPayload.plan || setPayload.expiresAt) {
+    // Auto-log renewal payment only if expiresAt is being pushed forward
+    const isRenewal =
+      setPayload.expiresAt &&
+      new Date(setPayload.expiresAt as Date) > new Date(member!.expiresAt);
+
+    if (isRenewal) {
       try {
         await autoLogPayment({
           gymId: member!.gymId,
@@ -498,6 +503,7 @@ export const checkInMember = async (req: AuthRequest, res: Response) => {
     }
 
     member.checkedIn = true;
+    member.lastCheckIn = new Date();
     await member.save();
 
     return res.status(200).json({

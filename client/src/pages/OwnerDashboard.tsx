@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MembersPage from "./MembersPage";
 import WalkInsPage from "./WalkInsPage";
 import PaymentsPage from "./PaymentsPage";
+import StaffPage from "./StaffPage";
 import OwnerLayout from "../layouts/OwnerLayout";
 import { useAuthStore } from "../store/authStore";
+import { memberService } from "../services/memberService";
+import { paymentService } from "../services/paymentService";
+import { walkInService } from "../services/walkInService";
 
 export default function OwnerDashboard() {
   const [activePage, setActivePage] = useState("dashboard");
@@ -23,11 +27,13 @@ export default function OwnerDashboard() {
       activePage={activePage}
       onPageChange={setActivePage}
       pageTitle={pageTitles[activePage] ?? "Dashboard"}>
-      {activePage === "dashboard" && <DashboardContent />}
+      {activePage === "dashboard" && (
+        <DashboardContent onNavigate={setActivePage} />
+      )}
       {activePage === "members" && <MembersPage />}
       {activePage === "walkins" && <WalkInsPage />}
       {activePage === "payments" && <PaymentsPage />}
-      {activePage === "staff" && <PlaceholderContent title="Staff" icon="◎" />}
+      {activePage === "staff" && <StaffPage />}
       {activePage === "reports" && (
         <PlaceholderContent title="Reports" icon="▤" />
       )}
@@ -39,10 +45,45 @@ export default function OwnerDashboard() {
 }
 
 // ── DASHBOARD CONTENT ──────────────────────────────────────
-function DashboardContent() {
+function DashboardContent({
+  onNavigate,
+}: {
+  onNavigate: (page: string) => void;
+}) {
   const { user } = useAuthStore();
 
-  // Greeting based on time of day
+  // ── State ──
+  const [memberStats, setMemberStats] = useState({
+    total: 0,
+    checkedIn: 0,
+    expiringSoon: 0,
+    loading: true,
+  });
+  const [paymentSummary, setPaymentSummary] = useState({
+    monthRevenue: 0,
+    todayRevenue: 0,
+    loading: true,
+  });
+  const [walkInToday, setWalkInToday] = useState({
+    count: 0,
+    revenue: 0,
+    stillInside: 0,
+    loading: true,
+  });
+  const [recentActivity, setRecentActivity] = useState<
+    { id: string; name: string; time: string; type: string }[]
+  >([]);
+  const [atRisk, setAtRisk] = useState<
+    {
+      gymId: string;
+      name: string;
+      expiresAt: string;
+      daysLeft: number;
+      status: string;
+    }[]
+  >([]);
+
+  // ── Greeting ──
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -50,71 +91,153 @@ function DashboardContent() {
     return "Good evening";
   };
 
+  // ── Fetch all dashboard data ──
+  useEffect(() => {
+    const load = async () => {
+      try {
+        // Members: total count + checked-in + expiring soon
+        const [allMembers, expiringSoonRes] = await Promise.all([
+          memberService.getAll({ limit: 1 }),
+          memberService.getAll({ status: "active", limit: 50 }),
+        ]);
+
+        // Count checked-in from active members
+        const checkedInCount = (
+          await memberService.getAll({ status: "active", limit: 500 })
+        ).members.filter((m) => m.checkedIn).length;
+
+        // Expiring within 7 days
+        const now = new Date();
+        const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const expiring = expiringSoonRes.members.filter((m) => {
+          const exp = new Date(m.expiresAt);
+          return exp >= now && exp <= in7Days;
+        });
+
+        // At-risk: expiring ≤7 days + expired
+        const expiredRes = await memberService.getAll({
+          status: "expired",
+          limit: 20,
+        });
+        const atRiskList = [
+          ...expiring.map((m) => {
+            const daysLeft = Math.ceil(
+              (new Date(m.expiresAt).getTime() - now.getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
+            return {
+              gymId: m.gymId,
+              name: m.name,
+              expiresAt: m.expiresAt,
+              daysLeft,
+              status: "expiring",
+            };
+          }),
+          ...expiredRes.members.slice(0, 5).map((m) => {
+            const daysLeft = Math.ceil(
+              (new Date(m.expiresAt).getTime() - now.getTime()) /
+                (1000 * 60 * 60 * 24),
+            );
+            return {
+              gymId: m.gymId,
+              name: m.name,
+              expiresAt: m.expiresAt,
+              daysLeft,
+              status: "overdue",
+            };
+          }),
+        ].slice(0, 5);
+
+        setMemberStats({
+          total: allMembers.total,
+          checkedIn: checkedInCount,
+          expiringSoon: expiring.length,
+          loading: false,
+        });
+        setAtRisk(atRiskList);
+
+        // Recent check-in activity — members currently checked in
+        const checkedInMembers = (
+          await memberService.getAll({ status: "active", limit: 20 })
+        ).members.filter((m) => m.checkedIn);
+        setRecentActivity(
+          checkedInMembers.slice(0, 6).map((m) => ({
+            id: m.gymId,
+            name: m.name,
+            time: "Now",
+            type: "check-in",
+          })),
+        );
+      } catch {
+        setMemberStats((s) => ({ ...s, loading: false }));
+      }
+
+      try {
+        // Payments summary
+        const summary = await paymentService.getSummary();
+        setPaymentSummary({
+          monthRevenue: summary.month?.revenue ?? 0,
+          todayRevenue: summary.today?.revenue ?? 0,
+          loading: false,
+        });
+      } catch {
+        setPaymentSummary((s) => ({ ...s, loading: false }));
+      }
+
+      try {
+        // Walk-ins today
+        const walkins = await walkInService.getToday();
+        const stillInside =
+          walkins.walkIns?.filter((w) => !w.isCheckedOut).length ?? 0;
+        setWalkInToday({
+          count: walkins.summary?.total ?? 0,
+          revenue: walkins.summary?.revenue ?? 0,
+          stillInside,
+          loading: false,
+        });
+      } catch {
+        setWalkInToday((s) => ({ ...s, loading: false }));
+      }
+    };
+
+    load();
+  }, []);
+
+  const fmt = (n: number) =>
+    n >= 1000 ? `₱${(n / 1000).toFixed(1)}K` : `₱${n.toLocaleString()}`;
+
   const stats = [
     {
       label: "Total Members",
-      value: "248",
-      delta: "+12 this month",
+      value: memberStats.loading ? "—" : memberStats.total.toString(),
+      delta: memberStats.loading ? "" : `${memberStats.checkedIn} checked in`,
       color: "text-[#FF6B1A]",
       border: "border-t-[#FF6B1A]",
       bg: "bg-[#FF6B1A]/5",
     },
     {
       label: "Active Today",
-      value: "34",
-      delta: "Peak: 11am–1pm",
+      value: memberStats.loading ? "—" : memberStats.checkedIn.toString(),
+      delta: "Currently inside",
       color: "text-[#FFB800]",
       border: "border-t-[#FFB800]",
       bg: "bg-[#FFB800]/5",
     },
     {
       label: "Monthly Revenue",
-      value: "₱84.2K",
-      delta: "+8.4% vs last month",
+      value: paymentSummary.loading ? "—" : fmt(paymentSummary.monthRevenue),
+      delta: `Today: ${fmt(paymentSummary.todayRevenue)}`,
       color: "text-blue-400",
       border: "border-t-blue-400",
       bg: "bg-blue-400/5",
     },
     {
       label: "Expiring Soon",
-      value: "7",
+      value: memberStats.loading ? "—" : memberStats.expiringSoon.toString(),
       delta: "Within 7 days",
       color: "text-red-400",
       border: "border-t-red-400",
       bg: "bg-red-400/5",
-    },
-  ];
-
-  const checkIns = [
-    { id: "GYM-1042", name: "Juan dela Cruz", time: "11:34", type: "check-in" },
-    { id: "GYM-0987", name: "Maria Santos", time: "11:29", type: "check-in" },
-    { id: "GYM-1103", name: "Pedro Mendoza", time: "11:15", type: "expiring" },
-    { id: "GYM-0234", name: "Carlo Reyes", time: "11:02", type: "check-in" },
-    { id: "WALK-001", name: "Jose Rizal", time: "10:50", type: "walkin" },
-    { id: "GYM-0576", name: "Dante Garcia", time: "10:33", type: "check-in" },
-  ];
-
-  const atRisk = [
-    {
-      id: "GYM-1103",
-      name: "Pedro Mendoza",
-      expires: "Mar 19",
-      daysLeft: 2,
-      status: "expiring",
-    },
-    {
-      id: "GYM-0445",
-      name: "Ana Lim",
-      expires: "Mar 1",
-      daysLeft: -16,
-      status: "overdue",
-    },
-    {
-      id: "GYM-0923",
-      name: "Mark Bautista",
-      expires: "Mar 22",
-      daysLeft: 5,
-      status: "expiring",
     },
   ];
 
@@ -133,10 +256,14 @@ function DashboardContent() {
 
         {/* Quick Actions */}
         <div className="flex gap-2 flex-wrap">
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95">
+          <button
+            onClick={() => onNavigate("members")}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95">
             <span>+</span> Add Member
           </button>
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/30 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all active:scale-95">
+          <button
+            onClick={() => onNavigate("walkins")}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/30 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all active:scale-95">
             <span>⊕</span> Walk-in
           </button>
           <button className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-white/5 text-white/50 border border-white/10 text-xs font-bold rounded-lg hover:bg-white/10 transition-all">
@@ -166,9 +293,25 @@ function DashboardContent() {
       {/* ── TODAY'S WALK-IN SUMMARY ── */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Walk-ins Today", value: "2", color: "text-[#FFB800]" },
-          { label: "Revenue", value: "₱250", color: "text-[#FF6B1A]" },
-          { label: "Still Inside", value: "0", color: "text-blue-400" },
+          {
+            label: "Walk-ins Today",
+            value: walkInToday.loading ? "—" : walkInToday.count.toString(),
+            color: "text-[#FFB800]",
+          },
+          {
+            label: "Revenue",
+            value: walkInToday.loading
+              ? "—"
+              : `₱${walkInToday.revenue.toLocaleString()}`,
+            color: "text-[#FF6B1A]",
+          },
+          {
+            label: "Still Inside",
+            value: walkInToday.loading
+              ? "—"
+              : walkInToday.stillInside.toString(),
+            color: "text-blue-400",
+          },
         ].map((item) => (
           <div
             key={item.label}
@@ -196,37 +339,43 @@ function DashboardContent() {
             </span>
           </div>
           <div className="space-y-1">
-            {checkIns.map((item) => (
-              <div
-                key={item.id + item.time}
-                className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+            {recentActivity.length === 0 ? (
+              <div className="text-center py-8 text-white/20 text-xs">
+                No check-ins yet today
+              </div>
+            ) : (
+              recentActivity.map((item) => (
                 <div
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    item.type === "check-in"
-                      ? "bg-[#FF6B1A]"
-                      : item.type === "expiring"
-                        ? "bg-[#FFB800]"
-                        : "bg-blue-400"
-                  }`}
-                />
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span
-                    className={`text-xs font-mono font-semibold shrink-0 ${
-                      item.id.startsWith("WALK")
-                        ? "text-[#FFB800]"
-                        : "text-[#FF6B1A]"
-                    }`}>
-                    {item.id}
-                  </span>
-                  <span className="text-xs text-white/60 truncate">
-                    {item.name}
+                  key={item.id + item.time}
+                  className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+                  <div
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      item.type === "check-in"
+                        ? "bg-[#FF6B1A]"
+                        : item.type === "expiring"
+                          ? "bg-[#FFB800]"
+                          : "bg-blue-400"
+                    }`}
+                  />
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <span
+                      className={`text-xs font-mono font-semibold shrink-0 ${
+                        item.id.startsWith("WALK")
+                          ? "text-[#FFB800]"
+                          : "text-[#FF6B1A]"
+                      }`}>
+                      {item.id}
+                    </span>
+                    <span className="text-xs text-white/60 truncate">
+                      {item.name}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono text-white/30 shrink-0">
+                    {item.time}
                   </span>
                 </div>
-                <span className="text-[11px] font-mono text-white/30 shrink-0">
-                  {item.time}
-                </span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -237,46 +386,52 @@ function DashboardContent() {
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50 mb-4">
               Revenue Breakdown
             </h3>
-            <div className="space-y-2.5">
-              {[
-                {
-                  label: "Monthly plans",
-                  amount: "₱42,500",
-                  color: "text-blue-400",
-                },
-                {
-                  label: "Annual plans",
-                  amount: "₱31,200",
-                  color: "text-[#FF6B1A]",
-                },
-                {
-                  label: "VIP plans",
-                  amount: "₱10,500",
-                  color: "text-purple-400",
-                },
-                {
-                  label: "Walk-ins",
-                  amount: "₱6,450",
-                  color: "text-[#FFB800]",
-                },
-              ].map((row) => (
-                <div
-                  key={row.label}
-                  className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
-                  <span className="text-xs text-white/40">{row.label}</span>
-                  <span
-                    className={`text-xs font-mono font-semibold ${row.color}`}>
-                    {row.amount}
+            {paymentSummary.loading ? (
+              <div className="text-center py-6 text-white/20 text-xs">
+                Loading...
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {[
+                  {
+                    label: "Payments (today)",
+                    amount: `₱${paymentSummary.todayRevenue.toLocaleString()}`,
+                    color: "text-[#FF6B1A]",
+                  },
+                  {
+                    label: "Walk-ins (today)",
+                    amount: `₱${walkInToday.revenue.toLocaleString()}`,
+                    color: "text-[#FFB800]",
+                  },
+                  {
+                    label: "This month",
+                    amount: fmt(paymentSummary.monthRevenue),
+                    color: "text-blue-400",
+                  },
+                ].map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+                    <span className="text-xs text-white/40">{row.label}</span>
+                    <span
+                      className={`text-xs font-mono font-semibold ${row.color}`}>
+                      {row.amount}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-2 border-t border-white/20 mt-1">
+                  <span className="text-xs font-bold text-white">
+                    Today Total
+                  </span>
+                  <span className="text-sm font-mono font-bold text-white">
+                    ₱
+                    {(
+                      paymentSummary.todayRevenue + walkInToday.revenue
+                    ).toLocaleString()}
                   </span>
                 </div>
-              ))}
-              <div className="flex items-center justify-between pt-2 border-t border-white/20 mt-1">
-                <span className="text-xs font-bold text-white">Total</span>
-                <span className="text-sm font-mono font-bold text-white">
-                  ₱84,200
-                </span>
               </div>
-            </div>
+            )}
           </div>
 
           {/* At-Risk Members */}
@@ -290,47 +445,61 @@ function DashboardContent() {
               </span>
             </div>
             <div className="space-y-2">
-              {atRisk.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center gap-2.5 p-2.5 bg-[#2a2a2a] rounded-lg">
-                  <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                      member.status === "overdue"
-                        ? "bg-red-400/10 text-red-400"
-                        : "bg-[#FFB800]/10 text-[#FFB800]"
-                    }`}>
-                    {member.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")
-                      .slice(0, 2)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">
-                      {member.name}
-                    </div>
-                    <div
-                      className={`text-[10px] ${
-                        member.status === "overdue"
-                          ? "text-red-400"
-                          : "text-[#FFB800]"
-                      }`}>
-                      {member.status === "overdue"
-                        ? `Overdue since ${member.expires}`
-                        : `Expires ${member.expires} · ${member.daysLeft}d left`}
-                    </div>
-                  </div>
-                  <button
-                    className={`text-[10px] font-bold px-2 py-1 rounded border shrink-0 ${
-                      member.status === "overdue"
-                        ? "text-red-400 border-red-400/30 hover:bg-red-400/10"
-                        : "text-[#FFB800] border-[#FFB800]/30 hover:bg-[#FFB800]/10"
-                    } transition-all`}>
-                    {member.status === "overdue" ? "Notify" : "Remind"}
-                  </button>
+              {atRisk.length === 0 ? (
+                <div className="text-center py-6 text-white/20 text-xs">
+                  No at-risk members
                 </div>
-              ))}
+              ) : (
+                atRisk.map((member) => {
+                  const expiresLabel = new Date(
+                    member.expiresAt,
+                  ).toLocaleDateString("en-PH", {
+                    month: "short",
+                    day: "numeric",
+                  });
+                  return (
+                    <div
+                      key={member.gymId}
+                      className="flex items-center gap-2.5 p-2.5 bg-[#2a2a2a] rounded-lg">
+                      <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                          member.status === "overdue"
+                            ? "bg-red-400/10 text-red-400"
+                            : "bg-[#FFB800]/10 text-[#FFB800]"
+                        }`}>
+                        {member.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .slice(0, 2)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-white truncate">
+                          {member.name}
+                        </div>
+                        <div
+                          className={`text-[10px] ${
+                            member.status === "overdue"
+                              ? "text-red-400"
+                              : "text-[#FFB800]"
+                          }`}>
+                          {member.status === "overdue"
+                            ? `Overdue since ${expiresLabel}`
+                            : `Expires ${expiresLabel} · ${member.daysLeft}d left`}
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[10px] font-mono font-semibold shrink-0 ${
+                          member.status === "overdue"
+                            ? "text-red-400"
+                            : "text-[#FFB800]"
+                        }`}>
+                        {member.gymId}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

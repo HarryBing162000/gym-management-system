@@ -127,7 +127,7 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
           </div>
         </div>
 
-        {/* GCash */}
+        {/* Online */}
         <div className="bg-blue-400/5 border border-t-2 border-blue-400/20 border-t-blue-400 rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Online

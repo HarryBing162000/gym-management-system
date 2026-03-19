@@ -20,6 +20,7 @@ export interface IMember extends Document {
   status: "active" | "inactive" | "expired";
   expiresAt: Date;
   checkedIn: boolean; // real-time gym presence
+  lastCheckIn?: Date; // timestamp of most recent check-in
   balance: number; // outstanding balance (0 = fully paid)
   photoUrl?: string; // optional profile photo
   isActive: boolean; // soft delete flag
@@ -73,6 +74,9 @@ const MemberSchema = new Schema<IMember>(
       type: Boolean,
       default: false,
     },
+    lastCheckIn: {
+      type: Date,
+    },
     balance: {
       type: Number,
       default: 0,
@@ -103,4 +107,5 @@ MemberSchema.index({ expiresAt: 1, status: 1 });
 // Index for check-in status queries
 MemberSchema.index({ checkedIn: 1, isActive: 1 });
 
-export default mongoose.model<IMember>("Member", MemberSchema);
+export default (mongoose.models.Member as mongoose.Model<IMember>) ||
+  mongoose.model<IMember>("Member", MemberSchema);

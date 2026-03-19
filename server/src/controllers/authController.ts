@@ -182,6 +182,57 @@ export const loginStaff = async (req: Request, res: Response) => {
   }
 };
 
+// =================== LIST STAFF ===================
+// GET /api/auth/staff  (owner only)
+export const listStaff = async (req: Request, res: Response) => {
+  try {
+    const staff = await User.find({ role: "staff" })
+      .select("name username isActive createdAt")
+      .sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, staff });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// =================== DEACTIVATE STAFF ===================
+// PATCH /api/auth/staff/:id/deactivate  (owner only)
+export const deactivateStaff = async (req: Request, res: Response) => {
+  try {
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, role: "staff" },
+      { isActive: false },
+      { new: true },
+    ).select("name username isActive");
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "Staff not found" });
+    return res.status(200).json({ success: true, staff: user });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// =================== REACTIVATE STAFF ===================
+// PATCH /api/auth/staff/:id/reactivate  (owner only)
+export const reactivateStaff = async (req: Request, res: Response) => {
+  try {
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, role: "staff" },
+      { isActive: true },
+      { new: true },
+    ).select("name username isActive");
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "Staff not found" });
+    return res.status(200).json({ success: true, staff: user });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // =================== GET ME ===================
 // GET /api/auth/me
 export const getMe = async (req: any, res: Response) => {

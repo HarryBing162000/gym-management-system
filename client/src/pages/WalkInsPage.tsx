@@ -40,26 +40,23 @@ function calcDuration(checkIn: string, checkOut?: string): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 function getWeekRange(): { from: string; to: string } {
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(d);
   const now = new Date();
   const day = now.getDay();
   const mon = new Date(now);
   mon.setDate(now.getDate() - ((day + 6) % 7));
   const sun = new Date(mon);
   sun.setDate(mon.getDate() + 6);
-  return {
-    from: mon.toISOString().split("T")[0],
-    to: sun.toISOString().split("T")[0],
-  };
+  return { from: fmt(mon), to: fmt(sun) };
 }
 function getMonthRange(): { from: string; to: string } {
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(d);
   const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .split("T")[0];
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    .toISOString()
-    .split("T")[0];
-  return { from, to };
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return { from: fmt(from), to: fmt(to) };
 }
 
 const PASS_COLORS: Record<string, string> = {
@@ -258,7 +255,11 @@ function SummaryCards({
   yesterdayRevenue,
   yesterdayTotal,
 }: SummaryCardsProps) {
-  const isToday = date === new Date().toISOString().split("T")[0];
+  const isToday =
+    date ===
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
+      new Date(),
+    );
   const revDiff =
     yesterdayRevenue != null ? summary.revenue - yesterdayRevenue : null;
   const revUp = revDiff != null && revDiff >= 0;

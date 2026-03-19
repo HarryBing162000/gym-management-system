@@ -5,6 +5,9 @@ import {
   loginOwner,
   loginStaff,
   getMe,
+  listStaff,
+  deactivateStaff,
+  reactivateStaff,
 } from "../controllers/authController";
 import { validate } from "../middleware/validate";
 import {
@@ -52,5 +55,20 @@ router.post(
 
 // ── Protected ────────────────────────────────────────────
 router.get("/me", protect, getMe);
+
+// ── Staff management (owner only) ────────────────────────
+router.get("/staff", protect, requireRole("owner"), listStaff);
+router.patch(
+  "/staff/:id/deactivate",
+  protect,
+  requireRole("owner"),
+  deactivateStaff,
+);
+router.patch(
+  "/staff/:id/reactivate",
+  protect,
+  requireRole("owner"),
+  reactivateStaff,
+);
 
 export default router;
