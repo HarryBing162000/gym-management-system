@@ -12,6 +12,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../store/authStore";
 import StaffLayout from "../layouts/StaffLayout";
 import { memberService } from "../services/memberService";
+import MembersPage from "./MembersPage";
 import { walkInService } from "../services/walkInService";
 import { useToastStore } from "../store/toastStore";
 import type { Member, WalkIn, WalkInRegisterResponse } from "../types";
@@ -34,7 +35,7 @@ export default function StaffDashboard() {
       pageTitle={pageTitles[activePage] ?? "Check-in Desk"}>
       {activePage === "checkin" && <CheckInDesk />}
       {activePage === "walkin" && <WalkInDesk />}
-      {activePage === "members" && <PlaceholderContent />}
+      {activePage === "members" && <MembersPage forceStaffView />}
     </StaffLayout>
   );
 }
@@ -54,8 +55,27 @@ function CheckInDesk() {
   >([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focus search on mount
+  // On mount — load members currently checked in so log survives page navigation
   useEffect(() => {
+    const loadCheckedIn = async () => {
+      try {
+        const res = await memberService.getAll({ limit: 100 });
+        const inside = res.members.filter((m) => m.checkedIn);
+        if (inside.length > 0) {
+          setTodayLog(
+            inside.map((m) => ({
+              gymId: m.gymId,
+              name: m.name,
+              time: "—",
+              action: "in" as const,
+            })),
+          );
+        }
+      } catch {
+        /* silent — log is non-critical */
+      }
+    };
+    loadCheckedIn();
     inputRef.current?.focus();
   }, []);
 
@@ -733,18 +753,6 @@ function WalkInDesk() {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Placeholder ──────────────────────────────────────────────────────────────
-
-function PlaceholderContent() {
-  return (
-    <div className="flex flex-col items-center justify-center h-64 text-white/20 pb-24 lg:pb-0">
-      <div className="text-5xl mb-4">◉</div>
-      <div className="text-lg font-bold uppercase tracking-widest">Members</div>
-      <div className="text-sm mt-2">Coming soon</div>
     </div>
   );
 }

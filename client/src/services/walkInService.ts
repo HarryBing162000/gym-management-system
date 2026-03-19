@@ -40,6 +40,17 @@ export const walkInService = {
     return res.data;
   },
 
+  // Yesterday's revenue — for comparison card
+  getYesterdayRevenue: async (): Promise<{
+    success: boolean;
+    date: string;
+    revenue: number;
+    total: number;
+  }> => {
+    const res = await api.get("/walkin/yesterday-revenue");
+    return res.data;
+  },
+
   // Kiosk self checkout (public — uses fetch directly in KioskPage, not axios)
   kioskCheckOut: async (walkId: string) => {
     const res = await api.post("/walkin/kiosk-checkout", { walkId });

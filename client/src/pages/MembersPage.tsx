@@ -72,6 +72,7 @@ interface DrawerProps {
   member?: Member;
   onClose: () => void;
   onSaved: (mode: "add" | "edit") => void;
+  isOwner?: boolean;
 }
 
 function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
@@ -87,6 +88,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
   );
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "online">("cash");
+  const [amountPaid, setAmountPaid] = useState<string>("");
 
   // Auto-set expiry based on plan when adding
   useEffect(() => {
@@ -125,6 +128,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
           plan,
           status,
           expiresAt,
+          paymentMethod,
+          amountPaid: amountPaid ? Number(amountPaid) : undefined,
         };
         await memberService.create(payload);
         onSaved(mode);
@@ -298,6 +303,74 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             />
           </div>
 
+          {/* Payment Method — only when registering */}
+          {mode === "add" && (
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                Payment Method <span className="text-[#FF6B1A]">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["cash", "online"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setPaymentMethod(m)}
+                    className={`py-2.5 rounded-lg border text-sm font-bold uppercase tracking-wide transition-all cursor-pointer ${
+                      paymentMethod === m
+                        ? m === "cash"
+                          ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
+                          : "border-blue-400 bg-blue-400/10 text-blue-400"
+                        : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
+                    }`}>
+                    {m === "cash" ? "💵 Cash" : "🏦 Online"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Partial payment amount — only when registering */}
+          {mode === "add" && (
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                Amount Paid{" "}
+                <span className="text-white/20">
+                  (leave blank for full payment)
+                </span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
+                  ₱
+                </span>
+                <input
+                  type="number"
+                  value={amountPaid}
+                  onChange={(e) => setAmountPaid(e.target.value)}
+                  placeholder={`Full amount auto-filled`}
+                  min={1}
+                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                />
+              </div>
+              {amountPaid && Number(amountPaid) > 0 && (
+                <div className="mt-1.5 flex items-center gap-2 text-xs">
+                  <span className="text-white/30">Remaining balance:</span>
+                  <span className="font-mono font-semibold text-amber-400">
+                    ₱
+                    {Math.max(
+                      0,
+                      (plan === "Monthly"
+                        ? 800
+                        : plan === "Quarterly"
+                          ? 2100
+                          : plan === "Annual"
+                            ? 7500
+                            : 500) - Number(amountPaid),
+                    ).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Error */}
           {errorMsg && (
             <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
@@ -399,9 +472,15 @@ type ConfirmState = {
   action: "deactivate" | "reactivate";
 } | null;
 
-export default function MembersPage() {
+interface MembersPageProps {
+  forceStaffView?: boolean; // when true, hides owner-only actions
+}
+
+export default function MembersPage({
+  forceStaffView = false,
+}: MembersPageProps = {}) {
   const { user } = useAuthStore();
-  const isOwner = user?.role === "owner";
+  const isOwner = forceStaffView ? false : user?.role === "owner";
 
   const [members, setMembers] = useState<Member[]>([]);
   const [total, setTotal] = useState(0);
@@ -589,7 +668,7 @@ export default function MembersPage() {
         {/* ── Table ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
           {/* Table header */}
-          <div className="hidden md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-white/10">
+          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-white/10">
             {["Member", "Plan", "Status", "Expires", "In Gym", "Actions"].map(
               (h) => (
                 <div
@@ -660,7 +739,7 @@ export default function MembersPage() {
               return (
                 <div
                   key={m.gymId}
-                  className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+                  className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors">
                   {/* Member info */}
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
@@ -682,8 +761,8 @@ export default function MembersPage() {
                   </div>
 
                   {/* Plan */}
-                  <div className="flex md:items-center">
-                    <span className="text-xs text-white/40 md:hidden mr-2 w-14 shrink-0">
+                  <div className="flex lg:items-center">
+                    <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       Plan
                     </span>
                     <span className="text-xs font-semibold text-white/70">
@@ -692,8 +771,8 @@ export default function MembersPage() {
                   </div>
 
                   {/* Status */}
-                  <div className="flex md:items-center">
-                    <span className="text-xs text-white/40 md:hidden mr-2 w-14 shrink-0">
+                  <div className="flex lg:items-center">
+                    <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       Status
                     </span>
                     <span
@@ -703,8 +782,8 @@ export default function MembersPage() {
                   </div>
 
                   {/* Expiry */}
-                  <div className="flex md:items-center">
-                    <span className="text-xs text-white/40 md:hidden mr-2 w-14 shrink-0">
+                  <div className="flex lg:items-center">
+                    <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       Expires
                     </span>
                     <div>
@@ -726,8 +805,8 @@ export default function MembersPage() {
                   </div>
 
                   {/* Check-in */}
-                  <div className="flex md:items-center">
-                    <span className="text-xs text-white/40 md:hidden mr-2 w-14 shrink-0">
+                  <div className="flex lg:items-center">
+                    <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       In gym
                     </span>
                     <span

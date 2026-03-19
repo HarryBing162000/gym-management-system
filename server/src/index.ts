@@ -6,6 +6,7 @@ import cors from "cors";
 import connectDB from "./config/db";
 import authRoutes from "./routes/authRoutes";
 import walkInRoutes from "./routes/walkInRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
 import kioskRoutes from "./routes/kioskRoutes";
 import memberRoutes from "./routes/memberRoutes";
 
@@ -62,6 +63,7 @@ app.use(securityLogger);
 // ============================================================
 app.use("/api/auth", authRoutes);
 app.use("/api/walkin", walkInRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/kiosk", kioskRoutes);
 app.use("/api/members", memberRoutes); // member management — JWT protected // public kiosk terminal — machine-auth only
 

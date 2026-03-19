@@ -41,6 +41,7 @@ export interface Member {
   checkedIn: boolean;
   photoUrl?: string;
   isActive: boolean;
+  balance: number;
   createdAt: string;
 }
 
@@ -59,6 +60,8 @@ export interface CreateMemberPayload {
   plan: MemberPlan;
   status: "active" | "inactive";
   expiresAt: string;
+  paymentMethod?: "cash" | "online";
+  amountPaid?: number;
 }
 
 export interface UpdateMemberPayload {

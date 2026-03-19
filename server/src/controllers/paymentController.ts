@@ -1,0 +1,348 @@
+/**
+ * paymentController.ts
+ * IronCore GMS — Payment Route Handlers
+ *
+ * Supports partial payments — member gets access but balance is tracked.
+ */
+
+import { Response } from "express";
+import { AuthRequest } from "../middleware/authMiddleware";
+import Payment, { IPayment } from "../models/Payment";
+import Member from "../models/Member";
+
+export type PaymentMethod = "cash" | "online";
+export type PaymentType =
+  | "new_member"
+  | "renewal"
+  | "manual"
+  | "balance_settlement";
+
+const PLAN_PRICES: Record<string, number> = {
+  Monthly: 800,
+  Quarterly: 2100,
+  Annual: 7500,
+  Student: 500,
+};
+
+const getDateRange = (range: string): { from: Date; to: Date } => {
+  const now = new Date();
+  const to = new Date(now);
+  to.setHours(23, 59, 59, 999);
+
+  if (range === "today") {
+    const from = new Date(now);
+    from.setHours(0, 0, 0, 0);
+    return { from, to };
+  }
+  if (range === "week") {
+    const from = new Date(now);
+    from.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    from.setHours(0, 0, 0, 0);
+    return { from, to };
+  }
+  if (range === "month") {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from, to };
+  }
+  const from = new Date(now);
+  from.setDate(now.getDate() - 30);
+  from.setHours(0, 0, 0, 0);
+  return { from, to };
+};
+
+const buildSummary = (payments: IPayment[]) => ({
+  total: payments.length,
+  revenue: payments.reduce((s, p) => s + p.amountPaid, 0),
+  cash: payments.filter((p) => p.method === "cash").length,
+  online: payments.filter((p) => p.method === "online").length,
+  cashRev: payments
+    .filter((p) => p.method === "cash")
+    .reduce((s, p) => s + p.amountPaid, 0),
+  onlineRev: payments
+    .filter((p) => p.method === "online")
+    .reduce((s, p) => s + p.amountPaid, 0),
+  partial: payments.filter((p) => p.isPartial).length,
+  outstanding: payments
+    .filter((p) => p.isPartial)
+    .reduce((s, p) => s + p.balance, 0),
+});
+
+// ─── GET /api/payments ────────────────────────────────────────────────────────
+export const getPayments = async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      method,
+      type,
+      search,
+      from,
+      to,
+      page = "1",
+      limit = "20",
+    } = req.query as Record<string, string>;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const filter: Record<string, unknown> = {};
+    if (method && ["cash", "online"].includes(method)) filter.method = method;
+    if (
+      type &&
+      ["new_member", "renewal", "manual", "balance_settlement"].includes(type)
+    )
+      filter.type = type;
+    if (search) {
+      const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "");
+      filter.$or = [
+        { memberName: { $regex: safe, $options: "i" } },
+        { gymId: { $regex: safe, $options: "i" } },
+      ];
+    }
+    if (from || to) {
+      const dateFilter: Record<string, Date> = {};
+      if (from) dateFilter.$gte = new Date(from);
+      if (to) {
+        const d = new Date(to);
+        d.setHours(23, 59, 59, 999);
+        dateFilter.$lte = d;
+      }
+      filter.createdAt = dateFilter;
+    }
+
+    const [payments, total] = await Promise.all([
+      Payment.find(filter)
+        .populate("processedBy", "name username role")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Payment.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      payments,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── GET /api/payments/summary ────────────────────────────────────────────────
+export const getPaymentSummary = async (req: AuthRequest, res: Response) => {
+  try {
+    const buildPeriod = async (from: Date, to: Date) => {
+      const payments = await Payment.find({
+        createdAt: { $gte: from, $lte: to },
+      });
+      return buildSummary(payments);
+    };
+
+    const [today, week, month] = await Promise.all([
+      buildPeriod(...(Object.values(getDateRange("today")) as [Date, Date])),
+      buildPeriod(...(Object.values(getDateRange("week")) as [Date, Date])),
+      buildPeriod(...(Object.values(getDateRange("month")) as [Date, Date])),
+    ]);
+
+    // Members with outstanding balance
+    const withBalance = await Member.countDocuments({ balance: { $gt: 0 } });
+
+    return res
+      .status(200)
+      .json({ success: true, today, week, month, withBalance });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── POST /api/payments ───────────────────────────────────────────────────────
+// Manually log a payment — supports partial amount
+export const createPayment = async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      gymId,
+      method,
+      type = "manual",
+      amountPaid: rawAmount,
+      notes,
+    } = req.body as {
+      gymId: string;
+      method: PaymentMethod;
+      type?: PaymentType;
+      amountPaid?: number;
+      notes?: string;
+    };
+
+    if (!gymId || !method) {
+      return res
+        .status(400)
+        .json({ success: false, message: "gymId and method are required." });
+    }
+    if (!["cash", "online"].includes(method)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Method must be cash or online." });
+    }
+
+    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    if (!member) {
+      return res
+        .status(404)
+        .json({ success: false, message: `Member ${gymId} not found.` });
+    }
+
+    const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+    const amountPaid =
+      rawAmount != null
+        ? Math.min(Number(rawAmount), totalAmount)
+        : totalAmount;
+    const balance = Math.max(0, totalAmount - amountPaid);
+    const isPartial = balance > 0;
+
+    // Update member's outstanding balance
+    member.balance = balance;
+    await member.save();
+
+    const payment = await Payment.create({
+      gymId: member.gymId,
+      memberName: member.name,
+      amount: amountPaid,
+      amountPaid,
+      totalAmount,
+      balance,
+      isPartial,
+      method,
+      type,
+      plan: member.plan,
+      notes,
+      processedBy: req.user!.id,
+    });
+
+    const populated = await payment.populate(
+      "processedBy",
+      "name username role",
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: isPartial
+        ? `Partial payment of ₱${amountPaid} logged. Remaining balance: ₱${balance}.`
+        : `Full payment of ₱${amountPaid} logged for ${member.name}.`,
+      payment: populated,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── POST /api/payments/:gymId/settle ────────────────────────────────────────
+// Settle the outstanding balance for a member
+export const settleBalance = async (req: AuthRequest, res: Response) => {
+  try {
+    const { gymId } = req.params;
+    const { method } = req.body as { method: PaymentMethod };
+
+    if (!["cash", "online"].includes(method)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Method must be cash or online." });
+    }
+
+    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    if (!member) {
+      return res
+        .status(404)
+        .json({ success: false, message: `Member ${gymId} not found.` });
+    }
+    if (member.balance <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} has no outstanding balance.`,
+      });
+    }
+
+    const amountPaid = member.balance;
+    const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+
+    // Clear the member's balance
+    member.balance = 0;
+    await member.save();
+
+    const payment = await Payment.create({
+      gymId: member.gymId,
+      memberName: member.name,
+      amount: amountPaid,
+      amountPaid,
+      totalAmount,
+      balance: 0,
+      isPartial: false,
+      method,
+      type: "balance_settlement",
+      plan: member.plan,
+      notes: `Balance settlement — ₱${amountPaid} paid`,
+      processedBy: req.user!.id,
+    });
+
+    const populated = await payment.populate(
+      "processedBy",
+      "name username role",
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Balance of ₱${amountPaid} settled for ${member.name}.`,
+      payment: populated,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── Internal — auto-log payment on register/renewal ─────────────────────────
+export const autoLogPayment = async ({
+  gymId,
+  memberName,
+  plan,
+  method,
+  type,
+  processedBy,
+  amountPaid,
+}: {
+  gymId: string;
+  memberName: string;
+  plan: string;
+  method: PaymentMethod;
+  type: PaymentType;
+  processedBy: string;
+  amountPaid?: number;
+}): Promise<void> => {
+  const totalAmount = PLAN_PRICES[plan] ?? 0;
+  const paid =
+    amountPaid != null ? Math.min(amountPaid, totalAmount) : totalAmount;
+  const balance = Math.max(0, totalAmount - paid);
+
+  await Payment.create({
+    gymId,
+    memberName,
+    amount: paid,
+    amountPaid: paid,
+    totalAmount,
+    balance,
+    isPartial: balance > 0,
+    method,
+    type,
+    plan,
+    processedBy,
+  });
+
+  // Update member balance
+  if (balance > 0) {
+    await Member.updateOne({ gymId }, { balance });
+  }
+};

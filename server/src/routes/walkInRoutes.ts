@@ -4,6 +4,7 @@ import {
   checkOutWalkIn,
   getTodayWalkIns,
   getWalkInHistory,
+  getYesterdayRevenue,
   kioskCheckOut,
 } from "../controllers/walkInController";
 import { validate } from "../middleware/validate";
@@ -35,6 +36,14 @@ router.get("/today", protect, requireRole("owner", "staff"), getTodayWalkIns);
 
 // History by date or range — owner only
 router.get("/history", protect, requireRole("owner"), getWalkInHistory);
+
+// Yesterday revenue — for comparison card
+router.get(
+  "/yesterday-revenue",
+  protect,
+  requireRole("owner"),
+  getYesterdayRevenue,
+);
 
 // Public kiosk self-checkout
 router.post("/kiosk-checkout", validate(walkInCheckOutSchema), kioskCheckOut);

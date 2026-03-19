@@ -8,6 +8,7 @@
 import { Response } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import Member from "../models/Member";
+import { autoLogPayment } from "./paymentController";
 import {
   CreateMemberInput,
   UpdateMemberInput,
@@ -205,6 +206,22 @@ export const createMember = async (req: AuthRequest, res: Response) => {
     if (phone) createPayload.phone = phone;
 
     const member = await Member.create(createPayload);
+
+    // Auto-log payment with method and optional partial amount
+    try {
+      await autoLogPayment({
+        gymId: member.gymId,
+        memberName: member.name,
+        plan: member.plan,
+        method: (req.body.paymentMethod as "cash" | "online") ?? "cash",
+        type: "new_member",
+        processedBy: req.user!.id,
+        amountPaid:
+          req.body.amountPaid != null ? Number(req.body.amountPaid) : undefined,
+      });
+    } catch {
+      /* non-critical — member is saved, payment log failure shouldn't block */
+    }
 
     return res.status(201).json({
       success: true,

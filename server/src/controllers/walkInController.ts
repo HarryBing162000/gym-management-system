@@ -206,6 +206,27 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// ─── GET /api/walkin/yesterday-revenue ───────────────────────────────────────
+// Returns yesterday's total revenue for comparison card.
+export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
+  try {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+    const walkIns = await WalkIn.find({ date: yesterdayStr });
+    const revenue = walkIns.reduce((sum, w) => sum + w.amount, 0);
+    const total = walkIns.length;
+
+    return res
+      .status(200)
+      .json({ success: true, date: yesterdayStr, revenue, total });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
 // ─── POST /api/walkin/kiosk-checkout (public) ─────────────────────────────────
 export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
   try {

@@ -95,6 +95,8 @@ export const createMemberSchema = z.object({
     .string()
     .refine((val) => !isNaN(Date.parse(val)), "Invalid expiry date")
     .transform((val) => new Date(val)),
+  paymentMethod: z.enum(["cash", "online"]).optional(),
+  amountPaid: z.number().positive().optional(),
 });
 
 // ============================================================

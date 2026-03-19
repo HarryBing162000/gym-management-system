@@ -136,7 +136,7 @@ export default function StaffLayout({
           fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7
           flex flex-col z-50 transition-transform duration-250
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-          lg:translate-x-0 lg:static lg:z-auto
+          lg:translate-x-0 lg:sticky lg:z-auto 
         `}>
         {/* Logo */}
         <div className="px-5 py-6 border-b border-white/7">

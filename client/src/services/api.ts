@@ -22,12 +22,14 @@ api.interceptors.request.use((config) => {
 });
 
 // ✅ Response interceptor
-// On 401 — call authStore.logout() instead of manually clearing localStorage
-// This keeps token management in one place (the store)
+// On 401 — log out and redirect ONLY for protected routes.
+// Login endpoints also return 401 (wrong credentials) — must NOT
+// redirect there or the error message never shows on the login page.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const isLoginRoute = error.config?.url?.includes("/auth/login");
+    if (error.response?.status === 401 && !isLoginRoute) {
       useAuthStore.getState().logout();
       window.location.href = "/login";
     }

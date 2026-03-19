@@ -20,6 +20,7 @@ export interface IMember extends Document {
   status: "active" | "inactive" | "expired";
   expiresAt: Date;
   checkedIn: boolean; // real-time gym presence
+  balance: number; // outstanding balance (0 = fully paid)
   photoUrl?: string; // optional profile photo
   isActive: boolean; // soft delete flag
   createdAt: Date;
@@ -71,6 +72,11 @@ const MemberSchema = new Schema<IMember>(
     checkedIn: {
       type: Boolean,
       default: false,
+    },
+    balance: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     photoUrl: {
       type: String,
