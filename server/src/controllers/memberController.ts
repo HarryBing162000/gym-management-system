@@ -363,7 +363,7 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
     const member = await Member.findOneAndUpdate(
       { gymId: currentGymId },
       { $set: setPayload },
-      { new: true, runValidators: true },
+      { returnDocument: "after", runValidators: true },
     ).select(MEMBER_SAFE_FIELDS);
 
     if (!member) {
@@ -426,7 +426,7 @@ export const deactivateMember = async (req: AuthRequest, res: Response) => {
     const member = await Member.findOneAndUpdate(
       { gymId: String(gymId).toUpperCase() },
       { $set: { isActive: false, status: "inactive", checkedIn: false } },
-      { new: true },
+      { returnDocument: "after" },
     ).select(MEMBER_SAFE_FIELDS);
 
     if (!member) {
@@ -452,7 +452,7 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
     const member = await Member.findOneAndUpdate(
       { gymId: String(gymId).toUpperCase() },
       { $set: { isActive: true, status: "active" } },
-      { new: true },
+      { returnDocument: "after" },
     ).select(MEMBER_SAFE_FIELDS);
 
     if (!member) {

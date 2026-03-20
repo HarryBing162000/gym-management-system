@@ -1,7 +1,11 @@
 import api from "./api";
 
 export type PaymentMethod = "cash" | "online";
-export type PaymentType = "new_member" | "renewal" | "manual";
+export type PaymentType =
+  | "new_member"
+  | "renewal"
+  | "manual"
+  | "balance_settlement";
 
 export interface Payment {
   _id: string;
@@ -80,8 +84,12 @@ export const paymentService = {
   settle: async (
     gymId: string,
     method: PaymentMethod,
+    amountPaid?: number,
   ): Promise<{ success: boolean; message: string; payment: Payment }> => {
-    const res = await api.post(`/payments/${gymId}/settle`, { method });
+    const res = await api.post(`/payments/${gymId}/settle`, {
+      method,
+      amountPaid,
+    });
     return res.data;
   },
 };

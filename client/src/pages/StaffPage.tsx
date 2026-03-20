@@ -12,6 +12,8 @@ import { useToastStore } from "../store/toastStore";
 
 export default function StaffPage() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [staffPage, setStaffPage] = useState(1);
+  const STAFF_LIMIT = 10;
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmState, setConfirmState] = useState<{
@@ -99,106 +101,140 @@ export default function StaffPage() {
             </div>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10 text-white/30 text-left">
-                <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest">
-                  Staff
-                </th>
-                <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest hidden sm:table-cell">
-                  Date Added
-                </th>
-                <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest">
-                  Status
-                </th>
-                <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {staff.map((s) => (
-                <tr
-                  key={s._id}
-                  className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
-                  {/* Staff name + username */}
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 flex items-center justify-center text-[#FF6B1A] text-xs font-bold shrink-0">
-                        {s.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")
-                          .slice(0, 2)
-                          .toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="text-white font-semibold text-xs">
-                          {s.name}
-                        </div>
-                        <div className="text-white/30 text-[11px] font-mono">
-                          @{s.username}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Date added */}
-                  <td className="px-5 py-4 text-white/30 text-xs hidden sm:table-cell">
-                    {new Date(s.createdAt).toLocaleDateString("en-PH", {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </td>
-
-                  {/* Status badge */}
-                  <td className="px-5 py-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                        s.isActive
-                          ? "bg-green-400/10 text-green-400 border border-green-400/20"
-                          : "bg-white/5 text-white/30 border border-white/10"
-                      }`}>
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${s.isActive ? "bg-green-400" : "bg-white/20"}`}
-                      />
-                      {s.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-
-                  {/* Action button */}
-                  <td className="px-5 py-4 text-right">
-                    {s.isActive ? (
-                      <button
-                        onClick={() =>
-                          setConfirmState({
-                            id: s._id,
-                            username: s.username,
-                            action: "deactivate",
-                          })
-                        }
-                        className="text-[10px] font-bold text-red-400 border border-red-400/20 hover:bg-red-400/10 px-3 py-1.5 rounded-lg transition-all">
-                        Deactivate
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() =>
-                          setConfirmState({
-                            id: s._id,
-                            username: s.username,
-                            action: "reactivate",
-                          })
-                        }
-                        className="text-[10px] font-bold text-green-400 border border-green-400/20 hover:bg-green-400/10 px-3 py-1.5 rounded-lg transition-all">
-                        Reactivate
-                      </button>
-                    )}
-                  </td>
+          <>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 text-white/30 text-left">
+                  <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest">
+                    Staff
+                  </th>
+                  <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest hidden sm:table-cell">
+                    Date Added
+                  </th>
+                  <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest">
+                    Status
+                  </th>
+                  <th className="px-5 py-3 text-[10px] font-semibold uppercase tracking-widest text-right">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {staff
+                  .slice((staffPage - 1) * STAFF_LIMIT, staffPage * STAFF_LIMIT)
+                  .map((s) => (
+                    <tr
+                      key={s._id}
+                      className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+                      {/* Staff name + username */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 flex items-center justify-center text-[#FF6B1A] text-xs font-bold shrink-0">
+                            {s.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-white font-semibold text-xs">
+                              {s.name}
+                            </div>
+                            <div className="text-white/30 text-[11px] font-mono">
+                              @{s.username}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Date added */}
+                      <td className="px-5 py-4 text-white/30 text-xs hidden sm:table-cell">
+                        {new Date(s.createdAt).toLocaleDateString("en-PH", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </td>
+
+                      {/* Status badge */}
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                            s.isActive
+                              ? "bg-green-400/10 text-green-400 border border-green-400/20"
+                              : "bg-white/5 text-white/30 border border-white/10"
+                          }`}>
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${s.isActive ? "bg-green-400" : "bg-white/20"}`}
+                          />
+                          {s.isActive ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+
+                      {/* Action button */}
+                      <td className="px-5 py-4 text-right">
+                        {s.isActive ? (
+                          <button
+                            onClick={() =>
+                              setConfirmState({
+                                id: s._id,
+                                username: s.username,
+                                action: "deactivate",
+                              })
+                            }
+                            className="text-[10px] font-bold text-red-400 border border-red-400/20 hover:bg-red-400/10 px-3 py-1.5 rounded-lg transition-all">
+                            Deactivate
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              setConfirmState({
+                                id: s._id,
+                                username: s.username,
+                                action: "reactivate",
+                              })
+                            }
+                            className="text-[10px] font-bold text-green-400 border border-green-400/20 hover:bg-green-400/10 px-3 py-1.5 rounded-lg transition-all">
+                            Reactivate
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            {/* Pagination */}
+            {staff.length > STAFF_LIMIT && (
+              <div className="px-5 py-3 border-t border-white/10 flex items-center justify-between">
+                <span className="text-[10px] text-white/30">
+                  {(staffPage - 1) * STAFF_LIMIT + 1}–
+                  {Math.min(staffPage * STAFF_LIMIT, staff.length)} of{" "}
+                  {staff.length}
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setStaffPage((p) => Math.max(1, p - 1))}
+                    disabled={staffPage === 1}
+                    className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                    ←
+                  </button>
+                  <button
+                    onClick={() =>
+                      setStaffPage((p) =>
+                        Math.min(Math.ceil(staff.length / STAFF_LIMIT), p + 1),
+                      )
+                    }
+                    disabled={
+                      staffPage === Math.ceil(staff.length / STAFF_LIMIT)
+                    }
+                    className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                    →
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

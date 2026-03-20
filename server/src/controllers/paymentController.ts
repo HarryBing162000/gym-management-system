@@ -25,29 +25,35 @@ const PLAN_PRICES: Record<string, number> = {
 };
 
 const getDateRange = (range: string): { from: Date; to: Date } => {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" });
   const now = new Date();
-  const to = new Date(now);
-  to.setHours(23, 59, 59, 999);
+  const manilaToday = fmt.format(now);
+  const [y, m, d] = manilaToday.split("-").map(Number);
+
+  // Manila midnight = UTC 16:00 previous day (UTC+8 means midnight Manila = 16:00 UTC)
+  const manilaStartOfDay = new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
+  const manilaEndOfDay = new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
 
   if (range === "today") {
-    const from = new Date(now);
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
+    return { from: manilaStartOfDay, to: manilaEndOfDay };
   }
   if (range === "week") {
-    const from = new Date(now);
-    from.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
+    const dow = now.toLocaleDateString("en-PH", {
+      timeZone: "Asia/Manila",
+      weekday: "short",
+    });
+    const dayOffset = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(
+      dow,
+    );
+    const from = new Date(Date.UTC(y, m - 1, d - dayOffset, -8, 0, 0, 0));
+    return { from, to: manilaEndOfDay };
   }
   if (range === "month") {
-    const from = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { from, to };
+    const from = new Date(Date.UTC(y, m - 1, 1, -8, 0, 0, 0));
+    return { from, to: manilaEndOfDay };
   }
-  const from = new Date(now);
-  from.setDate(now.getDate() - 30);
-  from.setHours(0, 0, 0, 0);
-  return { from, to };
+  const from = new Date(Date.UTC(y, m - 1, d - 30, -8, 0, 0, 0));
+  return { from, to: manilaEndOfDay };
 };
 
 const buildSummary = (payments: IPayment[]) => {
@@ -105,13 +111,17 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
       ];
     }
     if (from || to) {
+      const toManilaStart = (dateStr: string) => {
+        const [y, m, d] = dateStr.split("-").map(Number);
+        return new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
+      };
+      const toManilaEnd = (dateStr: string) => {
+        const [y, m, d] = dateStr.split("-").map(Number);
+        return new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
+      };
       const dateFilter: Record<string, Date> = {};
-      if (from) dateFilter.$gte = new Date(from);
-      if (to) {
-        const d = new Date(to);
-        d.setHours(23, 59, 59, 999);
-        dateFilter.$lte = d;
-      }
+      if (from) dateFilter.$gte = toManilaStart(from);
+      if (to) dateFilter.$lte = toManilaEnd(to);
       filter.createdAt = dateFilter;
     }
 
@@ -251,7 +261,10 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
 export const settleBalance = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
-    const { method } = req.body as { method: PaymentMethod };
+    const { method, amountPaid: rawAmount } = req.body as {
+      method: PaymentMethod;
+      amountPaid?: number;
+    };
 
     if (!["cash", "online"].includes(method)) {
       return res
@@ -272,12 +285,39 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const amountPaid = member.balance;
-    const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+    // Guard against duplicate submissions within 3 seconds
+    const recentSettle = await Payment.findOne({
+      gymId: member.gymId,
+      type: "balance_settlement",
+      createdAt: { $gte: new Date(Date.now() - 3000) },
+    });
+    if (recentSettle) {
+      return res.status(409).json({
+        success: false,
+        message: "Settlement already processed. Please wait a moment.",
+      });
+    }
 
-    // Clear the member's balance
-    member.balance = 0;
+    // Support partial settle — cap at outstanding balance
+    const amountPaid =
+      rawAmount && rawAmount > 0
+        ? Math.min(rawAmount, member.balance)
+        : member.balance;
+
+    const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+    const remainingBalance = Math.max(0, member.balance - amountPaid);
+    const isFullySettled = remainingBalance === 0;
+
+    member.balance = remainingBalance;
     await member.save();
+
+    // Mark ALL partial payments for this member as settled when fully paid
+    if (isFullySettled) {
+      await Payment.updateMany(
+        { gymId: member.gymId, isPartial: true },
+        { $set: { isPartial: false, balance: 0 } },
+      );
+    }
 
     const payment = await Payment.create({
       gymId: member.gymId,
@@ -285,12 +325,14 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
       amount: amountPaid,
       amountPaid,
       totalAmount,
-      balance: 0,
-      isPartial: false,
+      balance: remainingBalance,
+      isPartial: !isFullySettled,
       method,
       type: "balance_settlement",
       plan: member.plan,
-      notes: `Balance settlement — ₱${amountPaid} paid`,
+      notes: isFullySettled
+        ? `Balance fully settled — ₱${amountPaid} paid`
+        : `Partial settlement — ₱${amountPaid} paid, ₱${remainingBalance} remaining`,
       processedBy: req.user!.id,
     });
 
@@ -301,7 +343,9 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: `Balance of ₱${amountPaid} settled for ${member.name}.`,
+      message: isFullySettled
+        ? `Balance of ₱${amountPaid} fully settled for ${member.name}.`
+        : `₱${amountPaid} settled. Remaining balance: ₱${remainingBalance}.`,
       payment: populated,
     });
   } catch (err: unknown) {

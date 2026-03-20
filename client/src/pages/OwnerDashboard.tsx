@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import MembersPage from "./MembersPage";
 import WalkInsPage from "./WalkInsPage";
 import PaymentsPage from "./PaymentsPage";
@@ -27,9 +27,7 @@ export default function OwnerDashboard() {
       activePage={activePage}
       onPageChange={setActivePage}
       pageTitle={pageTitles[activePage] ?? "Dashboard"}>
-      {activePage === "dashboard" && (
-        <DashboardContent onNavigate={setActivePage} />
-      )}
+      {activePage === "dashboard" && <DashboardContent />}
       {activePage === "members" && <MembersPage />}
       {activePage === "walkins" && <WalkInsPage />}
       {activePage === "payments" && <PaymentsPage />}
@@ -45,11 +43,7 @@ export default function OwnerDashboard() {
 }
 
 // ── DASHBOARD CONTENT ──────────────────────────────────────
-function DashboardContent({
-  onNavigate,
-}: {
-  onNavigate: (page: string) => void;
-}) {
+function DashboardContent() {
   const { user } = useAuthStore();
 
   // ── State ──
@@ -92,115 +86,99 @@ function DashboardContent({
   };
 
   // ── Fetch all dashboard data ──
+  const load = useCallback(async () => {
+    try {
+      const [allMembers, expiringSoonRes] = await Promise.all([
+        memberService.getAll({ limit: 1 }),
+        memberService.getAll({ status: "active", limit: 50 }),
+      ]);
+      const checkedInCount = (
+        await memberService.getAll({ status: "active", limit: 500 })
+      ).members.filter((m) => m.checkedIn).length;
+      const now = new Date();
+      const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const expiring = expiringSoonRes.members.filter((m) => {
+        const exp = new Date(m.expiresAt);
+        return exp >= now && exp <= in7Days;
+      });
+      const expiredRes = await memberService.getAll({
+        status: "expired",
+        limit: 20,
+      });
+      const atRiskList = [
+        ...expiring.map((m) => ({
+          gymId: m.gymId,
+          name: m.name,
+          expiresAt: m.expiresAt,
+          daysLeft: Math.ceil(
+            (new Date(m.expiresAt).getTime() - now.getTime()) / 86400000,
+          ),
+          status: "expiring",
+        })),
+        ...expiredRes.members.slice(0, 5).map((m) => ({
+          gymId: m.gymId,
+          name: m.name,
+          expiresAt: m.expiresAt,
+          daysLeft: Math.ceil(
+            (new Date(m.expiresAt).getTime() - now.getTime()) / 86400000,
+          ),
+          status: "overdue",
+        })),
+      ].slice(0, 5);
+      setMemberStats({
+        total: allMembers.total,
+        checkedIn: checkedInCount,
+        expiringSoon: expiring.length,
+        loading: false,
+      });
+      setAtRisk(atRiskList);
+      const checkedInMembers = (
+        await memberService.getAll({ status: "active", limit: 20 })
+      ).members.filter((m) => m.checkedIn);
+      setRecentActivity(
+        checkedInMembers.slice(0, 6).map((m) => ({
+          id: m.gymId,
+          name: m.name,
+          time: "Now",
+          type: "check-in",
+        })),
+      );
+    } catch {
+      setMemberStats((s) => ({ ...s, loading: false }));
+    }
+    try {
+      const summary = await paymentService.getSummary();
+      setPaymentSummary({
+        monthRevenue: summary.month?.revenue ?? 0,
+        todayRevenue: summary.today?.revenue ?? 0,
+        loading: false,
+      });
+    } catch {
+      setPaymentSummary((s) => ({ ...s, loading: false }));
+    }
+    try {
+      const walkins = await walkInService.getToday();
+      setWalkInToday({
+        count: walkins.summary?.total ?? 0,
+        revenue: walkins.summary?.revenue ?? 0,
+        stillInside:
+          walkins.walkIns?.filter((w) => !w.isCheckedOut).length ?? 0,
+        loading: false,
+      });
+    } catch {
+      setWalkInToday((s) => ({ ...s, loading: false }));
+    }
+  }, []);
+
+  // Initial load + auto-refresh every 30s
+  const loadRef = useRef(load);
   useEffect(() => {
-    const load = async () => {
-      try {
-        // Members: total count + checked-in + expiring soon
-        const [allMembers, expiringSoonRes] = await Promise.all([
-          memberService.getAll({ limit: 1 }),
-          memberService.getAll({ status: "active", limit: 50 }),
-        ]);
-
-        // Count checked-in from active members
-        const checkedInCount = (
-          await memberService.getAll({ status: "active", limit: 500 })
-        ).members.filter((m) => m.checkedIn).length;
-
-        // Expiring within 7 days
-        const now = new Date();
-        const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const expiring = expiringSoonRes.members.filter((m) => {
-          const exp = new Date(m.expiresAt);
-          return exp >= now && exp <= in7Days;
-        });
-
-        // At-risk: expiring ≤7 days + expired
-        const expiredRes = await memberService.getAll({
-          status: "expired",
-          limit: 20,
-        });
-        const atRiskList = [
-          ...expiring.map((m) => {
-            const daysLeft = Math.ceil(
-              (new Date(m.expiresAt).getTime() - now.getTime()) /
-                (1000 * 60 * 60 * 24),
-            );
-            return {
-              gymId: m.gymId,
-              name: m.name,
-              expiresAt: m.expiresAt,
-              daysLeft,
-              status: "expiring",
-            };
-          }),
-          ...expiredRes.members.slice(0, 5).map((m) => {
-            const daysLeft = Math.ceil(
-              (new Date(m.expiresAt).getTime() - now.getTime()) /
-                (1000 * 60 * 60 * 24),
-            );
-            return {
-              gymId: m.gymId,
-              name: m.name,
-              expiresAt: m.expiresAt,
-              daysLeft,
-              status: "overdue",
-            };
-          }),
-        ].slice(0, 5);
-
-        setMemberStats({
-          total: allMembers.total,
-          checkedIn: checkedInCount,
-          expiringSoon: expiring.length,
-          loading: false,
-        });
-        setAtRisk(atRiskList);
-
-        // Recent check-in activity — members currently checked in
-        const checkedInMembers = (
-          await memberService.getAll({ status: "active", limit: 20 })
-        ).members.filter((m) => m.checkedIn);
-        setRecentActivity(
-          checkedInMembers.slice(0, 6).map((m) => ({
-            id: m.gymId,
-            name: m.name,
-            time: "Now",
-            type: "check-in",
-          })),
-        );
-      } catch {
-        setMemberStats((s) => ({ ...s, loading: false }));
-      }
-
-      try {
-        // Payments summary
-        const summary = await paymentService.getSummary();
-        setPaymentSummary({
-          monthRevenue: summary.month?.revenue ?? 0,
-          todayRevenue: summary.today?.revenue ?? 0,
-          loading: false,
-        });
-      } catch {
-        setPaymentSummary((s) => ({ ...s, loading: false }));
-      }
-
-      try {
-        // Walk-ins today
-        const walkins = await walkInService.getToday();
-        const stillInside =
-          walkins.walkIns?.filter((w) => !w.isCheckedOut).length ?? 0;
-        setWalkInToday({
-          count: walkins.summary?.total ?? 0,
-          revenue: walkins.summary?.revenue ?? 0,
-          stillInside,
-          loading: false,
-        });
-      } catch {
-        setWalkInToday((s) => ({ ...s, loading: false }));
-      }
-    };
-
-    load();
+    loadRef.current = load;
+  }, [load]);
+  useEffect(() => {
+    loadRef.current();
+    const id = setInterval(() => loadRef.current(), 30000);
+    return () => clearInterval(id);
   }, []);
 
   const fmt = (n: number) =>
@@ -252,23 +230,6 @@ function DashboardContent({
           <p className="text-xs text-white/30 mt-0.5">
             Here's what's happening at IronCore today.
           </p>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => onNavigate("members")}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95">
-            <span>+</span> Add Member
-          </button>
-          <button
-            onClick={() => onNavigate("walkins")}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/30 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all active:scale-95">
-            <span>⊕</span> Walk-in
-          </button>
-          <button className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-white/5 text-white/50 border border-white/10 text-xs font-bold rounded-lg hover:bg-white/10 transition-all">
-            <span>↓</span> Export
-          </button>
         </div>
       </div>
 

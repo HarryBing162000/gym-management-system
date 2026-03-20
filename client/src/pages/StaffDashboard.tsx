@@ -53,6 +53,8 @@ function CheckInDesk() {
   const [todayLog, setTodayLog] = useState<
     { gymId: string; name: string; time: string; action: "in" | "out" }[]
   >([]);
+  const [logPage, setLogPage] = useState(1);
+  const LOG_PAGE_SIZE = 10;
   const inputRef = useRef<HTMLInputElement>(null);
 
   // On mount — load members currently checked in so log survives page navigation
@@ -128,6 +130,7 @@ function CheckInDesk() {
         },
         ...prev.slice(0, 19),
       ]);
+      setLogPage(1);
       setSearch("");
       setSelected(null);
       setResults([]);
@@ -158,6 +161,7 @@ function CheckInDesk() {
         },
         ...prev.slice(0, 19),
       ]);
+      setLogPage(1);
       setSearch("");
       setSelected(null);
       setResults([]);
@@ -365,34 +369,71 @@ function CheckInDesk() {
               <div className="text-xs">No activity yet today</div>
             </div>
           ) : (
-            <div className="space-y-0.5">
-              {todayLog.map((entry, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
-                  <div
-                    className={`w-2 h-2 rounded-full shrink-0 ${entry.action === "in" ? "bg-[#FF6B1A]" : "bg-blue-400"}`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-mono text-[#FF6B1A] mr-2">
-                      {entry.gymId}
-                    </span>
-                    <span className="text-xs text-white/60 truncate">
-                      {entry.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className={`text-[10px] font-semibold ${entry.action === "in" ? "text-[#FF6B1A]" : "text-blue-400"}`}>
-                      {entry.action === "in" ? "IN" : "OUT"}
-                    </span>
-                    <span className="text-[11px] font-mono text-white/30">
-                      {entry.time}
-                    </span>
+            <>
+              <div className="space-y-0.5">
+                {todayLog
+                  .slice((logPage - 1) * LOG_PAGE_SIZE, logPage * LOG_PAGE_SIZE)
+                  .map((entry, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+                      <div
+                        className={`w-2 h-2 rounded-full shrink-0 ${entry.action === "in" ? "bg-[#FF6B1A]" : "bg-blue-400"}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-mono text-[#FF6B1A] mr-2">
+                          {entry.gymId}
+                        </span>
+                        <span className="text-xs text-white/60 truncate">
+                          {entry.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`text-[10px] font-semibold ${entry.action === "in" ? "text-[#FF6B1A]" : "text-blue-400"}`}>
+                          {entry.action === "in" ? "IN" : "OUT"}
+                        </span>
+                        <span className="text-[11px] font-mono text-white/30">
+                          {entry.time}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              {/* Pagination */}
+              {todayLog.length > LOG_PAGE_SIZE && (
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
+                  <span className="text-[10px] text-white/30">
+                    {(logPage - 1) * LOG_PAGE_SIZE + 1}–
+                    {Math.min(logPage * LOG_PAGE_SIZE, todayLog.length)} of{" "}
+                    {todayLog.length}
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setLogPage((p) => Math.max(1, p - 1))}
+                      disabled={logPage === 1}
+                      className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                      ←
+                    </button>
+                    <button
+                      onClick={() =>
+                        setLogPage((p) =>
+                          Math.min(
+                            Math.ceil(todayLog.length / LOG_PAGE_SIZE),
+                            p + 1,
+                          ),
+                        )
+                      }
+                      disabled={
+                        logPage === Math.ceil(todayLog.length / LOG_PAGE_SIZE)
+                      }
+                      className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                      →
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
       </div>

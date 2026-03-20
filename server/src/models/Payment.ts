@@ -13,7 +13,11 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export type PaymentMethod = "cash" | "online";
-export type PaymentType = "new_member" | "renewal" | "manual";
+export type PaymentType =
+  | "new_member"
+  | "renewal"
+  | "manual"
+  | "balance_settlement";
 
 export interface IPayment extends Document {
   // Member reference
@@ -63,7 +67,7 @@ const PaymentSchema = new Schema<IPayment>(
     },
     type: {
       type: String,
-      enum: ["new_member", "renewal", "manual"],
+      enum: ["new_member", "renewal", "manual", "balance_settlement"],
       required: true,
     },
     plan: {

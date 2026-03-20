@@ -370,6 +370,8 @@ export default function WalkInsPage() {
   const [todayDate, setTodayDate] = useState("");
   const [todayLoading, setTodayLoading] = useState(true);
   const [todayError, setTodayError] = useState("");
+  const [todayPage, setTodayPage] = useState(1);
+  const TODAY_LIMIT = 10;
 
   // Yesterday comparison
   const [yesterdayRevenue, setYesterdayRevenue] = useState<number | null>(null);
@@ -395,7 +397,7 @@ export default function WalkInsPage() {
   const getHistoryParams = useCallback((): Record<string, string | number> => {
     const params: Record<string, string | number> = {
       page: historyPage,
-      limit: 50,
+      limit: 10,
     };
     if (quickFilter === "week") {
       const { from, to } = getWeekRange();
@@ -594,126 +596,131 @@ export default function WalkInsPage() {
                     </div>
                   </div>
                 ) : (
-                  todayWalkIns.map((w) => {
-                    const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
-                    const staffName = w.staffId?.name ?? "—";
+                  todayWalkIns
+                    .slice(
+                      (todayPage - 1) * TODAY_LIMIT,
+                      todayPage * TODAY_LIMIT,
+                    )
+                    .map((w) => {
+                      const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
+                      const staffName = w.staffId?.name ?? "—";
 
-                    return (
-                      <div
-                        key={w._id}
-                        className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors">
-                        {/* Guest */}
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-                            style={{
-                              background: `${passColor}18`,
-                              border: `1px solid ${passColor}40`,
-                              color: passColor,
-                            }}>
-                            {w.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-white truncate">
-                              {w.name}
+                      return (
+                        <div
+                          key={w._id}
+                          className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr_auto] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+                          {/* Guest */}
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                              style={{
+                                background: `${passColor}18`,
+                                border: `1px solid ${passColor}40`,
+                                color: passColor,
+                              }}>
+                              {w.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()}
                             </div>
-                            <div className="text-[10px] font-mono text-white/30">
-                              {w.walkId}
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-white truncate">
+                                {w.name}
+                              </div>
+                              <div className="text-[10px] font-mono text-white/30">
+                                {w.walkId}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* Pass */}
-                        <div className="flex md:items-center">
-                          <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
-                            Pass
-                          </span>
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide"
-                            style={{
-                              color: passColor,
-                              background: `${passColor}15`,
-                              borderColor: `${passColor}40`,
-                            }}>
-                            {PASS_LABELS[w.passType]}
-                          </span>
-                        </div>
-
-                        {/* Amount */}
-                        <div className="flex md:items-center">
-                          <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
-                            Amount
-                          </span>
-                          <span className="text-sm font-mono font-semibold text-[#FFB800]">
-                            ₱{w.amount}
-                          </span>
-                        </div>
-
-                        {/* Check-in time */}
-                        <div className="flex md:items-center">
-                          <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
-                            In
-                          </span>
-                          <span className="text-xs font-mono text-white/60">
-                            {formatTime(w.checkIn)}
-                          </span>
-                        </div>
-
-                        {/* Duration */}
-                        <div className="flex md:items-center">
-                          <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
-                            Duration
-                          </span>
-                          {w.isCheckedOut ? (
-                            <span className="text-xs font-mono text-white/40">
-                              {calcDuration(w.checkIn, w.checkOut)}
+                          {/* Pass */}
+                          <div className="flex md:items-center">
+                            <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
+                              Pass
                             </span>
-                          ) : (
-                            <span className="text-[10px] font-semibold text-[#FF6B1A] flex items-center gap-1">
-                              <span
-                                className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] inline-block"
-                                style={{
-                                  animation:
-                                    "pulse-dot 2s ease-in-out infinite",
-                                }}
-                              />
-                              Inside
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide"
+                              style={{
+                                color: passColor,
+                                background: `${passColor}15`,
+                                borderColor: `${passColor}40`,
+                              }}>
+                              {PASS_LABELS[w.passType]}
                             </span>
-                          )}
-                        </div>
+                          </div>
 
-                        {/* Processed by */}
-                        <div className="flex md:items-center">
-                          <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
-                            By
-                          </span>
-                          <span className="text-xs text-white/40 truncate">
-                            {staffName}
-                          </span>
-                        </div>
-
-                        {/* Action */}
-                        <div className="flex items-center">
-                          {!w.isCheckedOut ? (
-                            <button
-                              onClick={() => handleCheckOut(w.walkId)}
-                              className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-white/20 rounded-md transition-all cursor-pointer">
-                              Check Out
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-white/20 font-mono">
-                              {w.checkOut ? formatTime(w.checkOut) : "—"}
+                          {/* Amount */}
+                          <div className="flex md:items-center">
+                            <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
+                              Amount
                             </span>
-                          )}
+                            <span className="text-sm font-mono font-semibold text-[#FFB800]">
+                              ₱{w.amount}
+                            </span>
+                          </div>
+
+                          {/* Check-in time */}
+                          <div className="flex md:items-center">
+                            <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
+                              In
+                            </span>
+                            <span className="text-xs font-mono text-white/60">
+                              {formatTime(w.checkIn)}
+                            </span>
+                          </div>
+
+                          {/* Duration */}
+                          <div className="flex md:items-center">
+                            <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
+                              Duration
+                            </span>
+                            {w.isCheckedOut ? (
+                              <span className="text-xs font-mono text-white/40">
+                                {calcDuration(w.checkIn, w.checkOut)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold text-[#FF6B1A] flex items-center gap-1">
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] inline-block"
+                                  style={{
+                                    animation:
+                                      "pulse-dot 2s ease-in-out infinite",
+                                  }}
+                                />
+                                Inside
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Processed by */}
+                          <div className="flex md:items-center">
+                            <span className="text-xs text-white/40 md:hidden mr-2 w-16 shrink-0">
+                              By
+                            </span>
+                            <span className="text-xs text-white/40 truncate">
+                              {staffName}
+                            </span>
+                          </div>
+
+                          {/* Action */}
+                          <div className="flex items-center">
+                            {!w.isCheckedOut ? (
+                              <button
+                                onClick={() => handleCheckOut(w.walkId)}
+                                className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-white/20 rounded-md transition-all cursor-pointer">
+                                Check Out
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-white/20 font-mono">
+                                {w.checkOut ? formatTime(w.checkOut) : "—"}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })
                 )}
 
                 {/* Footer */}
@@ -723,9 +730,47 @@ export default function WalkInsPage() {
                       {todaySummary.total} walk-in
                       {todaySummary.total !== 1 ? "s" : ""} today
                     </span>
-                    <span className="text-sm font-mono font-bold text-[#FFB800]">
-                      Total: ₱{todaySummary.revenue.toLocaleString()}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      {todayWalkIns.length > TODAY_LIMIT && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-white/30 mr-1">
+                            {(todayPage - 1) * TODAY_LIMIT + 1}–
+                            {Math.min(
+                              todayPage * TODAY_LIMIT,
+                              todayWalkIns.length,
+                            )}{" "}
+                            of {todayWalkIns.length}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setTodayPage((p) => Math.max(1, p - 1))
+                            }
+                            disabled={todayPage === 1}
+                            className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                            ←
+                          </button>
+                          <button
+                            onClick={() =>
+                              setTodayPage((p) =>
+                                Math.min(
+                                  Math.ceil(todayWalkIns.length / TODAY_LIMIT),
+                                  p + 1,
+                                ),
+                              )
+                            }
+                            disabled={
+                              todayPage ===
+                              Math.ceil(todayWalkIns.length / TODAY_LIMIT)
+                            }
+                            className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                            →
+                          </button>
+                        </div>
+                      )}
+                      <span className="text-sm font-mono font-bold text-[#FFB800]">
+                        Total: ₱{todaySummary.revenue.toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -870,7 +915,7 @@ export default function WalkInsPage() {
                   return (
                     <div
                       key={w._id}
-                      className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors">
+                      className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
                       {/* Guest */}
                       <div className="flex items-center gap-3 min-w-0">
                         <div

@@ -114,6 +114,10 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
       setErrorMsg("Please enter a valid email address.");
       return;
     }
+    if (phone && phone.length !== 11) {
+      setErrorMsg("Phone number must be exactly 11 digits.");
+      return;
+    }
     if (!expiresAt) {
       setErrorMsg("Please set an expiry date.");
       return;
@@ -235,10 +239,23 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                setPhone(digits);
+              }}
               placeholder="09XX XXX XXXX"
-              className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+              maxLength={11}
+              className={`w-full bg-[#2a2a2a] border rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none transition-colors ${
+                phone && phone.length > 0 && phone.length !== 11
+                  ? "border-red-400/60 focus:border-red-400"
+                  : "border-white/10 focus:border-[#FF6B1A]"
+              }`}
             />
+            {phone && phone.length > 0 && phone.length !== 11 && (
+              <p className="text-red-400 text-[10px] mt-1">
+                Phone number must be 11 digits
+              </p>
+            )}
           </div>
 
           {/* Plan */}
@@ -273,7 +290,12 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
               Status <span className="text-[#FF6B1A]">*</span>
             </label>
             <div className="flex gap-2">
-              {(["active", "inactive"] as const).map((s) => (
+              {(
+                ["active", ...(mode === "edit" ? ["inactive"] : [])] as (
+                  | "active"
+                  | "inactive"
+                )[]
+              ).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatus(s)}
@@ -343,12 +365,19 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                   ₱
                 </span>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   value={amountPaid}
-                  onChange={(e) => setAmountPaid(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^0-9]/g, "");
+                    setAmountPaid(val);
+                  }}
                   placeholder={`Full amount auto-filled`}
-                  min={1}
-                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                  className={`w-full bg-[#2a2a2a] border rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none transition-colors ${
+                    amountPaid && !/^\d+$/.test(amountPaid)
+                      ? "border-red-400/60 focus:border-red-400"
+                      : "border-white/10 focus:border-[#FF6B1A]"
+                  }`}
                 />
               </div>
               {amountPaid && Number(amountPaid) > 0 && (
@@ -493,13 +522,14 @@ export default function MembersPage({
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPlan, setFilterPlan] = useState("");
   const [page, setPage] = useState(1);
-  const LIMIT = 15;
+  const LIMIT = 10;
 
   const [drawerMode, setDrawerMode] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | undefined>();
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [settleTarget, setSettleTarget] = useState<Member | null>(null);
   const [settleMethod, setSettleMethod] = useState<"cash" | "online">("cash");
+  const [settleAmount, setSettleAmount] = useState<string>("");
   const [settleLoading, setSettleLoading] = useState(false);
 
   const { showToast } = useToastStore();
@@ -530,6 +560,12 @@ export default function MembersPage({
     const id = setTimeout(fetchMembers, search ? 400 : 0);
     return () => clearTimeout(id);
   }, [fetchMembers, search]);
+
+  // Auto-refresh every 30s
+  useEffect(() => {
+    const id = setInterval(fetchMembers, 30000);
+    return () => clearInterval(id);
+  }, [fetchMembers]);
 
   useEffect(() => {
     setPage(1);
@@ -572,12 +608,17 @@ export default function MembersPage({
   };
 
   const handleSettle = async () => {
-    if (!settleTarget) return;
+    if (!settleTarget || settleLoading) return;
     setSettleLoading(true);
+    // Capture values and close modal immediately — prevents double-click duplicate
+    const target = settleTarget;
+    const method = settleMethod;
+    const amount = settleAmount ? Number(settleAmount) : undefined;
+    setSettleTarget(null);
+    setSettleAmount("");
     try {
-      const res = await paymentService.settle(settleTarget.gymId, settleMethod);
+      const res = await paymentService.settle(target.gymId, method, amount);
       showToast(res.message, "success");
-      setSettleTarget(null);
       fetchMembers();
     } catch (e) {
       const err = e as { response?: { data?: { message?: string } } };
@@ -696,7 +737,7 @@ export default function MembersPage({
               (h) => (
                 <div
                   key={h}
-                  className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
+                  className={`text-[10px] font-semibold uppercase tracking-widest text-white/30 ${h === "Actions" ? "text-right" : ""}`}>
                   {h}
                 </div>
               ),
@@ -762,7 +803,7 @@ export default function MembersPage({
               return (
                 <div
                   key={m.gymId}
-                  className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors">
+                  className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
                   {/* Member info */}
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
@@ -839,7 +880,17 @@ export default function MembersPage({
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end lg:justify-start">
+                    {/* Outstanding balance badge + settle button */}
+                    {m.balance > 0 && (
+                      <button
+                        onClick={() => setSettleTarget(m)}
+                        title="Settle outstanding balance"
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 hover:bg-amber-400/20 rounded-md transition-all cursor-pointer">
+                        ₱{m.balance.toLocaleString()} owed
+                      </button>
+                    )}
+
                     {/* Edit */}
                     <button
                       onClick={() => {
@@ -959,7 +1010,10 @@ export default function MembersPage({
           <>
             <div
               className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-              onClick={() => setSettleTarget(null)}>
+              onClick={() => {
+                setSettleTarget(null);
+                setSettleAmount("");
+              }}>
               <div
                 className="w-full max-w-xs bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
                 style={{ animation: "fadeScaleIn 0.2s ease" }}
@@ -997,9 +1051,56 @@ export default function MembersPage({
                     ))}
                   </div>
                 </div>
+                {/* Amount input */}
+                <div className="mb-4">
+                  <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                    Amount to Pay{" "}
+                    <span className="text-white/20">
+                      (leave blank for full)
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
+                      ₱
+                    </span>
+                    <input
+                      type="number"
+                      value={settleAmount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val || Number(val) <= (settleTarget?.balance ?? 0))
+                          setSettleAmount(val);
+                      }}
+                      placeholder={settleTarget?.balance.toLocaleString()}
+                      max={settleTarget?.balance}
+                      min={1}
+                      className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-amber-400 transition-colors"
+                    />
+                  </div>
+                  {settleAmount && Number(settleAmount) > 0 && settleTarget && (
+                    <div className="mt-1.5 text-[10px]">
+                      {Number(settleAmount) >= settleTarget.balance ? (
+                        <span className="text-emerald-400">
+                          ✓ Fully settled
+                        </span>
+                      ) : (
+                        <span className="text-amber-400">
+                          ₱
+                          {(
+                            settleTarget.balance - Number(settleAmount)
+                          ).toLocaleString()}{" "}
+                          will remain outstanding
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setSettleTarget(null)}
+                    onClick={() => {
+                      setSettleTarget(null);
+                      setSettleAmount("");
+                    }}
                     className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-xl transition-all cursor-pointer">
                     Cancel
                   </button>

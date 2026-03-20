@@ -202,7 +202,7 @@ export const deactivateStaff = async (req: Request, res: Response) => {
     const user = await User.findOneAndUpdate(
       { _id: req.params.id, role: "staff" },
       { isActive: false },
-      { new: true },
+      { returnDocument: "after" },
     ).select("name username isActive");
     if (!user)
       return res
@@ -221,7 +221,7 @@ export const reactivateStaff = async (req: Request, res: Response) => {
     const user = await User.findOneAndUpdate(
       { _id: req.params.id, role: "staff" },
       { isActive: true },
-      { new: true },
+      { returnDocument: "after" },
     ).select("name username isActive");
     if (!user)
       return res

@@ -26,6 +26,11 @@ import { SECURITY_CONFIG } from "./config/security";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust reverse proxy (Render, Railway, Nginx, Cloudflare)
+// Without this, all requests appear to come from the proxy IP
+// and everyone shares one rate limit bucket
+app.set("trust proxy", 1);
+
 // ============================================================
 // SECURITY LAYERS — ORDER MATTERS ⚠️
 // Apply security before routes so every request is filtered
