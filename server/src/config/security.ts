@@ -19,5 +19,6 @@ export const SECURITY_CONFIG = {
   ALLOWED_ORIGINS: [
     "http://localhost:5173", // Vite dev server
     "https://ironcore-gms.netlify.app",
+    "https://ironcore-gms.onrender.com",
   ],
 };
