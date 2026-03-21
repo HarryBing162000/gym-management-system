@@ -1,6 +1,6 @@
 # ⚡ IronCore GMS — Gym Management System
 
-A full-stack gym management system with role-based access, member management, walk-in tracking, owner settings, logo branding, and a public self-service kiosk.
+A full-stack gym management system with role-based access, member management, walk-in tracking, payments, business reports, owner settings, logo branding, and a public self-service kiosk.
 
 **Live URLs**
 - Frontend: https://ironcore-gms.onrender.com
@@ -31,10 +31,12 @@ A full-stack gym management system with role-based access, member management, wa
 
 IronCore GMS is a web-based gym management system designed to handle day-to-day operations including:
 
-- Member registration, check-in, and check-out
+- Member registration, check-in/check-out, and lifecycle management
 - Walk-in pass management (Regular, Student, and Couple pricing)
 - Staff management and accountability tracking
-- Revenue tracking and payment records
+- Payment recording with cash/online split, partial payments, and balance settlement
+- Business reports — revenue, member loyalty, walk-in analytics, staff performance
+- PDF export of reports opened as a clean standalone printable document
 - Owner settings — change password, email, gym name, address, and logo
 - Gym logo upload via Cloudinary with dynamic branding across all pages
 - A public self-service kiosk for member and walk-in check-in/check-out
@@ -64,13 +66,36 @@ Every registered member is automatically assigned a unique `GYM-XXXX` ID (e.g., 
 
 Walk-in passes are assigned a daily-resetting `WALK-XXX` ID (e.g., `WALK-001`). IDs reset to `WALK-001` each new day. Walk-ins can be checked out by staff at the counter or by the member themselves at the kiosk.
 
-### Gym Settings & Branding
+### Payment System
 
-The owner can update gym name, address, and logo from the Settings modal. Changes are stored in the database and reflected immediately across all pages — sidebar, login page, and kiosk header.
+All membership payments are recorded with:
+- Payment method (Cash / Online)
+- Payment type (New Member / Renewal / Manual / Balance Settlement)
+- Partial payment support — member gets access, outstanding balance is tracked
+- Staff accountability — every payment is linked to the staff who processed it
+- Grand total aggregation — backend returns total across all pages, not just current page
 
 ### Revenue Tracking
 
-All walk-in payments and member payments are recorded with timestamps, staff accountability, and pass type. The owner dashboard provides a daily revenue summary.
+Revenue is tracked across two streams:
+- **Membership payments** — recorded in the Payments collection
+- **Walk-in revenue** — recorded per walk-in session
+
+Both streams are visible in the Reports page with period filters.
+
+### Reports
+
+The Reports page provides business intelligence for the owner:
+- **Revenue Report** — totals, cash vs online split, daily trend chart, revenue source comparison (last 6 weeks), payment type breakdown
+- **Member Report** — active/inactive/expired counts, member growth chart (6 months), loyalty duration ranking, outstanding balances, new members in period
+- **Walk-in Report** — pass type breakdown with revenue per type
+- **Staff Performance** — payments processed, revenue collected, and walk-ins registered per staff member
+
+**PDF Export** opens a clean standalone HTML document in a new tab with all charts rendered as SVG and A4 page margins set — sidebar, filters, and navigation are completely absent from the PDF.
+
+### Gym Settings & Branding
+
+The owner can update gym name, address, and logo from the Settings modal. Changes are stored in the database and reflected immediately across all pages — sidebar, login page, and kiosk header.
 
 ---
 
@@ -78,19 +103,22 @@ All walk-in payments and member payments are recorded with timestamps, staff acc
 
 ### Owner
 - Full system access
-- Manage members (create, edit, view, delete)
-- View all walk-ins (today and history)
-- View payments and revenue
+- Manage members (create, edit, deactivate, reactivate)
+- View all walk-ins (today with live pulse + history with search/filter)
+- View payments with grand total, filters, date range shortcuts
+- View and export business reports (Revenue, Members, Walk-ins, Staff)
 - Manage staff accounts (create, activate, deactivate)
-- Access daily revenue summaries
+- Settle outstanding member balances
 - Update account settings (password, email)
 - Update gym info (name, address, logo)
+- Owner dashboard with combined revenue, at-risk members, members inside now
 
 ### Staff
 - Limited access — day-to-day operations only
 - Register walk-in customers
 - Check in and check out members
 - Search members by name or GYM-ID
+- View walk-in desk and member check-in panel
 - Update own password via Settings
 - Cannot access owner-level reports or settings
 
@@ -109,43 +137,53 @@ All walk-in payments and member payments are recorded with timestamps, staff acc
 
 #### Logging In
 1. Go to https://ironcore-gms.onrender.com
-2. Enter your **email address** in the Email or Username field
+2. Enter your **email address** in the login field
 3. Enter your password
 4. Click **Enter the Gym**
 
 #### Managing Members
 1. Navigate to **Members** in the sidebar
 2. Click **Add Member** to register a new gym member
-3. Fill in name, email, phone, plan, and membership dates
-4. The system auto-generates a `GYM-XXXX` ID
-5. Use the search bar to find members by name, email, or GYM-ID
-6. Click a member to view details, edit, or delete
+3. Fill in name, email (optional), phone (optional), plan, expiry date, and payment method
+4. Optionally enter a partial payment amount — outstanding balance is tracked
+5. The system auto-generates a `GYM-XXXX` ID
+6. Use the search bar and filters (Status / Plan) to find members
+7. Click the edit icon to update member details
+8. Click the amber **₱X owed** badge to settle a member's outstanding balance
+9. Click the deactivate icon (owner only) to soft-delete a member
 
 #### Viewing Walk-Ins
-1. Navigate to **Walk-Ins** in the sidebar
-2. The **Today** tab shows all walk-ins for the current day with live status
-3. The **History** tab shows past walk-in records
-4. Summary cards show total walk-ins, revenue, and checked-out count
+1. Navigate to **Walk-ins** in the sidebar
+2. The **Today** tab shows all walk-ins with live status, duration, and staff accountability
+3. The **History** tab allows search by guest name and filter by This Week / This Month / Custom range
+4. Summary cards show revenue, still inside count, checked-out count, and pass breakdown
+5. History includes a Status column — Checked Out (green) or Inside (orange)
 
-#### Managing Staff
-1. Navigate to **Staff** in the sidebar
-2. Add new staff accounts with username and password
-3. Activate or deactivate existing staff members
-
-#### Viewing Payments
+#### Managing Payments
 1. Navigate to **Payments** in the sidebar
-2. View all payment records with date, amount, type, and staff accountability
+2. Filter by method (Cash/Online), type, outstanding only, or date range
+3. Date range shortcuts — Today, This Week, This Month
+4. Grand total shows the sum of all filtered records across all pages
+5. Click **Log Payment** to manually record a payment for any member
+
+#### Viewing Reports
+1. Navigate to **Reports** in the sidebar
+2. Select a period: Today / This Week / This Month / Custom range
+3. All 4 sections load independently — Revenue, Members, Walk-ins, Staff
+4. Click **Export PDF** to open a clean printable report in a new tab
+5. Use the browser's Print dialog (Ctrl+P / Cmd+P) to save as PDF
+
+#### Settling Outstanding Balances
+1. In **Members**, find a member with an amber **₱X owed** badge
+2. Click the badge to open the Settle Balance modal
+3. Choose Cash or Online, optionally enter a partial amount
+4. Click **Settle ✓** — balance is updated immediately
 
 #### Owner Settings
-1. Click the **avatar** in the top right (desktop) or the **profile chip** in the sidebar (mobile)
+1. Click the **avatar** in the top right or the **profile chip** in the sidebar
 2. Click **Settings** from the dropdown
-3. **Account tab:**
-   - Change your password (requires current password)
-   - Change your email (requires password confirmation)
-4. **Gym Info tab:**
-   - Upload a gym logo (JPG, PNG, SVG, WebP — max 2MB)
-   - Update gym name and address
-   - Remove existing logo
+3. **Account tab:** Change password or email (requires current password)
+4. **Gym Info tab:** Upload logo, update gym name and address, remove existing logo
 
 ---
 
@@ -153,35 +191,25 @@ All walk-in payments and member payments are recorded with timestamps, staff acc
 
 #### Logging In
 1. Go to https://ironcore-gms.onrender.com
-2. Enter your **username** in the Email or Username field
+2. Enter your **username** (no @) in the login field
 3. Enter your password
 4. Click **Enter the Gym**
 
 #### Registering a Walk-In
 1. Go to **Walk-In Desk** in the dashboard
-2. Enter the customer's name
-3. Select pass type: **Regular**, **Student**, or **Couple**
-4. Click **Register Walk-In**
-5. A `WALK-XXX` ID is assigned and receipt is shown
-6. Inform the customer of their WALK-ID for kiosk self-checkout
+2. Enter the customer's full name and optional phone number
+3. Select pass type: **Regular (₱150)**, **Student (₱100)**, or **Couple (₱250)**
+4. Click **Register**
+5. A `WALK-XXX` ID is assigned — give this to the customer for kiosk self-checkout
 
-#### Checking In a Member
+#### Checking In / Out a Member
 1. Go to **Member Check-In** in the dashboard
 2. Search by name or GYM-ID
 3. Select the member from results
-4. Click **Check In**
-
-#### Checking Out a Member
-1. Search for the member by name or GYM-ID
-2. Click **Check Out**
-
-#### Walk-In Counter Checkout
-1. Go to the **Walk-In Checkout** tab
-2. Enter the customer's WALK-XXX ID
-3. Click **Check Out**
+4. Click **Check In** or **Check Out**
 
 #### Staff Settings
-1. Click the **avatar** in the top right (desktop) or **profile chip** in sidebar (mobile)
+1. Click the **avatar** in the top right
 2. Click **Settings**
 3. Change your password (requires current password)
 
@@ -189,31 +217,24 @@ All walk-in payments and member payments are recorded with timestamps, staff acc
 
 ### Kiosk (Public)
 
-The kiosk is a public self-service terminal at https://ironcore-gms.onrender.com/kiosk
+The kiosk is at: https://ironcore-gms.onrender.com/kiosk
 
-#### Member Self Check-In
+#### Member Self Check-In / Check-Out
 1. Type your name or GYM-ID in the search box
-2. Select yourself from the results list (if multiple matches)
-3. Click **Check In**
-4. Confirmation message appears and screen resets after 8 seconds
-
-#### Member Self Check-Out
-1. Type your name or GYM-ID in the search box
-2. Select yourself from the results
-3. Click **Check Out**
+2. Select yourself from the results if multiple matches appear
+3. Click **Check In** or **Check Out**
+4. Confirmation appears and screen resets after 8 seconds
 
 #### Walk-In Self Check-Out
-1. Type your WALK-XXX ID (given to you by staff at registration)
-2. Your pass details will appear
-3. Click **Check Out**
-4. Duration summary is shown
+1. Type your WALK-XXX ID (given by staff at registration)
+2. Your pass details appear
+3. Click **Check Out** — duration summary is shown
 
 #### Kiosk Rules
-- Expired or inactive memberships are blocked — see front desk
-- Already checked in members cannot check in again
-- Already checked out walk-ins cannot check out again
+- Expired or inactive memberships are blocked
+- Already checked-in members cannot check in again
+- Already checked-out walk-ins cannot check out again
 - Screen auto-resets after 8 seconds of inactivity
-- 30 second idle timeout after a result is shown with no action
 
 ---
 
@@ -226,7 +247,7 @@ The kiosk is a public self-service terminal at https://ironcore-gms.onrender.com
 | TypeScript | 5.9 | Type safety |
 | Vite | 6 | Build tool |
 | Tailwind CSS | 4 | Styling |
-| Zustand | 5 | State management (auth + gym settings) |
+| Zustand | 5 | State management (auth + gym settings + toast) |
 | TanStack Query | 5 | Server state / data fetching |
 | React Router | 7 | Client-side routing |
 | Axios | 1.x | HTTP client |
@@ -334,22 +355,33 @@ npm run dev
 ### Members
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| GET | `/api/members` | JWT | List all members |
-| POST | `/api/members` | JWT (Owner) | Create member |
+| GET | `/api/members` | JWT | List members (paginated, filterable) |
+| POST | `/api/members` | JWT | Create member + auto-log payment |
 | GET | `/api/members/:gymId` | JWT | Get member by GYM-ID |
-| PUT | `/api/members/:gymId` | JWT (Owner) | Update member |
-| DELETE | `/api/members/:gymId` | JWT (Owner) | Delete member |
+| PATCH | `/api/members/:gymId` | JWT | Update member details |
+| PATCH | `/api/members/:gymId/deactivate` | JWT (Owner) | Soft-delete member |
+| PATCH | `/api/members/:gymId/reactivate` | JWT (Owner) | Restore member |
+| PATCH | `/api/members/:gymId/checkin` | JWT | Staff desk check-in |
+| PATCH | `/api/members/:gymId/checkout` | JWT | Staff desk check-out |
 
 ### Walk-Ins
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| POST | `/api/walkin/register` | JWT (Staff) | Register walk-in |
-| GET | `/api/walkin/today` | JWT | Today's walk-ins |
-| GET | `/api/walkin/history` | JWT (Owner) | Walk-in history |
-| PATCH | `/api/walkin/checkout` | JWT (Staff) | Staff counter checkout |
-| GET | `/api/walkin/summary` | JWT (Owner) | Daily revenue summary |
+| POST | `/api/walkin/register` | JWT | Register walk-in |
+| GET | `/api/walkin/today` | JWT | Today's walk-ins + summary |
+| GET | `/api/walkin/yesterday` | JWT | Yesterday's revenue for comparison |
+| GET | `/api/walkin/history` | JWT (Owner) | Walk-in history with filters |
+| PATCH | `/api/walkin/:walkId/checkout` | JWT | Staff counter checkout |
 
-### Kiosk (Machine Auth — X-Kiosk-Token required)
+### Payments
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| GET | `/api/payments` | JWT (Owner) | List payments (paginated + grandTotal) |
+| POST | `/api/payments` | JWT | Log manual payment |
+| GET | `/api/payments/summary` | JWT (Owner) | Today / week / month revenue summary |
+| POST | `/api/payments/:gymId/settle` | JWT | Settle outstanding member balance |
+
+### Kiosk (X-Kiosk-Token required)
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/kiosk/search?q=` | Search members and walk-ins |
@@ -376,7 +408,7 @@ IronCore GMS implements multiple security layers:
 - **Kiosk Token Auth** — Public kiosk routes protected by machine-level `X-Kiosk-Token` header using timing-safe comparison
 - **bcrypt** — Passwords hashed with 12 salt rounds
 - **Zod Validation** — All inputs validated against strict schemas
-- **NoSQL Injection Protection** — MongoDB operators stripped from all inputs
+- **NoSQL Injection Protection** — MongoDB operators stripped from all inputs via manual sanitizer (replaces express-mongo-sanitize which is incompatible with Express 5)
 - **HPP Protection** — HTTP parameter pollution prevention
 - **Input Sanitization** — XSS characters stripped from all request bodies
 - **File Upload Validation** — Logo uploads restricted to image types and 2MB max size
@@ -419,28 +451,57 @@ IronCore GMS implements multiple security layers:
 
 ## Changelog
 
-### Latest Session
-- ✅ Migrated frontend from Netlify to Render Static Site (free, no build minute limits)
-- ✅ Added Owner Settings modal — change password, email, gym name, address
-- ✅ Added Staff Settings modal — change password only
-- ✅ Profile dropdown in top-right avatar (desktop) and sidebar chip (mobile)
-- ✅ Gym logo upload via Cloudinary — dynamic branding on login page and sidebars
-- ✅ Unified login page — auto-detects Owner (email) or Staff (username)
-- ✅ Dynamic gym name shown across all pages from database
-- ✅ Dynamic document title updates with gym name
-- ✅ KioskPage fully refactored from inline styles to Tailwind CSS
-- ✅ Responsive viewport constraints — Mobile (320px+), Tablet (640px+), Desktop (1024px+)
-- ✅ Bottom nav bar removed — hamburger sidebar handles all navigation on mobile
-- ✅ Page title removed from header — replaced with date and Live/Staff badge
-- ✅ Browser native password eye icon hidden — custom SHOW/HIDE toggle used
-- ✅ Removed `.env` files and `node_modules` from Git tracking
-- ✅ Rotated JWT secret, Kiosk secret, and MongoDB password
-- ✅ Set `NODE_ENV=production` on Render
-- ✅ Tightened CORS to Render frontend URL only
-- ✅ Rate limiting confirmed working (429 on brute force)
-- ✅ UptimeRobot monitoring both frontend and backend every 5 minutes
-- ✅ Settings model added to database for gym configuration persistence
-- ✅ `gymStore.ts` Zustand store for global gym settings state
+### Current Session — UI/UX Audit + Reports Page
+
+#### Pages Rewritten
+- ✅ **WalkInsPage** — unified filter card, search in history, dynamic summary label, Status column, pass breakdown labels, `< 1m` duration fix, page number pagination, extracted `Pagination` and `WalkInRow` components
+- ✅ **MembersPage** — unified filter card with Clear All, zebra striping, hover highlight, table footer with record count, page number pagination, consistent action button sizes
+- ✅ **PaymentsPage** — grand total fixed (backend aggregation via `Payment.aggregate`), filter card with date shortcuts, page number pagination, table footer
+- ✅ **OwnerDashboard** — gym name from `gymStore`, quick action buttons, Members Inside Now grid, Outstanding Balances card, At-Risk Members green state, clickable stat cards
+- ✅ **ReportsPage** — brand new page with 4 sections, 3 CSS-only charts, PDF export
+
+#### Reports Page — Features
+- ✅ Revenue Report — totals, cash vs online split bar, range-aware dual bar chart (revenue + walk-ins), revenue source comparison last 6 weeks, payment type breakdown with bars
+- ✅ Member Report — active/inactive/expired counts, 6-month growth chart, outstanding balances list, loyalty duration ranking with progress bars, new members in selected period
+- ✅ Walk-in Report — total, revenue, pass type breakdown with percentage bars
+- ✅ Staff Performance — ranked table with mini revenue bar per staff, totals row
+- ✅ Combined revenue hero card — most important number at the top
+- ✅ Two-column layout on desktop — Revenue + Member, Walk-in + Staff
+- ✅ Per-section independent loading and error states
+- ✅ Date range filter — Today / This Week / This Month / Custom with day count
+- ✅ New Members count and list respects selected date range (not hardcoded "this month")
+- ✅ PDF export — standalone HTML popup with inline SVG charts, A4 page margins, no sidebar
+
+#### Backend Fix
+- ✅ `paymentController.getPayments` — added `Payment.aggregate` to return `grandTotal` alongside paginated results
+
+#### Bug Fixes
+- ✅ Babel JSX parse error — `.reduce<(number | "...")[]>` generic syntax breaks Babel; replaced with parameter type annotation + cast
+- ✅ JSX structure error — sibling elements outside fragment wrapper in Today tab; extracted `Pagination` component to prevent nesting issues
+- ✅ `withBalance` unused state removed from ReportsPage
+- ✅ Walk-in revenue estimate in PDF uses weighted average price per pass type instead of hardcoded ₱150
+
+---
+
+### Previous Session — Security & Deployment
+- ✅ Migrated frontend from Netlify to Render Static Site
+- ✅ Owner and Staff Settings modals (password, email, gym name, address, logo)
+- ✅ Gym logo upload via Cloudinary with dynamic branding
+- ✅ Unified login page — auto-detects Owner vs Staff
+- ✅ Dynamic document title with gym name
+- ✅ KioskPage fully redesigned — centered layout, clock hero, inline styles for Tailwind v4 compatibility
+- ✅ Global Zustand toast notification system
+- ✅ Login success and logout confirm modals
+- ✅ `StaffDashboard` rewired to live API with debounced member search
+- ✅ Walk-in checkout tab added to `WalkInDesk`
+- ✅ Responsive viewport setup with `@source` fix for Tailwind v4
+- ✅ Removed `.env` files from Git, rotated all secrets
+- ✅ Rate limiting, CORS, security headers confirmed in production
+- ✅ UptimeRobot monitoring both URLs every 5 minutes
+- ✅ Manual NoSQL sanitizer replacing express-mongo-sanitize (Express 5 incompatibility)
+- ✅ Hard duplicate blocking on member name, email, phone
+- ✅ `User.findOne({ email: undefined })` false-match bug fixed
+- ✅ GYM-ID search regex bug fixed (exact-match → starts-with pattern)
 
 ---
 
