@@ -48,6 +48,7 @@ export interface PaymentsResponse {
   page: number;
   totalPages: number;
   payments: Payment[];
+  grandTotal?: number;
 }
 
 export const paymentService = {

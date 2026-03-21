@@ -125,20 +125,34 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
       filter.createdAt = dateFilter;
     }
 
-    const [payments, total] = await Promise.all([
+    const [payments, total, grandTotalResult] = await Promise.all([
       Payment.find(filter)
         .populate("processedBy", "name username role")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum),
       Payment.countDocuments(filter),
+      Payment.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: null,
+            grandTotal: {
+              $sum: { $ifNull: ["$amountPaid", "$amount"] },
+            },
+          },
+        },
+      ]),
     ]);
+
+    const grandTotal = grandTotalResult[0]?.grandTotal ?? 0;
 
     return res.status(200).json({
       success: true,
       total,
       page: pageNum,
       totalPages: Math.ceil(total / limitNum),
+      grandTotal, // ← new field
       payments,
     });
   } catch (err: unknown) {

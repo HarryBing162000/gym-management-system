@@ -2,14 +2,15 @@
  * MembersPage.tsx
  * IronCore GMS — Member Management
  *
- * Features:
- *   - Paginated member table with search + filter
- *   - Slide-in drawer for add / edit (rendered via portal)
- *   - Inline status badges with expiry awareness
- *   - Deactivate / reactivate (owner only)
- *   - Real API via memberService
- *
- * File location: client/src/pages/MembersPage.tsx
+ * UX Improvements:
+ *   - Page number buttons in pagination
+ *   - Zebra striping + hover highlight on rows
+ *   - Unified filter card (search + status + plan in one row)
+ *   - Table header has subtle background
+ *   - Fixed "In Gym" column alignment
+ *   - Filter result count shown when filters active
+ *   - Actions column consistent alignment
+ *   - Cleaner overall spacing
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -73,7 +74,6 @@ interface DrawerProps {
   member?: Member;
   onClose: () => void;
   onSaved: (mode: "add" | "edit") => void;
-  isOwner?: boolean;
 }
 
 function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
@@ -92,7 +92,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "online">("cash");
   const [amountPaid, setAmountPaid] = useState<string>("");
 
-  // Auto-set expiry based on plan when adding
   useEffect(() => {
     if (mode === "add" && plan) {
       const base = new Date();
@@ -161,7 +160,7 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
     }
   };
 
-  const drawerContent = (
+  return createPortal(
     <>
       <style>{`
         @keyframes slideInRight {
@@ -183,7 +182,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
       {/* Drawer */}
       <div
         className="fixed top-0 right-0 h-full w-full max-w-md bg-[#1e1e1e] border-l border-white/10 z-50 flex flex-col shadow-2xl"
-        style={{ animation: "slideInRight 0.25s ease" }}>
+        style={{ animation: "slideInRight 0.25s ease" }}
+      >
         {/* Header */}
         <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between">
           <div>
@@ -196,7 +196,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all flex items-center justify-center text-sm cursor-pointer">
+            className="w-8 h-8 rounded-lg border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all flex items-center justify-center text-sm cursor-pointer"
+          >
             ✕
           </button>
         </div>
@@ -272,7 +273,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                     plan === p
                       ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
                       : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
-                  }`}>
+                  }`}
+                >
                   <div className="text-xs font-bold uppercase tracking-wide">
                     {p}
                   </div>
@@ -305,7 +307,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                         ? "border-emerald-400 bg-emerald-400/10 text-emerald-400"
                         : "border-amber-400 bg-amber-400/10 text-amber-400"
                       : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                  }`}>
+                  }`}
+                >
                   {s}
                 </button>
               ))}
@@ -326,7 +329,7 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             />
           </div>
 
-          {/* Payment Method — only when registering */}
+          {/* Payment Method — add only */}
           {mode === "add" && (
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
@@ -343,7 +346,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                           ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
                           : "border-blue-400 bg-blue-400/10 text-blue-400"
                         : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                    }`}>
+                    }`}
+                  >
                     {m === "cash" ? "💵 Cash" : "🏦 Online"}
                   </button>
                 ))}
@@ -351,14 +355,12 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             </div>
           )}
 
-          {/* Partial payment amount — only when registering */}
+          {/* Partial payment — add only */}
           {mode === "add" && (
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Amount Paid{" "}
-                <span className="text-white/20">
-                  (leave blank for full payment)
-                </span>
+                <span className="text-white/20">(leave blank for full)</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
@@ -372,12 +374,8 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                     const val = e.target.value.replace(/[^0-9]/g, "");
                     setAmountPaid(val);
                   }}
-                  placeholder={`Full amount auto-filled`}
-                  className={`w-full bg-[#2a2a2a] border rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none transition-colors ${
-                    amountPaid && !/^\d+$/.test(amountPaid)
-                      ? "border-red-400/60 focus:border-red-400"
-                      : "border-white/10 focus:border-[#FF6B1A]"
-                  }`}
+                  placeholder="Full amount auto-filled"
+                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
                 />
               </div>
               {amountPaid && Number(amountPaid) > 0 && (
@@ -387,13 +385,7 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                     ₱
                     {Math.max(
                       0,
-                      (plan === "Monthly"
-                        ? 800
-                        : plan === "Quarterly"
-                          ? 2100
-                          : plan === "Annual"
-                            ? 7500
-                            : 500) - Number(amountPaid),
+                      PLAN_PRICES[plan] - Number(amountPaid),
                     ).toLocaleString()}
                   </span>
                 </div>
@@ -413,13 +405,15 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
         <div className="px-6 py-4 border-t border-white/10 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white hover:border-white/20 text-sm font-semibold rounded-lg transition-all cursor-pointer">
+            className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white hover:border-white/20 text-sm font-semibold rounded-lg transition-all cursor-pointer"
+          >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="flex-1 py-2.5 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+            className="flex-1 py-2.5 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+          >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -433,10 +427,9 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
-
-  return createPortal(drawerContent, document.body);
 }
 
 // ─── Confirm Dialog ───────────────────────────────────────────────────────────
@@ -458,7 +451,7 @@ function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const dialogContent = (
+  return createPortal(
     <>
       <div
         className="fixed inset-0 bg-black/70 z-50 backdrop-blur-sm"
@@ -469,13 +462,15 @@ function ConfirmDialog({
         style={{
           transform: "translate(-50%, -50%)",
           animation: "fadeScaleIn 0.2s ease",
-        }}>
+        }}
+      >
         <div className="text-white font-bold text-base mb-2">{title}</div>
         <div className="text-white/50 text-sm mb-6">{message}</div>
         <div className="flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer">
+            className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer"
+          >
             Cancel
           </button>
           <button
@@ -484,15 +479,15 @@ function ConfirmDialog({
               danger
                 ? "bg-red-500 hover:bg-red-400 text-white"
                 : "bg-emerald-500 hover:bg-emerald-400 text-white"
-            }`}>
+            }`}
+          >
             {confirmLabel}
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
-
-  return createPortal(dialogContent, document.body);
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -503,7 +498,7 @@ type ConfirmState = {
 } | null;
 
 interface MembersPageProps {
-  forceStaffView?: boolean; // when true, hides owner-only actions
+  forceStaffView?: boolean;
 }
 
 export default function MembersPage({
@@ -534,6 +529,8 @@ export default function MembersPage({
 
   const { showToast } = useToastStore();
 
+  const hasFilters = search || filterStatus || filterPlan;
+
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchMembers = useCallback(async () => {
     setLoading(true);
@@ -561,7 +558,6 @@ export default function MembersPage({
     return () => clearTimeout(id);
   }, [fetchMembers, search]);
 
-  // Auto-refresh every 30s
   useEffect(() => {
     const id = setInterval(fetchMembers, 30000);
     return () => clearInterval(id);
@@ -610,7 +606,6 @@ export default function MembersPage({
   const handleSettle = async () => {
     if (!settleTarget || settleLoading) return;
     setSettleLoading(true);
-    // Capture values and close modal immediately — prevents double-click duplicate
     const target = settleTarget;
     const method = settleMethod;
     const amount = settleAmount ? Number(settleAmount) : undefined;
@@ -640,18 +635,36 @@ export default function MembersPage({
           to   { transform: translateX(0); opacity: 1; }
         }
         @keyframes fadeScaleIn {
-          from { opacity: 0; }
-          to   { opacity: 1; }
+          from { opacity: 0; transform: scale(0.96); }
+          to   { opacity: 1; transform: scale(1); }
         }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .member-row:nth-child(even) { background: rgba(255,255,255,0.012); }
+        .member-row:hover { background: rgba(255,107,26,0.04) !important; }
       `}</style>
 
-      <div className="max-w-7xl mx-auto pb-24 lg:pb-6 space-y-4">
+      <div
+        className="max-w-7xl mx-auto pb-24 lg:pb-6 space-y-4"
+        style={{ animation: "fadeIn 0.2s ease" }}
+      >
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-white">Members</h2>
             <p className="text-xs text-white/30 mt-0.5">
-              {total} member{total !== 1 ? "s" : ""} registered
+              {loading ? (
+                "Loading..."
+              ) : (
+                <>
+                  {total} member{total !== 1 ? "s" : ""} registered
+                  {hasFilters && !loading && (
+                    <span className="ml-1.5 text-[#FF6B1A]/60">(filtered)</span>
+                  )}
+                </>
+              )}
             </p>
           </div>
           <button
@@ -659,98 +672,124 @@ export default function MembersPage({
               setDrawerMode("add");
               setEditTarget(undefined);
             }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer">
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer"
+          >
             <span className="text-base leading-none">+</span>
             Add Member
           </button>
         </div>
 
-        {/* ── Filters ── */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
-              width="14"
-              height="14"
-              viewBox="0 0 18 18"
-              fill="none">
-              <circle
-                cx="8"
-                cy="8"
-                r="5.5"
-                stroke="#FF6B1A"
-                strokeWidth="1.5"
+        {/* ── Filters — unified card ── */}
+        <div className="bg-[#212121] border border-white/10 rounded-xl p-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            {/* Search */}
+            <div className="relative flex-1">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
+                width="14"
+                height="14"
+                viewBox="0 0 18 18"
+                fill="none"
+              >
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="5.5"
+                  stroke="#FF6B1A"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M12.5 12.5L16 16"
+                  stroke="#FF6B1A"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name, email, or GYM-ID..."
+                className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-9 pr-8 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
               />
-              <path
-                d="M12.5 12.5L16 16"
-                stroke="#FF6B1A"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, email, or GYM-ID..."
-              className="w-full bg-[#212121] border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-            />
-            {search && (
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-xs cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Status filter */}
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="expired">Expired</option>
+            </select>
+
+            {/* Plan filter */}
+            <select
+              value={filterPlan}
+              onChange={(e) => setFilterPlan(e.target.value)}
+              className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="">All Plans</option>
+              {PLANS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+
+            {/* Clear all */}
+            {hasFilters && (
               <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-xs cursor-pointer">
-                ✕
+                onClick={() => {
+                  setSearch("");
+                  setFilterStatus("");
+                  setFilterPlan("");
+                }}
+                className="px-3 py-2.5 text-xs text-red-400 hover:text-red-300 border border-red-400/20 hover:border-red-400/40 rounded-lg transition-all cursor-pointer whitespace-nowrap"
+              >
+                Clear all
               </button>
             )}
           </div>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-[#212121] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}>
-            <option value="">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="expired">Expired</option>
-          </select>
-
-          <select
-            value={filterPlan}
-            onChange={(e) => setFilterPlan(e.target.value)}
-            className="bg-[#212121] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}>
-            <option value="">All Plans</option>
-            {PLANS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
         </div>
 
         {/* ── Table ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
-          {/* Table header */}
-          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-white/10">
+          {/* Table header — with background */}
+          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             {["Member", "Plan", "Status", "Expires", "In Gym", "Actions"].map(
               (h) => (
                 <div
                   key={h}
-                  className={`text-[10px] font-semibold uppercase tracking-widest text-white/30 ${h === "Actions" ? "text-right" : ""}`}>
+                  className="text-[10px] font-semibold uppercase tracking-widest text-white/30"
+                >
                   {h}
                 </div>
               ),
             )}
           </div>
 
-          {/* Loading skeletons */}
+          {/* Loading */}
           {loading && (
             <div>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-4 px-5 py-4 border-b border-white/5 last:border-0">
+                  className="flex items-center gap-4 px-5 py-4 border-b border-white/5 last:border-0"
+                >
                   <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse shrink-0" />
                   <div className="flex-1 space-y-1.5">
                     <div className="h-3 w-32 bg-white/5 rounded animate-pulse" />
@@ -772,13 +811,14 @@ export default function MembersPage({
               <div className="text-red-400 text-sm mb-3">{fetchError}</div>
               <button
                 onClick={fetchMembers}
-                className="text-xs text-[#FF6B1A] hover:underline cursor-pointer">
+                className="text-xs text-[#FF6B1A] hover:underline cursor-pointer"
+              >
                 Try again
               </button>
             </div>
           )}
 
-          {/* Empty state */}
+          {/* Empty */}
           {!loading && !fetchError && members.length === 0 && (
             <div className="px-5 py-16 text-center">
               <div className="text-4xl mb-3 opacity-20">◉</div>
@@ -786,14 +826,14 @@ export default function MembersPage({
                 No members found
               </div>
               <div className="text-white/20 text-xs mt-1">
-                {search || filterStatus || filterPlan
+                {hasFilters
                   ? "Try adjusting your filters"
                   : 'Click "Add Member" to register your first member'}
               </div>
             </div>
           )}
 
-          {/* Member rows */}
+          {/* Member rows — zebra striping via CSS */}
           {!loading &&
             !fetchError &&
             members.map((m) => {
@@ -803,7 +843,8 @@ export default function MembersPage({
               return (
                 <div
                   key={m.gymId}
-                  className="grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+                  className="member-row grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
+                >
                   {/* Member info */}
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
@@ -840,7 +881,8 @@ export default function MembersPage({
                       Status
                     </span>
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${STATUS_STYLES[m.status]}`}>
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${STATUS_STYLES[m.status]}`}
+                    >
                       {m.status}
                     </span>
                   </div>
@@ -852,7 +894,8 @@ export default function MembersPage({
                     </span>
                     <div>
                       <div
-                        className={`text-xs font-mono ${expiringSoon ? "text-amber-400" : days < 0 ? "text-red-400" : "text-white/50"}`}>
+                        className={`text-xs font-mono ${expiringSoon ? "text-amber-400" : days < 0 ? "text-red-400" : "text-white/50"}`}
+                      >
                         {formatDate(m.expiresAt)}
                       </div>
                       {expiringSoon && (
@@ -868,25 +911,26 @@ export default function MembersPage({
                     </div>
                   </div>
 
-                  {/* Check-in */}
+                  {/* In Gym — fixed alignment */}
                   <div className="flex lg:items-center">
                     <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       In gym
                     </span>
                     <span
-                      className={`lg:ml-4 md:ml-3 sm:ml-0 text-[10px] font-semibold ${m.checkedIn ? "text-[#FF6B1A]" : "text-white/20"}`}>
+                      className={`text-[10px] font-semibold ${m.checkedIn ? "text-[#FF6B1A]" : "text-white/20"}`}
+                    >
                       {m.checkedIn ? "● Inside" : "○ Away"}
                     </span>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1.5 flex-wrap justify-end lg:justify-start">
-                    {/* Outstanding balance badge + settle button */}
+                  {/* Actions — consistent alignment */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Outstanding balance */}
                     {m.balance > 0 && (
                       <button
                         onClick={() => setSettleTarget(m)}
-                        title="Settle outstanding balance"
-                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 hover:bg-amber-400/20 rounded-md transition-all cursor-pointer">
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 hover:bg-amber-400/20 rounded-md transition-all cursor-pointer"
+                      >
                         ₱{m.balance.toLocaleString()} owed
                       </button>
                     )}
@@ -898,17 +942,19 @@ export default function MembersPage({
                         setDrawerMode("edit");
                       }}
                       title="Edit member"
-                      className="p-1.5 text-white/50 hover:text-blue-400 border border-white/10 hover:border-blue-400/40 rounded-md transition-all cursor-pointer">
+                      className="p-1.5 text-white/50 hover:text-blue-400 border border-white/10 hover:border-blue-400/40 rounded-md transition-all cursor-pointer"
+                    >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
+                        width="14"
+                        height="14"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
                         strokeLinecap="round"
-                        strokeLinejoin="round">
+                        strokeLinejoin="round"
+                      >
                         <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                       </svg>
                     </button>
@@ -921,17 +967,19 @@ export default function MembersPage({
                             setConfirmState({ member: m, action: "deactivate" })
                           }
                           title="Deactivate member"
-                          className="p-1.5 text-red-400/60 hover:text-red-400 border border-red-400/20 hover:border-red-400/40 rounded-md transition-all cursor-pointer">
+                          className="p-1.5 text-red-400/60 hover:text-red-400 border border-red-400/20 hover:border-red-400/40 rounded-md transition-all cursor-pointer"
+                        >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
+                            width="14"
+                            height="14"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
                             strokeWidth="2"
                             strokeLinecap="round"
-                            strokeLinejoin="round">
+                            strokeLinejoin="round"
+                          >
                             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                             <circle cx="8.5" cy="7" r="4" />
                             <line x1="18" y1="8" x2="23" y2="13" />
@@ -944,17 +992,19 @@ export default function MembersPage({
                             setConfirmState({ member: m, action: "reactivate" })
                           }
                           title="Reactivate member"
-                          className="p-1.5 text-emerald-400/60 hover:text-emerald-400 border border-emerald-400/20 hover:border-emerald-400/40 rounded-md transition-all cursor-pointer">
+                          className="p-1.5 text-emerald-400/60 hover:text-emerald-400 border border-emerald-400/20 hover:border-emerald-400/40 rounded-md transition-all cursor-pointer"
+                        >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
+                            width="14"
+                            height="14"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
                             strokeWidth="2"
                             strokeLinecap="round"
-                            strokeLinejoin="round">
+                            strokeLinejoin="round"
+                          >
                             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                             <circle cx="8.5" cy="7" r="4" />
                             <polyline points="17 11 19 13 23 9" />
@@ -965,25 +1015,80 @@ export default function MembersPage({
                 </div>
               );
             })}
+
+          {/* Table footer — record count */}
+          {!loading && !fetchError && members.length > 0 && (
+            <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex items-center justify-between">
+              <span className="text-xs text-white/30">
+                {total} member{total !== 1 ? "s" : ""}
+                {hasFilters && (
+                  <span className="ml-1 text-[#FF6B1A]/60">(filtered)</span>
+                )}
+              </span>
+              <span className="text-xs text-white/20">
+                Showing {Math.min((page - 1) * LIMIT + 1, total)}–
+                {Math.min(page * LIMIT, total)} of {total}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* ── Pagination ── */}
+        {/* ── Pagination with page numbers ── */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between">
             <span className="text-xs text-white/30">
               Page {page} of {totalPages} · {total} total
             </span>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
+              {/* Prev */}
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
                 ← Prev
               </button>
+
+              {/* Page numbers */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(
+                  (n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1,
+                )
+                .reduce<(number | "...")[]>((acc, n, idx, arr) => {
+                  if (idx > 0 && n - (arr[idx - 1] as number) > 1)
+                    acc.push("...");
+                  acc.push(n);
+                  return acc;
+                }, [])
+                .map((n, i) =>
+                  n === "..." ? (
+                    <span
+                      key={`e-${i}`}
+                      className="px-2 py-1.5 text-xs text-white/20"
+                    >
+                      ···
+                    </span>
+                  ) : (
+                    <button
+                      key={n}
+                      onClick={() => setPage(n as number)}
+                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
+                        page === n
+                          ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
+                          : "border-white/10 text-white/40 hover:text-white hover:border-white/20"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ),
+                )}
+
+              {/* Next */}
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
                 Next →
               </button>
             </div>
@@ -1007,113 +1112,116 @@ export default function MembersPage({
       {/* ── Settle Balance Modal ── */}
       {settleTarget &&
         createPortal(
-          <>
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => {
+              setSettleTarget(null);
+              setSettleAmount("");
+            }}
+          >
             <div
-              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-              onClick={() => {
-                setSettleTarget(null);
-                setSettleAmount("");
-              }}>
-              <div
-                className="w-full max-w-xs bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
-                style={{ animation: "fadeScaleIn 0.2s ease" }}
-                onClick={(e) => e.stopPropagation()}>
-                <div className="text-xs font-semibold uppercase tracking-widest text-amber-400 mb-1">
-                  Settle Balance
-                </div>
-                <div className="text-white font-bold text-base mb-1">
-                  {settleTarget.name}
-                </div>
-                <div className="text-white/40 text-sm mb-4">
-                  Outstanding:{" "}
-                  <span className="text-amber-400 font-mono font-bold">
-                    ₱{settleTarget.balance.toLocaleString()}
-                  </span>
-                </div>
-                <div className="mb-4">
-                  <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
-                    Payment Method
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["cash", "online"] as const).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setSettleMethod(m)}
-                        className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
-                          settleMethod === m
-                            ? m === "cash"
-                              ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
-                              : "border-blue-400 bg-blue-400/10 text-blue-400"
-                            : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                        }`}>
-                        {m === "cash" ? "💵 Cash" : "🏦 Online"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* Amount input */}
-                <div className="mb-4">
-                  <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
-                    Amount to Pay{" "}
-                    <span className="text-white/20">
-                      (leave blank for full)
-                    </span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
-                      ₱
-                    </span>
-                    <input
-                      type="number"
-                      value={settleAmount}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (!val || Number(val) <= (settleTarget?.balance ?? 0))
-                          setSettleAmount(val);
-                      }}
-                      placeholder={settleTarget?.balance.toLocaleString()}
-                      max={settleTarget?.balance}
-                      min={1}
-                      className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-amber-400 transition-colors"
-                    />
-                  </div>
-                  {settleAmount && Number(settleAmount) > 0 && settleTarget && (
-                    <div className="mt-1.5 text-[10px]">
-                      {Number(settleAmount) >= settleTarget.balance ? (
-                        <span className="text-emerald-400">
-                          ✓ Fully settled
-                        </span>
-                      ) : (
-                        <span className="text-amber-400">
-                          ₱
-                          {(
-                            settleTarget.balance - Number(settleAmount)
-                          ).toLocaleString()}{" "}
-                          will remain outstanding
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setSettleTarget(null);
-                      setSettleAmount("");
-                    }}
-                    className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-xl transition-all cursor-pointer">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSettle}
-                    disabled={settleLoading}
-                    className="flex-1 py-2.5 bg-amber-400 text-black text-sm font-bold rounded-xl hover:bg-amber-300 transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
-                    {settleLoading ? "Settling..." : "Settle ✓"}
-                  </button>
+              className="w-full max-w-xs bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
+              style={{ animation: "fadeScaleIn 0.2s ease" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-xs font-semibold uppercase tracking-widest text-amber-400 mb-1">
+                Settle Balance
+              </div>
+              <div className="text-white font-bold text-base mb-1">
+                {settleTarget.name}
+              </div>
+              <div className="text-white/40 text-sm mb-4">
+                Outstanding:{" "}
+                <span className="text-amber-400 font-mono font-bold">
+                  ₱{settleTarget.balance.toLocaleString()}
+                </span>
+              </div>
+
+              {/* Method */}
+              <div className="mb-4">
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Payment Method
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["cash", "online"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setSettleMethod(m)}
+                      className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
+                        settleMethod === m
+                          ? m === "cash"
+                            ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
+                            : "border-blue-400 bg-blue-400/10 text-blue-400"
+                          : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
+                      }`}
+                    >
+                      {m === "cash" ? "💵 Cash" : "🏦 Online"}
+                    </button>
+                  ))}
                 </div>
               </div>
+
+              {/* Amount */}
+              <div className="mb-4">
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Amount to Pay{" "}
+                  <span className="text-white/20">(leave blank for full)</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
+                    ₱
+                  </span>
+                  <input
+                    type="number"
+                    value={settleAmount}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val || Number(val) <= (settleTarget?.balance ?? 0))
+                        setSettleAmount(val);
+                    }}
+                    placeholder={settleTarget?.balance.toLocaleString()}
+                    max={settleTarget?.balance}
+                    min={1}
+                    className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-amber-400 transition-colors"
+                  />
+                </div>
+                {settleAmount && Number(settleAmount) > 0 && settleTarget && (
+                  <div className="mt-1.5 text-[10px]">
+                    {Number(settleAmount) >= settleTarget.balance ? (
+                      <span className="text-emerald-400">✓ Fully settled</span>
+                    ) : (
+                      <span className="text-amber-400">
+                        ₱
+                        {(
+                          settleTarget.balance - Number(settleAmount)
+                        ).toLocaleString()}{" "}
+                        will remain outstanding
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setSettleTarget(null);
+                    setSettleAmount("");
+                  }}
+                  className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-xl transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSettle}
+                  disabled={settleLoading}
+                  className="flex-1 py-2.5 bg-amber-400 text-black text-sm font-bold rounded-xl hover:bg-amber-300 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {settleLoading ? "Settling..." : "Settle ✓"}
+                </button>
+              </div>
             </div>
-          </>,
+          </div>,
           document.body,
         )}
 

@@ -1,13 +1,14 @@
 /**
  * PaymentsPage.tsx
- * IronCore GMS — Payments (Owner View)
  *
- * Features:
- *   - Revenue summary cards (today / this week / this month)
- *   - Cash vs GCash breakdown
- *   - Full payment list with search, method filter, date range
- *   - Manual payment logger — log a payment for any member
- *   - Processed by column
+ * UX Improvements:
+ *   - Merged Split card into revenue cards row
+ *   - Combined date pickers into a single From→To range row
+ *   - Cleaner filter bar — 2 logical groups
+ *   - Row zebra striping + hover highlight
+ *   - Replaced ⚠ Outstanding with clean toggle pill
+ *   - Grand total shown alongside page total
+ *   - Better pagination with page number buttons
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -61,7 +62,6 @@ const METHOD_COLORS: Record<string, string> = {
 function SummarySection({ summary }: { summary: PaymentSummary }) {
   const [active, setActive] = useState<"today" | "week" | "month">("today");
   const raw = summary[active];
-  // Null-safe defaults in case server returns old shape
   const data: PaymentSummaryItem = {
     total: raw?.total ?? 0,
     revenue: raw?.revenue ?? 0,
@@ -73,12 +73,16 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
     outstanding: raw?.outstanding ?? 0,
   };
 
+  const cashPct =
+    data.revenue > 0 ? Math.round((data.cashRev / data.revenue) * 100) : 0;
+  const onlinePct = data.revenue > 0 ? 100 - cashPct : 0;
+
   return (
     <div className="bg-[#212121] border border-white/10 rounded-xl p-5">
       {/* Period tabs */}
       <div className="flex items-center justify-between mb-4">
         <div className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
-          Revenue
+          Revenue Overview
         </div>
         <div className="flex gap-1 bg-[#2a2a2a] rounded-lg p-0.5">
           {(["today", "week", "month"] as const).map((p) => (
@@ -89,7 +93,8 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
                 active === p
                   ? "bg-[#FF6B1A]/20 text-[#FF6B1A]"
                   : "text-white/30 hover:text-white/60"
-              }`}>
+              }`}
+            >
               {p === "today"
                 ? "Today"
                 : p === "week"
@@ -100,9 +105,10 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* Total revenue */}
-        <div className="col-span-2 sm:col-span-1 bg-[#FF6B1A]/5 border border-t-2 border-[#FF6B1A]/20 border-t-[#FF6B1A] rounded-xl p-4">
+      {/* Cards row — now includes Split */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {/* Total Revenue */}
+        <div className="col-span-2 lg:col-span-1 bg-[#FF6B1A]/5 border border-t-2 border-[#FF6B1A]/20 border-t-[#FF6B1A] rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Total Revenue
           </div>
@@ -140,8 +146,8 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
           </div>
         </div>
 
-        {/* Outstanding balances */}
-        <div className="bg-amber-400/5 border border-t-2 border-amber-400/20 border-t-amber-400 rounded-xl p-4 col-span-2 sm:col-span-1">
+        {/* Outstanding */}
+        <div className="bg-amber-400/5 border border-t-2 border-amber-400/20 border-t-amber-400 rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Outstanding
           </div>
@@ -153,28 +159,26 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
           </div>
         </div>
 
-        {/* Breakdown bar */}
-        <div className="bg-white/[0.02] border border-white/10 rounded-xl p-4 flex flex-col justify-between">
+        {/* Split — now inline with other cards */}
+        <div className="bg-white/[0.02] border border-t-2 border-white/10 border-t-white/20 rounded-xl p-4 flex flex-col justify-between">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-3">
             Split
           </div>
           {data.revenue > 0 ? (
             <>
-              <div className="flex gap-1 h-2 rounded-full overflow-hidden mb-2">
+              <div className="flex gap-1 h-2 rounded-full overflow-hidden mb-3">
                 <div
                   className="bg-[#FFB800] rounded-full transition-all"
-                  style={{
-                    width: `${Math.round((data.cashRev / data.revenue) * 100)}%`,
-                  }}
+                  style={{ width: `${cashPct}%` }}
                 />
                 <div className="bg-blue-400 rounded-full flex-1 transition-all" />
               </div>
               <div className="flex justify-between text-[10px]">
-                <span className="text-[#FFB800]">
-                  {Math.round((data.cashRev / data.revenue) * 100)}% Cash
+                <span className="text-[#FFB800] font-semibold">
+                  {cashPct}% Cash
                 </span>
-                <span className="text-blue-400">
-                  {Math.round((data.onlineRev / data.revenue) * 100)}% Online
+                <span className="text-blue-400 font-semibold">
+                  {onlinePct}% Online
                 </span>
               </div>
             </>
@@ -269,12 +273,13 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
       <style>{`@keyframes payFadeIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }`}</style>
       <div
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-        onClick={onClose}>
+        onClick={onClose}
+      >
         <div
           className="w-full max-w-sm bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
           style={{ animation: "payFadeIn 0.2s ease" }}
-          onClick={(e) => e.stopPropagation()}>
-          {/* Header */}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between mb-5">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
@@ -286,7 +291,8 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-lg border border-white/10 text-white/40 hover:text-white flex items-center justify-center text-sm cursor-pointer">
+              className="w-8 h-8 rounded-lg border border-white/10 text-white/40 hover:text-white flex items-center justify-center text-sm cursor-pointer"
+            >
               ✕
             </button>
           </div>
@@ -318,7 +324,8 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       setSelected(null);
                       setSearch("");
                     }}
-                    className="text-white/30 hover:text-white text-xs cursor-pointer">
+                    className="text-white/30 hover:text-white text-xs cursor-pointer"
+                  >
                     ✕
                   </button>
                 </div>
@@ -347,7 +354,8 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                             setSearch("");
                             setResults([]);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-0 text-left cursor-pointer">
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-0 text-left cursor-pointer"
+                        >
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-semibold text-white truncate">
                               {m.name}
@@ -367,7 +375,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
               )}
             </div>
 
-            {/* Payment method */}
+            {/* Method */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Method
@@ -377,20 +385,15 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   <button
                     key={m}
                     onClick={() => setMethod(m)}
-                    className={`py-2.5 rounded-lg border text-sm font-bold uppercase tracking-wide transition-all cursor-pointer ${
-                      method === m
-                        ? m === "cash"
-                          ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
-                          : "border-blue-400 bg-blue-400/10 text-blue-400"
-                        : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                    }`}>
+                    className={`py-2.5 rounded-lg border text-sm font-bold uppercase tracking-wide transition-all cursor-pointer ${method === m ? (m === "cash" ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]" : "border-blue-400 bg-blue-400/10 text-blue-400") : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
+                  >
                     {m === "cash" ? "💵 Cash" : "🏦 Online"}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Payment type */}
+            {/* Type */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Type
@@ -400,11 +403,8 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   <button
                     key={t}
                     onClick={() => setType(t)}
-                    className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer ${
-                      type === t
-                        ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
-                        : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                    }`}>
+                    className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer ${type === t ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]" : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
+                  >
                     {TYPE_LABELS[t]}
                   </button>
                 ))}
@@ -425,13 +425,11 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
               />
             </div>
 
-            {/* Partial payment — custom amount */}
+            {/* Amount */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Amount Paid{" "}
-                <span className="text-white/20">
-                  (leave blank for full payment)
-                </span>
+                <span className="text-white/20">(leave blank for full)</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
@@ -489,13 +487,15 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
             <div className="flex gap-2 pt-1">
               <button
                 onClick={onClose}
-                className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer">
+                className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer"
+              >
                 Cancel
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={loading || !selected}
-                className="flex-1 py-2.5 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                className="flex-1 py-2.5 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
                 {loading ? "Logging..." : "Log Payment"}
               </button>
             </div>
@@ -517,11 +517,11 @@ export default function PaymentsPage() {
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [total, setTotal] = useState(0);
+  const [grandTotal, setGrandTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Filters
   const [search, setSearch] = useState("");
   const [filterMethod, setFilterMethod] = useState("");
   const [filterType, setFilterType] = useState("");
@@ -533,7 +533,6 @@ export default function PaymentsPage() {
 
   const [showLogModal, setShowLogModal] = useState(false);
 
-  // ── Fetch summary ──────────────────────────────────────────────────────────
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
@@ -546,7 +545,6 @@ export default function PaymentsPage() {
     }
   }, [showToast]);
 
-  // ── Fetch payments list ────────────────────────────────────────────────────
   const fetchPayments = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -564,6 +562,14 @@ export default function PaymentsPage() {
       setPayments(res.payments);
       setTotal(res.total);
       setTotalPages(res.totalPages);
+      // Grand total — sum of ALL filtered payments (server should return this)
+      setGrandTotal(
+        res.grandTotal ??
+          res.payments.reduce(
+            (s: number, p: Payment) => s + (p.amountPaid ?? p.amount),
+            0,
+          ),
+      );
     } catch {
       setError("Failed to load payments.");
     } finally {
@@ -574,13 +580,11 @@ export default function PaymentsPage() {
   useEffect(() => {
     fetchSummary();
   }, [fetchSummary]);
-
   useEffect(() => {
     const id = setTimeout(fetchPayments, search ? 400 : 0);
     return () => clearTimeout(id);
   }, [fetchPayments, search]);
 
-  // Auto-refresh every 60s
   useEffect(() => {
     const id = setInterval(() => {
       fetchSummary();
@@ -598,7 +602,51 @@ export default function PaymentsPage() {
     fetchPayments();
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const hasFilters =
+    search || filterMethod || filterType || filterPartial || fromDate || toDate;
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setFilterMethod("");
+    setFilterType("");
+    setFilterPartial(false);
+    setFromDate("");
+    setToDate("");
+  };
+
+  const getManilaDate = (offsetDays = 0) => {
+    const d = new Date();
+    d.setDate(d.getDate() - offsetDays);
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
+      d,
+    );
+  };
+
+  const DATE_RANGES = {
+    Today: { from: getManilaDate(), to: getManilaDate() },
+    "This Week": (() => {
+      const now = new Date();
+      const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
+        now.toLocaleDateString("en-US", {
+          timeZone: "Asia/Manila",
+          weekday: "short",
+        }),
+      );
+      return { from: getManilaDate((dow + 6) % 7), to: getManilaDate() };
+    })(),
+    "This Month": {
+      from: new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Manila",
+      }).format(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+      to: getManilaDate(),
+    },
+  };
+
+  const pageTotal = payments.reduce(
+    (s, p) => s + (p.amountPaid ?? p.amount),
+    0,
+  );
+
   return (
     <>
       <style>{`
@@ -606,11 +654,14 @@ export default function PaymentsPage() {
           from { opacity: 0; transform: translateY(-4px); }
           to   { opacity: 1; transform: translateY(0); }
         }
+        .payment-row:nth-child(even) { background: rgba(255,255,255,0.012); }
+        .payment-row:hover { background: rgba(255,107,26,0.04) !important; }
       `}</style>
 
       <div
         className="max-w-7xl mx-auto pb-24 lg:pb-6 space-y-5"
-        style={{ animation: "fadeIn 0.2s ease" }}>
+        style={{ animation: "fadeIn 0.2s ease" }}
+      >
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -622,19 +673,14 @@ export default function PaymentsPage() {
                   · {summary.withBalance} member
                   {summary.withBalance !== 1 ? "s" : ""} with outstanding
                   balance
-                  {summary.today?.outstanding > 0 && (
-                    <>
-                      {" "}
-                      · ₱{summary.today.outstanding.toLocaleString()} owed today
-                    </>
-                  )}
                 </span>
               ) : null}
             </p>
           </div>
           <button
             onClick={() => setShowLogModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer">
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer"
+          >
             <span className="text-base leading-none">+</span>
             Log Payment
           </button>
@@ -642,8 +688,8 @@ export default function PaymentsPage() {
 
         {/* ── Summary ── */}
         {summaryLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, i) => (
               <div
                 key={i}
                 className="bg-white/[0.02] border border-white/10 rounded-xl p-4 h-24 animate-pulse"
@@ -655,55 +701,106 @@ export default function PaymentsPage() {
         ) : null}
 
         {/* ── Filters ── */}
-        <div className="flex flex-wrap gap-2">
-          {/* Date shortcuts */}
-          <div className="flex gap-1">
-            {(["Today", "This Week", "This Month"] as const).map((label) => {
-              const getManilaDate = (offsetDays = 0) => {
-                const d = new Date();
-                d.setDate(d.getDate() - offsetDays);
-                return new Intl.DateTimeFormat("en-CA", {
-                  timeZone: "Asia/Manila",
-                }).format(d);
-              };
-              const ranges: Record<string, { from: string; to: string }> = {
-                Today: { from: getManilaDate(), to: getManilaDate() },
-                "This Week": (() => {
-                  const now = new Date();
-                  const dow = [
-                    "Sun",
-                    "Mon",
-                    "Tue",
-                    "Wed",
-                    "Thu",
-                    "Fri",
-                    "Sat",
-                  ].indexOf(
-                    now.toLocaleDateString("en-US", {
-                      timeZone: "Asia/Manila",
-                      weekday: "short",
-                    }),
-                  );
-                  const mondayOffset = (dow + 6) % 7;
-                  return {
-                    from: getManilaDate(mondayOffset),
-                    to: getManilaDate(),
-                  };
-                })(),
-                "This Month": {
-                  from: new Intl.DateTimeFormat("en-CA", {
-                    timeZone: "Asia/Manila",
-                  }).format(
-                    new Date(
-                      new Date().getFullYear(),
-                      new Date().getMonth(),
-                      1,
-                    ),
-                  ),
-                  to: getManilaDate(),
-                },
-              };
-              const r = ranges[label];
+        <div className="bg-[#212121] border border-white/10 rounded-xl p-4 space-y-3">
+          {/* Row 1 — Search + Method + Type + Outstanding + Clear */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Search */}
+            <div className="relative flex-1 min-w-48">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
+                width="14"
+                height="14"
+                viewBox="0 0 18 18"
+                fill="none"
+              >
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="5.5"
+                  stroke="#FF6B1A"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M12.5 12.5L16 16"
+                  stroke="#FF6B1A"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or GYM-ID..."
+                className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+              />
+            </div>
+
+            {/* Method filter */}
+            <select
+              value={filterMethod}
+              onChange={(e) => setFilterMethod(e.target.value)}
+              className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="">All Methods</option>
+              <option value="cash">Cash</option>
+              <option value="online">Online</option>
+            </select>
+
+            {/* Type filter */}
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="">All Types</option>
+              <option value="new_member">New Member</option>
+              <option value="renewal">Renewal</option>
+              <option value="manual">Manual</option>
+              <option value="balance_settlement">Settlement</option>
+            </select>
+
+            {/* Outstanding toggle — cleaner pill */}
+            <button
+              onClick={() => setFilterPartial((p) => !p)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                filterPartial
+                  ? "bg-amber-400/15 text-amber-400 border-amber-400/30"
+                  : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"
+              }`}
+            >
+              <div
+                className={`w-2 h-2 rounded-full transition-colors ${filterPartial ? "bg-amber-400" : "bg-white/20"}`}
+              />
+              Outstanding only
+            </button>
+
+            {/* Clear all */}
+            {hasFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="px-3 py-2.5 text-xs text-red-400 hover:text-red-300 border border-red-400/20 hover:border-red-400/40 rounded-lg transition-all cursor-pointer"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+
+          {/* Row 2 — Date shortcuts + From/To range */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">
+              Date:
+            </span>
+
+            {/* Shortcut buttons */}
+            {(
+              Object.entries(DATE_RANGES) as [
+                string,
+                { from: string; to: string },
+              ][]
+            ).map(([label, r]) => {
               const isActive = fromDate === r.from && toDate === r.to;
               return (
                 <button
@@ -712,131 +809,56 @@ export default function PaymentsPage() {
                     setFromDate(r.from);
                     setToDate(r.to);
                   }}
-                  className={`px-3 py-2 text-[10px] font-bold uppercase tracking-wide rounded-lg border transition-all cursor-pointer ${isActive ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30" : "bg-[#212121] text-white/30 border-white/10 hover:text-white/60 hover:border-white/20"}`}>
+                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-lg border transition-all cursor-pointer ${
+                    isActive
+                      ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
+                      : "bg-[#2a2a2a] text-white/30 border-white/10 hover:text-white/60 hover:border-white/20"
+                  }`}
+                >
                   {label}
                 </button>
               );
             })}
-          </div>
 
-          {/* Search */}
-          <div className="relative flex-1 min-w-48">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
-              width="14"
-              height="14"
-              viewBox="0 0 18 18"
-              fill="none">
-              <circle
-                cx="8"
-                cy="8"
-                r="5.5"
-                stroke="#FF6B1A"
-                strokeWidth="1.5"
+            {/* Divider */}
+            <div className="w-px h-5 bg-white/10" />
+
+            {/* From → To inline */}
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+                style={{ colorScheme: "dark" }}
               />
-              <path
-                d="M12.5 12.5L16 16"
-                stroke="#FF6B1A"
-                strokeWidth="1.5"
-                strokeLinecap="round"
+              <span className="text-white/20 text-xs">→</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+                style={{ colorScheme: "dark" }}
               />
-            </svg>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or GYM-ID..."
-              className="w-full bg-[#212121] border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-            />
+              {(fromDate || toDate) && (
+                <button
+                  onClick={() => {
+                    setFromDate("");
+                    setToDate("");
+                  }}
+                  className="text-xs text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
-
-          {/* Method filter */}
-          <select
-            value={filterMethod}
-            onChange={(e) => setFilterMethod(e.target.value)}
-            className="bg-[#212121] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}>
-            <option value="">All Methods</option>
-            <option value="cash">Cash</option>
-            <option value="online">Online</option>
-          </select>
-
-          {/* Type filter */}
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="bg-[#212121] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}>
-            <option value="">All Types</option>
-            <option value="new_member">New Member</option>
-            <option value="renewal">Renewal</option>
-            <option value="manual">Manual</option>
-            <option value="balance_settlement">Settlement</option>
-          </select>
-
-          {/* Outstanding balance filter */}
-          <button
-            onClick={() => setFilterPartial((p) => !p)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-              filterPartial
-                ? "bg-amber-400/15 text-amber-400 border-amber-400/30"
-                : "bg-[#212121] text-white/40 border-white/10 hover:text-white hover:border-white/20"
-            }`}>
-            <span>⚠</span>
-            Outstanding
-          </button>
-
-          {/* Date range */}
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="bg-[#212121] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}
-            placeholder="From"
-          />
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="bg-[#212121] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-            style={{ colorScheme: "dark" }}
-          />
-          {(fromDate || toDate) && (
-            <button
-              onClick={() => {
-                setFromDate("");
-                setToDate("");
-              }}
-              className="px-3 py-2.5 text-xs text-white/40 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all cursor-pointer">
-              Clear dates
-            </button>
-          )}
-          {(search ||
-            filterMethod ||
-            filterType ||
-            filterPartial ||
-            fromDate ||
-            toDate) && (
-            <button
-              onClick={() => {
-                setSearch("");
-                setFilterMethod("");
-                setFilterType("");
-                setFilterPartial(false);
-                setFromDate("");
-                setToDate("");
-              }}
-              className="px-3 py-2.5 text-xs text-red-400 hover:text-red-300 border border-red-400/20 hover:border-red-400/40 rounded-lg transition-all cursor-pointer">
-              Clear all
-            </button>
-          )}
         </div>
 
         {/* ── Table ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
           {/* Header */}
-          <div className="hidden md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-3 border-b border-white/10">
+          <div className="hidden md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             {[
               "Member",
               "Plan",
@@ -848,7 +870,8 @@ export default function PaymentsPage() {
             ].map((h) => (
               <div
                 key={h}
-                className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
+                className="text-[10px] font-semibold uppercase tracking-widest text-white/30"
+              >
                 {h}
               </div>
             ))}
@@ -860,7 +883,8 @@ export default function PaymentsPage() {
               {Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-4 px-5 py-4 border-b border-white/5 last:border-0">
+                  className="flex items-center gap-4 px-5 py-4 border-b border-white/5 last:border-0"
+                >
                   <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse shrink-0" />
                   <div className="flex-1 space-y-1.5">
                     <div className="h-3 w-32 bg-white/5 rounded animate-pulse" />
@@ -877,7 +901,8 @@ export default function PaymentsPage() {
               <div className="text-red-400 text-sm mb-2">{error}</div>
               <button
                 onClick={fetchPayments}
-                className="text-xs text-[#FF6B1A] hover:underline cursor-pointer">
+                className="text-xs text-[#FF6B1A] hover:underline cursor-pointer"
+              >
                 Try again
               </button>
             </div>
@@ -891,20 +916,21 @@ export default function PaymentsPage() {
                 No payments found
               </div>
               <div className="text-white/20 text-xs mt-1">
-                {search || filterMethod || filterType
+                {hasFilters
                   ? "Try adjusting your filters"
                   : "Payments will appear here when members are registered"}
               </div>
             </div>
           )}
 
-          {/* Rows */}
+          {/* Rows — with zebra striping via CSS class */}
           {!loading &&
             !error &&
             payments.map((p) => (
               <div
                 key={p._id}
-                className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+                className="payment-row grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
+              >
                 {/* Member */}
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
@@ -959,7 +985,8 @@ export default function PaymentsPage() {
                     Method
                   </span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${METHOD_COLORS[p.method]}`}>
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${METHOD_COLORS[p.method]}`}
+                  >
                     {p.method === "online" ? "Online" : "Cash"}
                   </span>
                 </div>
@@ -970,7 +997,8 @@ export default function PaymentsPage() {
                     Type
                   </span>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${TYPE_COLORS[p.type]}`}>
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide ${TYPE_COLORS[p.type]}`}
+                  >
                     {TYPE_LABELS[p.type]}
                   </span>
                 </div>
@@ -1013,39 +1041,97 @@ export default function PaymentsPage() {
               </div>
             ))}
 
-          {/* Footer */}
+          {/* ── Table Footer — Page total + Grand total ── */}
           {!loading && payments.length > 0 && (
-            <div className="px-5 py-3 border-t border-white/10 flex items-center justify-between">
+            <div className="px-5 py-4 border-t border-white/10 bg-white/[0.02] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-xs text-white/30">
                 {total} record{total !== 1 ? "s" : ""}
+                {hasFilters && (
+                  <span className="ml-1 text-[#FF6B1A]/60">(filtered)</span>
+                )}
               </span>
-              <span className="text-sm font-mono font-bold text-[#FFB800]">
-                Page total: ₱
-                {payments
-                  .reduce((s, p) => s + (p.amountPaid ?? p.amount), 0)
-                  .toLocaleString()}
-              </span>
+              <div className="flex items-center gap-4">
+                {/* Page total */}
+                <div className="text-right">
+                  <div className="text-[10px] text-white/25 uppercase tracking-widest">
+                    Page total
+                  </div>
+                  <div className="text-sm font-mono font-bold text-white/60">
+                    ₱{pageTotal.toLocaleString()}
+                  </div>
+                </div>
+                {/* Divider */}
+                <div className="w-px h-8 bg-white/10" />
+                {/* Grand total */}
+                <div className="text-right">
+                  <div className="text-[10px] text-white/25 uppercase tracking-widest">
+                    {hasFilters ? "Filtered total" : "Grand total"}
+                  </div>
+                  <div className="text-lg font-mono font-bold text-[#FFB800]">
+                    ₱{grandTotal.toLocaleString()}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Pagination */}
+        {/* ── Pagination ── */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between">
             <span className="text-xs text-white/30">
               Page {page} of {totalPages} · {total} total
             </span>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
+              {/* Prev */}
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
                 ← Prev
               </button>
+
+              {/* Page number buttons */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(
+                  (n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1,
+                )
+                .reduce<(number | "...")[]>((acc, n, idx, arr) => {
+                  if (idx > 0 && n - (arr[idx - 1] as number) > 1)
+                    acc.push("...");
+                  acc.push(n);
+                  return acc;
+                }, [])
+                .map((n, i) =>
+                  n === "..." ? (
+                    <span
+                      key={`ellipsis-${i}`}
+                      className="px-2 py-1.5 text-xs text-white/20"
+                    >
+                      ···
+                    </span>
+                  ) : (
+                    <button
+                      key={n}
+                      onClick={() => setPage(n as number)}
+                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
+                        page === n
+                          ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
+                          : "border-white/10 text-white/40 hover:text-white hover:border-white/20"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ),
+                )}
+
+              {/* Next */}
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                className="px-3 py-1.5 text-xs border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
                 Next →
               </button>
             </div>
@@ -1053,7 +1139,6 @@ export default function PaymentsPage() {
         )}
       </div>
 
-      {/* Log payment modal */}
       {showLogModal && (
         <LogPaymentModal
           onClose={() => setShowLogModal(false)}
