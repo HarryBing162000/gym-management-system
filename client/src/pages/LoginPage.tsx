@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useToastStore } from "../store/toastStore";
+import { useGymStore } from "../store/gymStore";
 import { authService } from "../services/authService";
 
 // ─── Success Modal ────────────────────────────────────────────────────────────
@@ -33,16 +34,15 @@ function SuccessModal({ name, role, onContinue }: SuccessModalProps) {
         }
       `}</style>
 
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        {/* Modal */}
         <div
           className="w-full max-w-sm bg-[#1e1e1e] border border-white/10 rounded-2xl p-8 text-center shadow-2xl"
-          style={{ animation: "successFadeIn 0.3s ease" }}>
-          {/* Success ring */}
+          style={{ animation: "successFadeIn 0.3s ease" }}
+        >
           <div
             className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500 flex items-center justify-center mx-auto mb-5"
-            style={{ animation: "successRingPop 0.4s ease 0.1s both" }}>
+            style={{ animation: "successRingPop 0.4s ease 0.1s both" }}
+          >
             <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
               <path
                 d="M7 16l6 6 12-12"
@@ -54,7 +54,6 @@ function SuccessModal({ name, role, onContinue }: SuccessModalProps) {
             </svg>
           </div>
 
-          {/* Text */}
           <div style={{ animation: "successSlideUp 0.3s ease 0.2s both" }}>
             <div className="text-white font-bold text-xl mb-1">
               Welcome back, {firstName}!
@@ -70,11 +69,11 @@ function SuccessModal({ name, role, onContinue }: SuccessModalProps) {
             </div>
           </div>
 
-          {/* Continue button */}
           <button
             onClick={onContinue}
             className="w-full mt-6 py-3 bg-[#FF6B1A] text-black font-bold text-sm rounded-xl hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer"
-            style={{ animation: "successSlideUp 0.3s ease 0.35s both" }}>
+            style={{ animation: "successSlideUp 0.3s ease 0.35s both" }}
+          >
             Enter the Gym →
           </button>
         </div>
@@ -89,31 +88,28 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
   const { showToast } = useToastStore();
+  const { settings } = useGymStore();
 
-  const [activeRole, setActiveRole] = useState<"owner" | "staff">("owner");
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Success modal state
   const [successData, setSuccessData] = useState<{
     name: string;
     role: "owner" | "staff";
     destination: string;
   } | null>(null);
 
+  const gymName = settings?.gymName || "IronCore";
+  const logoUrl = settings?.logoUrl || null;
+  const isEmail = identifier.includes("@");
+
   const handleLogin = async () => {
     setErrorMsg("");
-
-    if (activeRole === "owner" && !email) {
-      setErrorMsg("Please enter your email.");
-      return;
-    }
-    if (activeRole === "staff" && !username) {
-      setErrorMsg("Please enter your username.");
+    if (!identifier.trim()) {
+      setErrorMsg("Please enter your email or username.");
       return;
     }
     if (!password) {
@@ -123,14 +119,15 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const response =
-        activeRole === "owner"
-          ? await authService.loginOwner({ email, password })
-          : await authService.loginStaff({ username, password });
+      const response = isEmail
+        ? await authService.loginOwner({ email: identifier.trim(), password })
+        : await authService.loginStaff({
+            username: identifier.trim(),
+            password,
+          });
 
       if (response.success) {
         setAuth(response.user, response.token);
-        // Show success modal before navigating
         setSuccessData({
           name: response.user.name,
           role: response.user.role as "owner" | "staff",
@@ -140,7 +137,7 @@ export default function LoginPage() {
     } catch (axiosError) {
       const err = axiosError as { response?: { data?: { message?: string } } };
       setErrorMsg(
-        err.response?.data?.message || "Login failed. Please try again.",
+        err.response?.data?.message || "Invalid credentials. Please try again.",
       );
     } finally {
       setLoading(false);
@@ -155,7 +152,6 @@ export default function LoginPage() {
 
   return (
     <>
-      {/* Success modal */}
       {successData && (
         <SuccessModal
           name={successData.name}
@@ -171,35 +167,28 @@ export default function LoginPage() {
             radial-gradient(ellipse 60% 50% at 20% 50%, rgba(255,107,26,0.08) 0%, transparent 70%),
             radial-gradient(ellipse 40% 60% at 80% 30%, rgba(255,184,0,0.05) 0%, transparent 60%)
           `,
-        }}>
+        }}
+      >
         <div className="w-full max-w-sm bg-[#212121] border border-white/10 rounded-2xl p-6 sm:p-10">
-          {/* Logo */}
-          <div className="mb-6 sm:mb-8">
-            <h1 className="text-xl sm:text-2xl font-black tracking-widest text-[#FF6B1A] text-center uppercase">
-              ⚡ IronCore
-            </h1>
+          {/* Logo / Gym Name */}
+          <div className="mb-6 sm:mb-8 flex flex-col items-center">
+            {logoUrl ? (
+              <div className="w-full h-24 flex items-center justify-center mb-2">
+                <img
+                  src={logoUrl}
+                  alt={gymName}
+                  className="w-full h-full object-contain"
+                  style={{ imageRendering: "auto" }}
+                />
+              </div>
+            ) : (
+              <h1 className="text-xl sm:text-2xl font-black tracking-widest text-[#FF6B1A] text-center uppercase">
+                ⚡ {gymName}
+              </h1>
+            )}
             <p className="text-xs sm:text-sm text-white/40 mt-1 text-center tracking-wide">
               Gym Management System
             </p>
-          </div>
-
-          {/* Role Tabs */}
-          <div className="flex gap-1 bg-[#2a2a2a] rounded-lg p-1 mb-6">
-            {(["owner", "staff"] as const).map((role) => (
-              <button
-                key={role}
-                onClick={() => {
-                  setActiveRole(role);
-                  setErrorMsg("");
-                }}
-                className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-md transition-all cursor-pointer ${
-                  activeRole === role
-                    ? "bg-[#333] text-[#FF6B1A] border border-white/10"
-                    : "text-white/40 hover:text-white/60"
-                }`}>
-                {role}
-              </button>
-            ))}
           </div>
 
           {/* Error */}
@@ -211,31 +200,44 @@ export default function LoginPage() {
 
           {/* Form */}
           <div className="space-y-4">
-            {/* Email / Username */}
+            {/* Email or Username */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-widest text-white/50 mb-2">
-                {activeRole === "owner" ? "Email" : "Username"}
+                Email or Username
               </label>
-              {activeRole === "owner" ? (
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                  placeholder="owner@ironcore.gym"
-                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-                />
-              ) : (
+              <div className="relative">
                 <input
                   type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  value={identifier}
+                  onChange={(e) => {
+                    setIdentifier(e.target.value);
+                    setErrorMsg("");
+                  }}
                   onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                  placeholder="bianca_cruz"
+                  placeholder="owner@yourgym.com or username"
                   autoCapitalize="none"
-                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                  autoComplete="username"
+                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 pr-20 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
                 />
-              )}
+                {identifier.trim() && (
+                  <span
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                      isEmail
+                        ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border border-[#FF6B1A]/30"
+                        : "bg-blue-400/15 text-blue-400 border border-blue-400/30"
+                    }`}
+                  >
+                    {isEmail ? "Owner" : "Staff"}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-white/25 mt-1.5 px-1">
+                {identifier.trim()
+                  ? isEmail
+                    ? "Signing in as Owner"
+                    : "Signing in as Staff"
+                  : "Enter your email (owner) or username (staff)"}
+              </p>
             </div>
 
             {/* Password */}
@@ -250,12 +252,14 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 pr-12 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 text-xs transition-colors p-1 cursor-pointer">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 text-xs transition-colors p-1 cursor-pointer"
+                >
                   {showPassword ? "HIDE" : "SHOW"}
                 </button>
               </div>
@@ -265,7 +269,8 @@ export default function LoginPage() {
             <button
               onClick={handleLogin}
               disabled={loading}
-              className="w-full mt-2 py-3 sm:py-3.5 bg-[#FF6B1A] text-black font-bold text-sm uppercase tracking-widest rounded-lg hover:bg-[#ff8a45] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer">
+              className="w-full mt-2 py-3 sm:py-3.5 bg-[#FF6B1A] text-black font-bold text-sm uppercase tracking-widest rounded-lg hover:bg-[#ff8a45] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -281,7 +286,8 @@ export default function LoginPage() {
           <div className="mt-6 text-center">
             <a
               href="/kiosk"
-              className="text-xs text-white/30 hover:text-[#FF6B1A] transition-colors">
+              className="text-xs text-white/30 hover:text-[#FF6B1A] transition-colors"
+            >
               Member self check-in ➜ Kiosk
             </a>
           </div>

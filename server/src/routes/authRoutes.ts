@@ -8,6 +8,12 @@ import {
   listStaff,
   deactivateStaff,
   reactivateStaff,
+  updatePassword,
+  updateEmail,
+  updateGym,
+  getGymInfo,
+  uploadLogoController,
+  deleteLogo,
 } from "../controllers/authController";
 import { validate } from "../middleware/validate";
 import {
@@ -15,9 +21,13 @@ import {
   registerStaffSchema,
   loginOwnerSchema,
   loginStaffSchema,
+  updatePasswordSchema,
+  updateEmailSchema,
+  updateGymSchema,
 } from "../middleware/authSchemas";
 import { protect, requireRole } from "../middleware/authMiddleware";
 import { authRateLimiter } from "../middleware/security";
+import { uploadLogo } from "../middleware/upload";
 
 const router = Router();
 
@@ -33,7 +43,7 @@ router.post(
   "/register/staff",
   authRateLimiter,
   protect,
-  requireRole("owner"), // only owner can create staff accounts
+  requireRole("owner"),
   validate(registerStaffSchema),
   registerStaff,
 );
@@ -70,5 +80,43 @@ router.patch(
   requireRole("owner"),
   reactivateStaff,
 );
+
+// ── Owner Settings (owner only) ───────────────────────────
+router.put(
+  "/update-password",
+  protect,
+  validate(updatePasswordSchema),
+  updatePassword,
+);
+
+router.put(
+  "/update-email",
+  protect,
+  requireRole("owner"),
+  validate(updateEmailSchema),
+  updateEmail,
+);
+
+router.put(
+  "/update-gym",
+  protect,
+  requireRole("owner"),
+  validate(updateGymSchema),
+  updateGym,
+);
+
+// ── Gym Info (public — login page and kiosk need this) ────
+router.get("/gym-info", getGymInfo);
+
+// ── Logo Upload (owner only) ──────────────────────────────
+router.post(
+  "/upload-logo",
+  protect,
+  requireRole("owner"),
+  uploadLogo.single("logo"),
+  uploadLogoController,
+);
+
+router.delete("/delete-logo", protect, requireRole("owner"), deleteLogo);
 
 export default router;

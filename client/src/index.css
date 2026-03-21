@@ -1,1 +1,69 @@
 @import "tailwindcss";
+
+/* ─── Hide browser native password reveal button ─────────────────────────────
+   Chrome, Edge, and IE add their own eye icon to password fields.
+   We have our own SHOW/HIDE toggle so we hide the native one.
+*/
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+    display: none !important;
+}
+
+input::-webkit-credentials-auto-fill-button {
+    visibility: hidden;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+}
+
+/* ─── Responsive Size Constraints ────────────────────────────────────────────
+   Mobile:  320px – 639px
+   Tablet:  640px – 1023px
+   Desktop: 1024px+
+*/
+
+/* Base */
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+body {
+    min-width: 320px;
+    overflow-x: hidden;
+}
+
+#root {
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+/* Mobile (320px – 639px) */
+@media (max-width: 639px) {
+    html {
+        font-size: 14px;
+    }
+}
+
+/* Tablet (640px – 1023px) */
+@media (min-width: 640px) and (max-width: 1023px) {
+    html {
+        font-size: 15px;
+    }
+}
+
+/* Desktop (1024px+) */
+@media (min-width: 1024px) {
+    html {
+        font-size: 16px;
+    }
+}
+
+/* Kiosk terminal — disable text selection and context menu */
+.kiosk-terminal {
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}

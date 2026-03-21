@@ -135,6 +135,41 @@ export const gymIdParamSchema = z.object({
     .regex(/^GYM-\d+$/, "Invalid GYM-ID format. Expected GYM-XXXX"),
 });
 
+// ============================================================
+// UPDATE PASSWORD — owner changes their own password
+// ============================================================
+export const updatePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z
+    .string()
+    .min(6, "New password must be at least 6 characters")
+    .max(100, "Password too long"),
+});
+
+// ============================================================
+// UPDATE EMAIL — owner changes their own email
+// ============================================================
+export const updateEmailSchema = z.object({
+  newEmail: z.string().email("Invalid email address").toLowerCase(),
+  password: z.string().min(1, "Password is required to confirm identity"),
+});
+
+// ============================================================
+// UPDATE GYM INFO — owner updates gym name and address
+// ============================================================
+export const updateGymSchema = z.object({
+  gymName: z
+    .string()
+    .min(2, "Gym name must be at least 2 characters")
+    .max(100, "Gym name too long")
+    .trim(),
+  gymAddress: z
+    .string()
+    .min(2, "Address must be at least 2 characters")
+    .max(200, "Address too long")
+    .trim(),
+});
+
 // Types
 export type RegisterOwnerInput = z.infer<typeof registerOwnerSchema>;
 export type RegisterStaffInput = z.infer<typeof registerStaffSchema>;
@@ -146,3 +181,6 @@ export type WalkInCheckOutInput = z.infer<typeof walkInCheckOutSchema>;
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 export type GymIdParamInput = z.infer<typeof gymIdParamSchema>;
+export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>;
+export type UpdateEmailInput = z.infer<typeof updateEmailSchema>;
+export type UpdateGymInput = z.infer<typeof updateGymSchema>;

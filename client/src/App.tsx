@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "./store/authStore";
+import { useGymStore } from "./store/gymStore";
 import ToastContainer from "./components/ToastContainer";
 
 import LoginPage from "./pages/LoginPage";
@@ -18,9 +20,6 @@ const queryClient = new QueryClient({
 });
 
 // 🔐 Protected Route
-// Waits for Zustand to finish rehydrating from localStorage before
-// deciding whether to redirect. Without this, there's a flash to /login
-// on every page refresh even when the user is still authenticated.
 function ProtectedRoute({
   children,
   allowedRoles,
@@ -30,7 +29,6 @@ function ProtectedRoute({
 }) {
   const { isAuthenticated, user, _hasHydrated } = useAuthStore();
 
-  // Still rehydrating — render nothing to avoid flash redirect
   if (!_hasHydrated) return null;
 
   if (!isAuthenticated) {
@@ -45,6 +43,23 @@ function ProtectedRoute({
 }
 
 function App() {
+  const fetchGymInfo = useGymStore((state) => state.fetchGymInfo);
+  const settings = useGymStore((state) => state.settings);
+
+  // Fetch gym info once on app load
+  useEffect(() => {
+    fetchGymInfo();
+  }, [fetchGymInfo]);
+
+  // Update document title whenever gym name changes
+  useEffect(() => {
+    if (settings?.gymName) {
+      document.title = ` ${settings.gymName} — GMS`;
+    } else {
+      document.title = " Gym Management Syste,";
+    }
+  }, [settings?.gymName]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
