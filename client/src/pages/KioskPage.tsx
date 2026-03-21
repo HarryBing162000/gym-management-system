@@ -1,15 +1,6 @@
 /**
  * KioskPage.tsx
  * IronCore GMS — Public Self Check-In Kiosk
- *
- * File location: client/src/pages/KioskPage.tsx
- *
- * Real API contracts (all require X-Kiosk-Token header):
- *   GET  /api/kiosk/search?q=           → { members: Member[] }
- *   POST /api/kiosk/member/checkin      → body: { gymId }
- *   POST /api/kiosk/member/checkout     → body: { gymId }
- *   GET  /api/kiosk/walkin/:walkId      → { walkIn: WalkIn }
- *   POST /api/kiosk/walkin/checkout     → body: { walkId }
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -96,15 +87,12 @@ async function searchKiosk(query: string): Promise<SearchResult> {
   const body = await res.json();
   const members: Member[] = body.members ?? [];
   const walkIns: WalkIn[] = body.walkIns ?? [];
-
   if (!members.length && walkIns.length === 1)
     return { type: "walkin", data: walkIns[0] };
-
   if (/^WALK-\d+$/.test(trimmed) && walkIns.length) {
     const exact = walkIns.find((w) => w.walkId === trimmed);
     if (exact) return { type: "walkin", data: exact };
   }
-
   if (!members.length && !walkIns.length) return null;
   if (members.length === 1 && !walkIns.length)
     return { type: "member", data: members[0] };
@@ -226,65 +214,113 @@ function Clock() {
     const id = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-  return (
-    <div className="text-right">
-      <div
-        className="font-['Bebas_Neue'] text-[#FF6B1A] leading-none tracking-wide"
-        style={{ fontSize: "clamp(1.8rem, 2.5vw, 2.8rem)" }}
-      >
-        {time.toLocaleTimeString("en-PH", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: true,
-        })}
-      </div>
-      <div className="font-['Space_Mono'] text-[0.65rem] text-[#555] tracking-[0.15em] uppercase mt-1">
-        {time.toLocaleDateString("en-PH", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        })}
-      </div>
-    </div>
-  );
-}
 
-function StandbyPulse({ offline }: { offline: boolean }) {
+  const mainTime = time.toLocaleTimeString("en-PH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const seconds = time.getSeconds().toString().padStart(2, "0");
+  const date = time.toLocaleDateString("en-PH", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
-    <div className="flex items-center gap-2 mt-1.5">
+    <div style={{ textAlign: "center" }}>
+      {/* Time */}
       <div
-        className="w-2 h-2 rounded-full"
         style={{
-          background: offline ? "#ef4444" : "#22c55e",
-          animation: "pulse-dot 2s ease-in-out infinite",
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "center",
+          gap: "6px",
+          lineHeight: 1,
         }}
-      />
-      <span
-        className="font-['Space_Mono'] text-[0.6rem] tracking-[0.2em]"
-        style={{ color: offline ? "#ef4444" : "#22c55e" }}
       >
-        {offline ? "NO CONNECTION" : "TERMINAL READY"}
-      </span>
+        <span
+          className="font-['Bebas_Neue'] text-[#FF6B1A]"
+          style={{
+            fontSize: "clamp(4.5rem, 9vw, 8rem)",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {mainTime}
+        </span>
+        <span
+          className="font-['Bebas_Neue'] text-[#FF6B1A]"
+          style={{
+            fontSize: "clamp(2rem, 4vw, 3.5rem)",
+            opacity: 0.35,
+            paddingBottom: "0.6rem",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {seconds}
+        </span>
+      </div>
+      {/* Date */}
+      <div
+        className="font-['Space_Mono'] text-white"
+        style={{
+          fontSize: "0.72rem",
+          letterSpacing: "0.18em",
+          opacity: 0.35,
+          marginTop: "6px",
+          textTransform: "uppercase",
+        }}
+      >
+        {date}
+      </div>
     </div>
   );
 }
 
 function Shimmer() {
   return (
-    <div className="bg-[rgba(255,107,26,0.03)] border border-[rgba(255,107,26,0.08)] rounded p-7 flex items-center gap-6">
+    <div
+      style={{
+        background: "rgba(255,107,26,0.03)",
+        border: "1px solid rgba(255,107,26,0.08)",
+        borderRadius: "12px",
+        padding: "24px 28px",
+        display: "flex",
+        alignItems: "center",
+        gap: "20px",
+      }}
+    >
       <div
-        className="w-20 h-20 rounded bg-white/5"
-        style={{ animation: "shimmer-bg 1.5s infinite" }}
+        style={{
+          width: 64,
+          height: 64,
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.05)",
+          animation: "shimmer-bg 1.5s infinite",
+          flexShrink: 0,
+        }}
       />
-      <div className="flex-1 flex flex-col gap-2.5">
+      <div
+        style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}
+      >
         <div
-          className="h-5 w-2/5 rounded bg-white/5"
-          style={{ animation: "shimmer-bg 1.5s infinite" }}
+          style={{
+            height: 18,
+            width: "40%",
+            borderRadius: 4,
+            background: "rgba(255,255,255,0.05)",
+            animation: "shimmer-bg 1.5s infinite",
+          }}
         />
         <div
-          className="h-3 w-1/4 rounded bg-white/[0.03]"
-          style={{ animation: "shimmer-bg 1.5s 0.2s infinite" }}
+          style={{
+            height: 12,
+            width: "25%",
+            borderRadius: 4,
+            background: "rgba(255,255,255,0.03)",
+            animation: "shimmer-bg 1.5s 0.2s infinite",
+          }}
         />
       </div>
     </div>
@@ -295,16 +331,30 @@ function CountdownBar({ durationMs }: { durationMs: number }) {
   const [pct, setPct] = useState(100);
   useEffect(() => {
     const start = Date.now();
-    const id = setInterval(() => {
-      setPct(Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100));
-    }, 50);
+    const id = setInterval(
+      () =>
+        setPct(Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100)),
+      50,
+    );
     return () => clearInterval(id);
   }, [durationMs]);
   return (
-    <div className="h-0.5 bg-white/[0.06] rounded overflow-hidden mt-2.5">
+    <div
+      style={{
+        height: 2,
+        background: "rgba(255,255,255,0.06)",
+        borderRadius: 2,
+        overflow: "hidden",
+        marginTop: 10,
+      }}
+    >
       <div
-        className="h-full bg-green-500 transition-[width] duration-[50ms] linear"
-        style={{ width: `${pct}%` }}
+        style={{
+          height: "100%",
+          width: `${pct}%`,
+          background: "#22c55e",
+          transition: "width 50ms linear",
+        }}
       />
     </div>
   );
@@ -322,50 +372,66 @@ function Banner({
   const color = type === "success" ? "#22c55e" : "#ef4444";
   return (
     <div
-      className="rounded p-3.5 flex items-start gap-3"
       style={{
         background: `${color}0d`,
-        border: `1px solid ${color}40`,
+        border: `1px solid ${color}35`,
+        borderRadius: 12,
+        padding: "16px 20px",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 12,
         animation: "fadeSlideIn 0.3s ease",
       }}
     >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 18 18"
-        fill="none"
-        className="shrink-0 mt-0.5"
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 8,
+          background: `${color}18`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
       >
-        {type === "success" ? (
-          <>
-            <circle cx="9" cy="9" r="8" stroke={color} strokeWidth="1.5" />
-            <path
-              d="M5.5 9l2.5 2.5 4.5-4.5"
-              stroke={color}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </>
-        ) : (
-          <>
-            <circle cx="9" cy="9" r="8" stroke={color} strokeWidth="1.5" />
-            <path
-              d="M6 6l6 6M12 6l-6 6"
-              stroke={color}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          </>
-        )}
-      </svg>
-      <div className="flex-1">
-        <span
-          className="font-['Space_Mono'] text-[0.72rem] tracking-[0.08em]"
-          style={{ color }}
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+          {type === "success" ? (
+            <>
+              <circle cx="9" cy="9" r="8" stroke={color} strokeWidth="1.5" />
+              <path
+                d="M5.5 9l2.5 2.5 4.5-4.5"
+                stroke={color}
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </>
+          ) : (
+            <>
+              <circle cx="9" cy="9" r="8" stroke={color} strokeWidth="1.5" />
+              <path
+                d="M6 6l6 6M12 6l-6 6"
+                stroke={color}
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </>
+          )}
+        </svg>
+      </div>
+      <div style={{ flex: 1 }}>
+        <p
+          className="font-['Space_Mono']"
+          style={{
+            fontSize: "0.7rem",
+            letterSpacing: "0.04em",
+            color,
+            lineHeight: 1.6,
+          }}
         >
           {message}
-        </span>
+        </p>
         {type === "success" && resetMs && <CountdownBar durationMs={resetMs} />}
       </div>
     </div>
@@ -384,98 +450,189 @@ function MemberCard({
   const isProcessing = phase === "processing";
   const isSuccess = phase === "success";
   const isBlocked = member.status === "expired" || member.status === "inactive";
-  const actionLabel = member.checkedIn ? "CHECK OUT" : "CHECK IN";
+  const statusColor = getStatusColor(member.status);
 
   return (
     <div
-      className="bg-[rgba(255,107,26,0.04)] border border-[rgba(255,107,26,0.22)] rounded p-7 flex items-center gap-7 relative overflow-hidden"
-      style={{ animation: "fadeSlideIn 0.3s ease" }}
+      style={{
+        background: "rgba(255,107,26,0.04)",
+        border: "1px solid rgba(255,107,26,0.18)",
+        borderRadius: 12,
+        padding: "24px 28px",
+        display: "flex",
+        alignItems: "center",
+        gap: 24,
+        position: "relative",
+        overflow: "hidden",
+        animation: "fadeSlideIn 0.3s ease",
+      }}
     >
-      {/* Corner accents */}
-      <div className="absolute top-0 left-0 w-0.5 h-14 bg-[#FF6B1A]" />
-      <div className="absolute top-0 left-0 w-14 h-0.5 bg-[#FF6B1A]" />
+      {/* Left accent */}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 16,
+          bottom: 16,
+          width: 3,
+          borderRadius: "0 3px 3px 0",
+          background: "#FF6B1A",
+        }}
+      />
 
       {/* Avatar */}
-      <div className="w-20 h-20 rounded shrink-0 overflow-hidden bg-[rgba(255,107,26,0.12)] border border-[rgba(255,107,26,0.28)] flex items-center justify-center">
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: 10,
+          flexShrink: 0,
+          overflow: "hidden",
+          background: "rgba(255,107,26,0.12)",
+          border: "1px solid rgba(255,107,26,0.25)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginLeft: 8,
+        }}
+      >
         {member.photoUrl ? (
           <img
             src={member.photoUrl}
             alt={member.name}
-            className="w-full h-full object-cover"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          <span className="font-['Bebas_Neue'] text-[1.8rem] text-[#FF6B1A]">
+          <span
+            className="font-['Bebas_Neue'] text-[#FF6B1A]"
+            style={{ fontSize: "1.8rem" }}
+          >
             {getInitials(member.name)}
           </span>
         )}
       </div>
 
       {/* Info */}
-      <div className="flex-1 min-w-0">
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div
-          className="font-['Bebas_Neue'] text-[#f5f5f5] tracking-[0.06em] leading-none mb-1.5 overflow-hidden text-ellipsis whitespace-nowrap"
-          style={{ fontSize: "clamp(1.4rem, 2vw, 1.9rem)" }}
+          className="font-['Bebas_Neue'] text-[#f5f5f5]"
+          style={{
+            fontSize: "clamp(1.4rem, 2vw, 1.9rem)",
+            letterSpacing: "0.06em",
+            lineHeight: 1,
+            marginBottom: 8,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
         >
           {member.name}
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="font-['Space_Mono'] text-[0.7rem] text-[#FF6B1A] tracking-[0.1em]">
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            className="font-['Space_Mono'] text-[#FF6B1A]"
+            style={{ fontSize: "0.65rem", letterSpacing: "0.1em" }}
+          >
             {member.gymId}
           </span>
           {member.plan && (
-            <span className="font-['Space_Mono'] text-[0.65rem] text-[#555]">
+            <span
+              className="font-['Space_Mono']"
+              style={{ fontSize: "0.6rem", color: "#555" }}
+            >
               {member.plan}
             </span>
           )}
           <span
-            className="font-['Space_Mono'] text-[0.6rem] border px-1.5 py-px rounded-sm tracking-[0.1em]"
+            className="font-['Space_Mono']"
             style={{
-              color: getStatusColor(member.status),
-              borderColor: getStatusColor(member.status),
+              fontSize: "0.55rem",
+              color: statusColor,
+              border: `1px solid ${statusColor}50`,
+              background: `${statusColor}12`,
+              padding: "2px 8px",
+              borderRadius: 20,
+              letterSpacing: "0.1em",
             }}
           >
             {member.status.toUpperCase()}
           </span>
         </div>
         {member.expiresAt && (
-          <div className="mt-1.5 font-['Space_Mono'] text-[0.6rem] text-[#3a3a3a] tracking-[0.08em]">
+          <div
+            className="font-['Space_Mono']"
+            style={{
+              fontSize: "0.55rem",
+              color: "#3a3a3a",
+              letterSpacing: "0.08em",
+              marginTop: 6,
+            }}
+          >
             EXPIRES {formatDate(member.expiresAt)}
           </div>
         )}
         {isBlocked && (
-          <div className="mt-2 font-['Space_Mono'] text-[0.62rem] text-red-500 tracking-[0.07em]">
+          <div
+            className="font-['Space_Mono'] text-red-400"
+            style={{
+              fontSize: "0.58rem",
+              letterSpacing: "0.07em",
+              marginTop: 8,
+            }}
+          >
             {member.status === "expired"
-              ? "MEMBERSHIP EXPIRED — PLEASE SEE THE FRONT DESK"
-              : "MEMBERSHIP INACTIVE — PLEASE SEE THE FRONT DESK"}
+              ? "MEMBERSHIP EXPIRED — SEE FRONT DESK"
+              : "MEMBERSHIP INACTIVE — SEE FRONT DESK"}
           </div>
         )}
       </div>
 
-      {/* Action */}
+      {/* Action button */}
       {!isBlocked && (
         <button
           onClick={onAction}
           disabled={isProcessing || isSuccess}
-          className="shrink-0 min-w-[130px] px-6 py-3.5 rounded-sm font-['Bebas_Neue'] text-[1.1rem] tracking-[0.12em] cursor-pointer transition-all duration-200 disabled:cursor-not-allowed"
+          className="font-['Bebas_Neue']"
           style={{
+            flexShrink: 0,
+            minWidth: 140,
+            padding: "14px 24px",
+            borderRadius: 10,
+            fontSize: "1.1rem",
+            letterSpacing: "0.12em",
+            cursor: isProcessing || isSuccess ? "not-allowed" : "pointer",
+            transition: "all 0.2s",
             background: isSuccess
-              ? "rgba(34,197,94,0.1)"
+              ? "rgba(34,197,94,0.12)"
               : member.checkedIn
                 ? "transparent"
                 : "#FF6B1A",
             border: isSuccess
-              ? "1px solid #22c55e"
+              ? "1px solid #22c55e50"
               : member.checkedIn
-                ? "1px solid rgba(255,107,26,0.45)"
+                ? "1px solid rgba(255,107,26,0.4)"
                 : "none",
             color: isSuccess
               ? "#22c55e"
               : member.checkedIn
                 ? "#FF6B1A"
-                : "#1a1a1a",
+                : "#111",
           }}
         >
-          {isProcessing ? "PROCESSING..." : isSuccess ? "✓  DONE" : actionLabel}
+          {isProcessing
+            ? "PROCESSING..."
+            : isSuccess
+              ? "✓  DONE"
+              : member.checkedIn
+                ? "CHECK OUT"
+                : "CHECK IN"}
         </button>
       )}
     </div>
@@ -495,70 +652,115 @@ function WalkInCard({
   const isSuccess = phase === "success";
   const passColor = PASS_COLORS[walkIn.passType] ?? "#FFB800";
   const isAlreadyOut = walkIn.isCheckedOut;
-  const actionLabel = isAlreadyOut
-    ? "CHECKED OUT"
-    : walkIn.checkIn
-      ? "CHECK OUT"
-      : "CHECK IN";
 
   return (
     <div
-      className="rounded p-7 flex items-center gap-7 relative overflow-hidden"
       style={{
         background: `${passColor}08`,
-        border: `1px solid ${passColor}28`,
+        border: `1px solid ${passColor}25`,
+        borderRadius: 12,
+        padding: "24px 28px",
+        display: "flex",
+        alignItems: "center",
+        gap: 24,
+        position: "relative",
+        overflow: "hidden",
         animation: "fadeSlideIn 0.3s ease",
       }}
     >
       <div
-        className="absolute top-0 left-0 w-0.5 h-14"
-        style={{ background: passColor }}
-      />
-      <div
-        className="absolute top-0 left-0 w-14 h-0.5"
-        style={{ background: passColor }}
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 16,
+          bottom: 16,
+          width: 3,
+          borderRadius: "0 3px 3px 0",
+          background: passColor,
+        }}
       />
 
       {/* Pass badge */}
       <div
-        className="w-20 h-20 shrink-0 rounded flex flex-col items-center justify-center gap-1"
         style={{
+          width: 72,
+          height: 72,
+          flexShrink: 0,
+          borderRadius: 10,
+          marginLeft: 8,
           background: `${passColor}14`,
-          border: `1px solid ${passColor}38`,
+          border: `1px solid ${passColor}30`,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 4,
         }}
       >
-        <span className="text-[1.6rem]">🎫</span>
+        <span style={{ fontSize: "1.6rem" }}>🎫</span>
         <span
-          className="font-['Space_Mono'] text-[0.52rem] tracking-[0.1em]"
-          style={{ color: passColor }}
+          className="font-['Space_Mono']"
+          style={{
+            fontSize: "0.45rem",
+            color: passColor,
+            letterSpacing: "0.1em",
+          }}
         >
           {walkIn.passType.toUpperCase()}
         </span>
       </div>
 
       {/* Info */}
-      <div className="flex-1">
+      <div style={{ flex: 1 }}>
         <div
-          className="font-['Bebas_Neue'] text-[#f5f5f5] tracking-[0.06em] leading-none mb-1.5"
-          style={{ fontSize: "clamp(1.4rem, 2vw, 1.9rem)" }}
+          className="font-['Bebas_Neue'] text-[#f5f5f5]"
+          style={{
+            fontSize: "clamp(1.4rem, 2vw, 1.9rem)",
+            letterSpacing: "0.06em",
+            lineHeight: 1,
+            marginBottom: 8,
+          }}
         >
           {walkIn.walkId}
         </div>
-        <div className="flex gap-2.5 items-center flex-wrap">
-          <span className="font-['Space_Mono'] text-[0.65rem] text-[#555]">
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <span
+            className="font-['Space_Mono']"
+            style={{ fontSize: "0.6rem", color: "#555" }}
+          >
             {walkIn.name}
           </span>
           <span
-            className="font-['Space_Mono'] text-[0.58rem] border px-1.5 py-px rounded-sm tracking-[0.1em]"
+            className="font-['Space_Mono']"
             style={{
+              fontSize: "0.55rem",
+              padding: "2px 8px",
+              borderRadius: 20,
+              letterSpacing: "0.1em",
               color: walkIn.isCheckedOut ? "#444" : "#22c55e",
-              borderColor: walkIn.isCheckedOut ? "#333" : "#22c55e",
+              border: `1px solid ${walkIn.isCheckedOut ? "#44444450" : "#22c55e50"}`,
+              background: walkIn.isCheckedOut ? "#44444412" : "#22c55e12",
             }}
           >
             {walkIn.isCheckedOut ? "CHECKED OUT" : "INSIDE"}
           </span>
         </div>
-        <div className="mt-1.5 font-['Space_Mono'] text-[0.58rem] text-[#3a3a3a] tracking-[0.08em]">
+        <div
+          className="font-['Space_Mono']"
+          style={{
+            fontSize: "0.55rem",
+            color: "#3a3a3a",
+            letterSpacing: "0.08em",
+            marginTop: 6,
+          }}
+        >
           CHECK-IN{" "}
           {new Date(walkIn.checkIn).toLocaleTimeString("en-PH", {
             hour: "2-digit",
@@ -568,21 +770,28 @@ function WalkInCard({
         </div>
       </div>
 
-      {/* Action */}
       {!isAlreadyOut && (
         <button
           onClick={onAction}
           disabled={isProcessing || isSuccess}
-          className="shrink-0 min-w-[130px] px-6 py-3.5 rounded-sm font-['Bebas_Neue'] text-[1.1rem] tracking-[0.12em] cursor-pointer transition-all duration-200 disabled:cursor-not-allowed"
+          className="font-['Bebas_Neue']"
           style={{
-            background: isSuccess ? "rgba(34,197,94,0.1)" : "transparent",
+            flexShrink: 0,
+            minWidth: 140,
+            padding: "14px 24px",
+            borderRadius: 10,
+            fontSize: "1.1rem",
+            letterSpacing: "0.12em",
+            cursor: isProcessing || isSuccess ? "not-allowed" : "pointer",
+            transition: "all 0.2s",
+            background: isSuccess ? "rgba(34,197,94,0.12)" : "transparent",
             border: isSuccess
-              ? "1px solid #22c55e"
-              : `1px solid ${passColor}55`,
+              ? "1px solid #22c55e50"
+              : `1px solid ${passColor}50`,
             color: isSuccess ? "#22c55e" : passColor,
           }}
         >
-          {isProcessing ? "PROCESSING..." : isSuccess ? "✓  DONE" : actionLabel}
+          {isProcessing ? "PROCESSING..." : isSuccess ? "✓  DONE" : "CHECK OUT"}
         </button>
       )}
     </div>
@@ -598,42 +807,118 @@ function SelectionList({
 }) {
   return (
     <div style={{ animation: "fadeSlideIn 0.3s ease" }}>
-      <div className="font-['Space_Mono'] text-[0.62rem] text-[#555] tracking-[0.15em] mb-3">
+      <p
+        className="font-['Space_Mono']"
+        style={{
+          fontSize: "0.55rem",
+          color: "#555",
+          letterSpacing: "0.15em",
+          marginBottom: 12,
+          textAlign: "center",
+        }}
+      >
         MULTIPLE MEMBERS FOUND — TAP YOUR NAME · USE GYM-ID FOR EXACT MATCH
-      </div>
-      <div className="flex flex-col gap-2">
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {members.map((m) => (
           <button
             key={m.gymId}
             onClick={() => onSelect(m)}
-            className="bg-[rgba(255,107,26,0.03)] border border-[rgba(255,107,26,0.14)] rounded p-3.5 flex items-center gap-4 cursor-pointer text-left transition-all hover:border-[rgba(255,107,26,0.45)] hover:bg-[rgba(255,107,26,0.07)]"
+            style={{
+              background: "rgba(255,107,26,0.03)",
+              border: "1px solid rgba(255,107,26,0.14)",
+              borderRadius: 10,
+              padding: "14px 18px",
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              cursor: "pointer",
+              textAlign: "left",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255,107,26,0.4)";
+              e.currentTarget.style.background = "rgba(255,107,26,0.06)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "rgba(255,107,26,0.14)";
+              e.currentTarget.style.background = "rgba(255,107,26,0.03)";
+            }}
           >
-            <div className="w-10 h-10 rounded-sm shrink-0 bg-[rgba(255,107,26,0.1)] border border-[rgba(255,107,26,0.2)] flex items-center justify-center">
-              <span className="font-['Bebas_Neue'] text-base text-[#FF6B1A]">
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                flexShrink: 0,
+                background: "rgba(255,107,26,0.1)",
+                border: "1px solid rgba(255,107,26,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <span
+                className="font-['Bebas_Neue'] text-[#FF6B1A]"
+                style={{ fontSize: "1rem" }}
+              >
                 {getInitials(m.name)}
               </span>
             </div>
-            <div>
-              <div className="font-['Bebas_Neue'] text-[1.1rem] text-[#f0f0f0] tracking-[0.06em]">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                className="font-['Bebas_Neue'] text-[#f0f0f0]"
+                style={{
+                  fontSize: "1.1rem",
+                  letterSpacing: "0.06em",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {m.name}
               </div>
-              <div className="flex gap-2.5 mt-0.5">
-                <span className="font-['Space_Mono'] text-[0.6rem] text-[#FF6B1A]">
+              <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
+                <span
+                  className="font-['Space_Mono'] text-[#FF6B1A]"
+                  style={{ fontSize: "0.58rem" }}
+                >
                   {m.gymId}
                 </span>
                 {m.plan && (
-                  <span className="font-['Space_Mono'] text-[0.6rem] text-[#444]">
+                  <span
+                    className="font-['Space_Mono']"
+                    style={{ fontSize: "0.58rem", color: "#444" }}
+                  >
                     {m.plan}
                   </span>
                 )}
                 <span
-                  className="font-['Space_Mono'] text-[0.6rem]"
-                  style={{ color: getStatusColor(m.status) }}
+                  className="font-['Space_Mono']"
+                  style={{
+                    fontSize: "0.55rem",
+                    color: getStatusColor(m.status),
+                  }}
                 >
                   {m.status.toUpperCase()}
                 </span>
               </div>
             </div>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              style={{ flexShrink: 0, opacity: 0.2 }}
+            >
+              <path
+                d="M6 3l5 5-5 5"
+                stroke="white"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
         ))}
       </div>
@@ -803,7 +1088,6 @@ export default function KioskPage() {
     setResult({ type: "member", data: member });
     setPhase("found");
   }, []);
-
   const handleSuggestionSelect = useCallback((member: Member) => {
     setQuery(member.name);
     setSuggestions([]);
@@ -812,7 +1096,6 @@ export default function KioskPage() {
     setResult({ type: "member", data: member });
     setPhase("found");
   }, []);
-
   const handleWalkInSuggestionSelect = useCallback((walkIn: WalkIn) => {
     setQuery(walkIn.walkId);
     setSuggestions([]);
@@ -886,13 +1169,12 @@ export default function KioskPage() {
         rel="stylesheet"
       />
       <style>{`
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         @keyframes pulse-dot {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.35; transform: scale(0.8); }
         }
         @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(-8px); }
+          from { opacity: 0; transform: translateY(8px); }
           to { opacity: 1; transform: translateY(0); }
         }
         @keyframes shimmer {
@@ -900,418 +1182,755 @@ export default function KioskPage() {
           100% { background-position: 200% center; }
         }
         @keyframes shimmer-bg {
-          0% { opacity: 0.4; } 50% { opacity: 0.12; } 100% { opacity: 0.4; }
+          0% { opacity: 0.4; } 50% { opacity: 0.1; } 100% { opacity: 0.4; }
         }
         .kiosk-input {
           flex: 1; background: transparent; border: none; outline: none;
-          font-family: 'Space Mono', monospace; font-size: 1.2rem;
-          color: #f5f5f5; letter-spacing: 0.06em; caret-color: #FF6B1A;
+          font-family: 'Space Mono', monospace; font-size: 1rem;
+          color: #f0f0f0; letter-spacing: 0.04em; caret-color: #FF6B1A;
         }
-        .kiosk-input::placeholder { color: #2a2a2a; }
+        .kiosk-input::placeholder { color: #2c2c2c; }
         .kiosk-input-wrap {
-          border: 1px solid rgba(255,107,26,0.22); border-radius: 4px;
-          padding: 16px 20px; display: flex; align-items: center; gap: 14px;
-          background: rgba(255,107,26,0.02); transition: border-color 0.2s, background 0.2s;
+          border: 1px solid rgba(255,107,26,0.2);
+          border-radius: 12px;
+          padding: 16px 20px;
+          display: flex; align-items: center; gap: 14px;
+          background: rgba(255,107,26,0.02);
+          transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
         }
         .kiosk-input-wrap:focus-within {
-          border-color: rgba(255,107,26,0.55); background: rgba(255,107,26,0.04);
+          border-color: rgba(255,107,26,0.55);
+          background: rgba(255,107,26,0.04);
+          box-shadow: 0 0 0 4px rgba(255,107,26,0.07);
         }
         .search-btn {
-          flex-shrink: 0; padding: 9px 20px; background: #FF6B1A;
-          border: none; border-radius: 3px; color: #1a1a1a;
-          font-family: 'Bebas Neue', sans-serif; font-size: 1rem;
-          letter-spacing: 0.12em; cursor: pointer; transition: opacity 0.2s;
+          flex-shrink: 0; padding: 11px 26px;
+          background: #FF6B1A; border: none; border-radius: 8px;
+          color: #111; font-family: 'Bebas Neue', sans-serif;
+          font-size: 1rem; letter-spacing: 0.12em; cursor: pointer;
+          transition: opacity 0.2s, transform 0.1s;
         }
-        .search-btn:hover:not(:disabled) { opacity: 0.85; }
-        .search-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-        .hint-tag {
-          display: inline-flex; align-items: center; gap: 6px;
-          border: 1px solid rgba(255,255,255,0.05); border-radius: 2px;
-          padding: 3px 9px; font-family: 'Space Mono', monospace;
-          font-size: 0.57rem; color: #383838; letter-spacing: 0.1em;
-        }
-        .hint-tag span { color: #FF6B1A; opacity: 0.6; }
+        .search-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-1px); }
+        .search-btn:active:not(:disabled) { transform: translateY(0); }
+        .search-btn:disabled { opacity: 0.25; cursor: not-allowed; }
         .kiosk-shimmer-text {
           background: linear-gradient(90deg, #FF6B1A, #FFB800, #FF6B1A);
           background-size: 200% auto;
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
+          background-clip: text;
           animation: shimmer 5s linear infinite;
         }
-        .divider {
-          height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(255,107,26,0.13) 30%, rgba(255,107,26,0.13) 70%, transparent);
+        .hint-tag {
+          display: inline-flex; align-items: center; gap: 5px;
+          border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+          padding: 4px 10px; font-family: 'Space Mono', monospace;
+          font-size: 0.5rem; color: #333; letter-spacing: 0.08em;
+          background: rgba(255,255,255,0.02);
+        }
+        .hint-tag span { color: #FF6B1A; opacity: 0.65; }
+
+        /* ── Custom scrollbar for autosuggest dropdown ── */
+        .kiosk-scroll::-webkit-scrollbar {
+          width: 4px;
+        }
+        .kiosk-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .kiosk-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255, 107, 26, 0.25);
+          border-radius: 99px;
+        }
+        .kiosk-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 107, 26, 0.5);
         }
       `}</style>
 
-      <div className="min-h-screen bg-[#1a1a1a] flex flex-col items-center justify-center relative overflow-hidden">
-        {/* Scanlines */}
+      {/* ── Root ── */}
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#141414",
+          display: "flex",
+          flexDirection: "column",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* Subtle top glow */}
         <div
-          className="fixed inset-0 pointer-events-none z-0"
           style={{
-            backgroundImage:
-              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px)",
-          }}
-        />
-
-        {/* Ambient glow */}
-        <div
-          className="fixed pointer-events-none z-0"
-          style={{
-            top: "-25vh",
+            position: "fixed",
+            top: 0,
             left: "50%",
             transform: "translateX(-50%)",
-            width: "55vw",
-            height: "55vh",
+            width: "50vw",
+            height: "30vh",
+            pointerEvents: "none",
+            zIndex: 0,
             background:
-              "radial-gradient(ellipse, rgba(255,107,26,0.05) 0%, transparent 70%)",
+              "radial-gradient(ellipse at top, rgba(255,107,26,0.06) 0%, transparent 70%)",
           }}
         />
 
         {/* Offline banner */}
         {offline && (
-          <div className="fixed top-0 left-0 right-0 z-[100] bg-red-500/10 border-b border-red-500/25 py-2 px-6 flex items-center justify-center">
-            <span className="font-['Space_Mono'] text-[0.62rem] text-red-400 tracking-[0.15em]">
-              ⚠ NO INTERNET CONNECTION — PLEASE SEE THE FRONT DESK
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 100,
+              background: "rgba(239,68,68,0.1)",
+              borderBottom: "1px solid rgba(239,68,68,0.2)",
+              padding: "10px 24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#ef4444",
+                animation: "pulse-dot 1s infinite",
+              }}
+            />
+            <span
+              className="font-['Space_Mono'] text-red-400"
+              style={{ fontSize: "0.58rem", letterSpacing: "0.15em" }}
+            >
+              NO INTERNET CONNECTION — PLEASE SEE THE FRONT DESK
             </span>
           </div>
         )}
 
-        {/* Main content */}
+        {/* ── Centered main content ── */}
         <div
-          className="relative z-[1] w-full max-w-[1100px] mx-auto flex flex-col"
-          style={{ padding: `${offline ? "58px" : "40px"} 48px 32px` }}
+          style={{
+            position: "relative",
+            zIndex: 1,
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: `${offline ? "72px" : "48px"} 24px 48px`,
+          }}
         >
-          {/* Header */}
-          <div className="flex justify-between items-start mb-7">
-            {/* Left — Logo + Status */}
-            <div className="flex flex-col gap-1.5">
-              {/* Logo row */}
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 bg-[#FF6B1A] rounded-sm flex items-center justify-center shrink-0">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <div style={{ width: "100%", maxWidth: 680 }}>
+            {/* ── CLOCK — Hero ── */}
+            {/* To adjust clock size, change fontSize in Clock component above */}
+            <div style={{ marginBottom: "2.5rem" }}>
+              <Clock />
+            </div>
+
+            {/* ── Gym name + status ── */}
+            <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  marginBottom: 8,
+                }}
+              >
+                <div
+                  style={{
+                    width: 28,
+                    height: 28,
+                    background: "#FF6B1A",
+                    borderRadius: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="8" width="4" height="8" rx="2" fill="#111" />
                     <rect
-                      x="2"
-                      y="6"
-                      width="5"
-                      height="8"
+                      x="6"
+                      y="10"
+                      width="12"
+                      height="4"
                       rx="1"
-                      fill="#1a1a1a"
+                      fill="#111"
                     />
                     <rect
-                      x="9"
-                      y="2"
-                      width="5"
-                      height="12"
-                      rx="1"
-                      fill="#1a1a1a"
+                      x="18"
+                      y="8"
+                      width="4"
+                      height="8"
+                      rx="2"
+                      fill="#111"
                     />
                   </svg>
                 </div>
-                <span className="font-['Bebas_Neue'] text-[1.5rem] text-[#f0f0f0] tracking-[0.15em]">
+                <span
+                  className="font-['Bebas_Neue'] text-white"
+                  style={{ fontSize: "1.6rem", letterSpacing: "0.2em" }}
+                >
                   {gymName}
                 </span>
               </div>
 
-              {/* Status row */}
-              <StandbyPulse offline={offline} />
-            </div>
-            {/* Right — Clock */}
-            <Clock />
-          </div>
-
-          {/* Hero text */}
-          <div className="mb-3">
-            <div
-              className="font-['Bebas_Neue'] text-[#f5f5f5] leading-[0.95] tracking-[0.04em]"
-              style={{ fontSize: "clamp(2.4rem, 3.5vw, 4rem)" }}
-            >
-              MEMBER
-            </div>
-            <div
-              className="font-['Bebas_Neue'] leading-[0.95] tracking-[0.04em] kiosk-shimmer-text"
-              style={{ fontSize: "clamp(2.4rem, 3.5vw, 4rem)" }}
-            >
-              CHECK-IN TERMINAL
-            </div>
-          </div>
-
-          <p className="font-['Space_Mono'] text-[0.63rem] text-[#3e3e3e] tracking-[0.1em] mb-5">
-            ENTER YOUR NAME, GYM-ID, OR WALK-IN PASS ID BELOW
-          </p>
-
-          <div className="divider mb-6" />
-
-          {/* Search */}
-          <div className="relative mb-3.5">
-            <div className="kiosk-input-wrap">
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 18 18"
-                fill="none"
-                className="shrink-0 opacity-30"
-              >
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="5.5"
-                  stroke="#FF6B1A"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="M12.5 12.5L16 16"
-                  stroke="#FF6B1A"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <input
-                ref={inputRef}
-                className="kiosk-input"
-                type="text"
-                placeholder="e.g.  Juan Dela Cruz  ·  GYM-1001  ·  WALK-001"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  if (!e.target.value.trim()) {
-                    setSuggestions([]);
-                    setWalkInSuggestions([]);
-                    setShowSuggestions(false);
-                  }
+              {/* Terminal status */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 7,
                 }}
-                onKeyDown={handleKeyDown}
-                disabled={inputDisabled}
-                autoComplete="new-password"
-                spellCheck={false}
-              />
-              <button
-                className="search-btn"
-                onClick={handleSearch}
-                disabled={inputDisabled || !query.trim()}
               >
-                {phase === "searching" ? "..." : "SEARCH"}
-              </button>
+                <div
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: offline ? "#ef4444" : "#22c55e",
+                    animation: "pulse-dot 2s ease-in-out infinite",
+                  }}
+                />
+                <span
+                  className="font-['Space_Mono']"
+                  style={{
+                    fontSize: "0.55rem",
+                    letterSpacing: "0.2em",
+                    color: offline ? "#ef4444" : "#22c55e",
+                  }}
+                >
+                  {offline ? "NO CONNECTION" : "TERMINAL READY"}
+                </span>
+              </div>
+
+              {/* Divider */}
+              <div
+                style={{
+                  height: 1,
+                  marginTop: "1.8rem",
+                  marginBottom: "1.8rem",
+                  background:
+                    "linear-gradient(90deg, transparent, rgba(255,107,26,0.15) 30%, rgba(255,107,26,0.15) 70%, transparent)",
+                }}
+              />
+
+              {/* Title */}
+              <div style={{ marginBottom: 6 }}>
+                <span
+                  className="font-['Bebas_Neue'] text-white"
+                  style={{
+                    fontSize: "clamp(1.6rem, 2.5vw, 2.4rem)",
+                    letterSpacing: "0.08em",
+                    opacity: 0.85,
+                  }}
+                >
+                  MEMBER{" "}
+                </span>
+                <span
+                  className="font-['Bebas_Neue'] kiosk-shimmer-text"
+                  style={{
+                    fontSize: "clamp(1.6rem, 2.5vw, 2.4rem)",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  CHECK-IN
+                </span>
+              </div>
+              <p
+                className="font-['Space_Mono'] text-white"
+                style={{
+                  fontSize: "0.52rem",
+                  letterSpacing: "0.12em",
+                  opacity: 0.2,
+                }}
+              >
+                ENTER YOUR NAME, GYM-ID, OR WALK-IN PASS ID BELOW
+              </p>
             </div>
 
-            {/* Auto-suggest dropdown */}
-            {showSuggestions &&
-              (suggestions.length > 0 || walkInSuggestions.length > 0) &&
-              phase === "idle" && (
-                <div className="absolute top-[calc(100%+6px)] left-0 right-0 bg-[#212121] border border-[rgba(255,107,26,0.3)] rounded z-50 overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-                  {/* Member suggestions */}
-                  {suggestions.length > 0 && (
-                    <>
-                      {walkInSuggestions.length > 0 && (
-                        <div className="px-4 pt-1.5 pb-1 font-['Space_Mono'] text-[0.52rem] text-[#444] tracking-[0.12em]">
-                          MEMBERS
-                        </div>
-                      )}
-                      {suggestions.map((m, i) => (
-                        <button
-                          key={m.gymId}
-                          onClick={() => handleSuggestionSelect(m)}
-                          className="w-full flex items-center gap-3.5 px-4 py-3 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-[rgba(255,107,26,0.08)]"
-                          style={{
-                            borderBottom:
-                              i < suggestions.length - 1 ||
-                              walkInSuggestions.length > 0
-                                ? "1px solid rgba(255,255,255,0.05)"
-                                : "none",
-                          }}
-                        >
-                          <div className="w-9 h-9 rounded-sm shrink-0 bg-[rgba(255,107,26,0.1)] border border-[rgba(255,107,26,0.2)] flex items-center justify-center">
-                            <span className="font-['Bebas_Neue'] text-[0.95rem] text-[#FF6B1A]">
-                              {getInitials(m.name)}
-                            </span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-['Bebas_Neue'] text-base text-[#f0f0f0] tracking-[0.05em]">
-                              {m.name}
-                            </div>
-                            <div className="flex gap-2.5 mt-0.5">
-                              <span className="font-['Space_Mono'] text-[0.58rem] text-[#FF6B1A]">
-                                {m.gymId}
-                              </span>
-                              {m.plan && (
-                                <span className="font-['Space_Mono'] text-[0.58rem] text-[#444]">
-                                  {m.plan}
-                                </span>
-                              )}
-                              <span
-                                className="font-['Space_Mono'] text-[0.55rem] border px-1 rounded-sm"
-                                style={{
-                                  color:
-                                    m.status === "active"
-                                      ? "#22c55e"
-                                      : m.status === "expired"
-                                        ? "#ef4444"
-                                        : "#FFB800",
-                                  borderColor:
-                                    m.status === "active"
-                                      ? "#22c55e44"
-                                      : m.status === "expired"
-                                        ? "#ef444444"
-                                        : "#FFB80044",
-                                }}
-                              >
-                                {m.status.toUpperCase()}
-                              </span>
-                            </div>
-                          </div>
-                          {m.checkedIn && (
-                            <span className="font-['Space_Mono'] text-[0.55rem] text-[#FF6B1A] shrink-0">
-                              ● INSIDE
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </>
-                  )}
+            {/* ── Search box ── */}
+            {/* To adjust search box spacing, change marginBottom below */}
+            <div style={{ position: "relative", marginBottom: "1rem" }}>
+              <div className="kiosk-input-wrap">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 18 18"
+                  fill="none"
+                  style={{ flexShrink: 0, opacity: 0.22 }}
+                >
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="5.5"
+                    stroke="#FF6B1A"
+                    strokeWidth="1.5"
+                  />
+                  <path
+                    d="M12.5 12.5L16 16"
+                    stroke="#FF6B1A"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <input
+                  ref={inputRef}
+                  className="kiosk-input"
+                  type="text"
+                  placeholder="Search by name, GYM-ID, or WALK-ID..."
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    if (!e.target.value.trim()) {
+                      setSuggestions([]);
+                      setWalkInSuggestions([]);
+                      setShowSuggestions(false);
+                    }
+                  }}
+                  onKeyDown={handleKeyDown}
+                  disabled={inputDisabled}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+                <button
+                  className="search-btn"
+                  onClick={handleSearch}
+                  disabled={inputDisabled || !query.trim()}
+                >
+                  {phase === "searching" ? "···" : "SEARCH"}
+                </button>
+              </div>
 
-                  {/* Walk-in suggestions */}
-                  {walkInSuggestions.length > 0 && (
-                    <>
+              {/* Auto-suggest dropdown */}
+              {showSuggestions &&
+                (suggestions.length > 0 || walkInSuggestions.length > 0) &&
+                phase === "idle" && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      left: 0,
+                      right: 0,
+                      background: "#1e1e1e",
+                      border: "1px solid rgba(255,107,26,0.25)",
+                      borderRadius: 12,
+                      zIndex: 50,
+                      overflow: "hidden",
+                      boxShadow: "0 16px 40px rgba(0,0,0,0.6)",
+                      maxHeight: "320px",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    {/* Scrollable area */}
+                    <div
+                      style={{
+                        overflowY: "auto",
+                        flex: 1,
+                        scrollbarWidth: "thin",
+                        scrollbarColor: "rgba(255,107,26,0.3) transparent",
+                      }}
+                      className="kiosk-scroll"
+                    >
                       {suggestions.length > 0 && (
-                        <div className="px-4 pt-1.5 pb-1 font-['Space_Mono'] text-[0.52rem] text-[#444] tracking-[0.12em]">
-                          WALK-INS TODAY
-                        </div>
-                      )}
-                      {walkInSuggestions.map((w, i) => {
-                        const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
-                        return (
-                          <button
-                            key={w.walkId}
-                            onClick={() => handleWalkInSuggestionSelect(w)}
-                            className="w-full flex items-center gap-3.5 px-4 py-3 bg-transparent border-none cursor-pointer text-left transition-colors"
-                            style={{
-                              borderBottom:
-                                i < walkInSuggestions.length - 1
-                                  ? "1px solid rgba(255,255,255,0.05)"
-                                  : "none",
-                            }}
-                            onMouseEnter={(e) =>
-                              (e.currentTarget.style.background = `${passColor}12`)
-                            }
-                            onMouseLeave={(e) =>
-                              (e.currentTarget.style.background = "transparent")
-                            }
-                          >
+                        <>
+                          {walkInSuggestions.length > 0 && (
                             <div
-                              className="w-9 h-9 rounded-sm shrink-0 flex items-center justify-center"
+                              className="font-['Space_Mono']"
                               style={{
-                                background: `${passColor}14`,
-                                border: `1px solid ${passColor}38`,
+                                padding: "10px 16px 4px",
+                                fontSize: "0.44rem",
+                                color: "#444",
+                                letterSpacing: "0.15em",
                               }}
                             >
-                              <span className="text-base">🎫</span>
+                              MEMBERS
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-['Bebas_Neue'] text-base text-[#f0f0f0] tracking-[0.05em]">
-                                {w.name}
-                              </div>
-                              <div className="flex gap-2.5 mt-0.5">
+                          )}
+                          {suggestions.map((m, i) => (
+                            <button
+                              key={m.gymId}
+                              onClick={() => handleSuggestionSelect(m)}
+                              style={{
+                                width: "100%",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                padding: "12px 16px",
+                                background: "transparent",
+                                border: "none",
+                                borderBottom:
+                                  i < suggestions.length - 1 ||
+                                  walkInSuggestions.length > 0
+                                    ? "1px solid rgba(255,255,255,0.04)"
+                                    : "none",
+                                cursor: "pointer",
+                                textAlign: "left",
+                                transition: "background 0.15s",
+                              }}
+                              onMouseEnter={(e) =>
+                                (e.currentTarget.style.background =
+                                  "rgba(255,107,26,0.07)")
+                              }
+                              onMouseLeave={(e) =>
+                                (e.currentTarget.style.background =
+                                  "transparent")
+                              }
+                            >
+                              <div
+                                style={{
+                                  width: 34,
+                                  height: 34,
+                                  borderRadius: 8,
+                                  flexShrink: 0,
+                                  background: "rgba(255,107,26,0.1)",
+                                  border: "1px solid rgba(255,107,26,0.18)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
                                 <span
-                                  className="font-['Space_Mono'] text-[0.58rem]"
-                                  style={{ color: passColor }}
+                                  className="font-['Bebas_Neue'] text-[#FF6B1A]"
+                                  style={{ fontSize: "0.9rem" }}
                                 >
-                                  {w.walkId}
-                                </span>
-                                <span className="font-['Space_Mono'] text-[0.58rem] text-[#444]">
-                                  {w.passType.toUpperCase()}
+                                  {getInitials(m.name)}
                                 </span>
                               </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div
+                                  className="font-['Bebas_Neue'] text-[#f0f0f0]"
+                                  style={{
+                                    fontSize: "1rem",
+                                    letterSpacing: "0.05em",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {m.name}
+                                </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: 8,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  <span
+                                    className="font-['Space_Mono'] text-[#FF6B1A]"
+                                    style={{ fontSize: "0.5rem" }}
+                                  >
+                                    {m.gymId}
+                                  </span>
+                                  {m.plan && (
+                                    <span
+                                      className="font-['Space_Mono']"
+                                      style={{
+                                        fontSize: "0.5rem",
+                                        color: "#444",
+                                      }}
+                                    >
+                                      {m.plan}
+                                    </span>
+                                  )}
+                                  <span
+                                    className="font-['Space_Mono']"
+                                    style={{
+                                      fontSize: "0.48rem",
+                                      color: getStatusColor(m.status),
+                                    }}
+                                  >
+                                    {m.status.toUpperCase()}
+                                  </span>
+                                </div>
+                              </div>
+                              {m.checkedIn && (
+                                <span
+                                  className="font-['Space_Mono'] text-[#FF6B1A]"
+                                  style={{ fontSize: "0.48rem", flexShrink: 0 }}
+                                >
+                                  ● INSIDE
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      {walkInSuggestions.length > 0 && (
+                        <>
+                          {suggestions.length > 0 && (
+                            <div
+                              className="font-['Space_Mono']"
+                              style={{
+                                padding: "10px 16px 4px",
+                                fontSize: "0.44rem",
+                                color: "#444",
+                                letterSpacing: "0.15em",
+                              }}
+                            >
+                              WALK-INS TODAY
                             </div>
-                            {!w.isCheckedOut && (
-                              <span className="font-['Space_Mono'] text-[0.55rem] text-green-500 shrink-0">
-                                ● INSIDE
-                              </span>
-                            )}
-                            {w.isCheckedOut && (
-                              <span className="font-['Space_Mono'] text-[0.55rem] text-[#444] shrink-0">
-                                OUT
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-              )}
-          </div>
+                          )}
+                          {walkInSuggestions.map((w, i) => {
+                            const passColor =
+                              PASS_COLORS[w.passType] ?? "#FFB800";
+                            return (
+                              <button
+                                key={w.walkId}
+                                onClick={() => handleWalkInSuggestionSelect(w)}
+                                style={{
+                                  width: "100%",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 12,
+                                  padding: "12px 16px",
+                                  background: "transparent",
+                                  border: "none",
+                                  borderBottom:
+                                    i < walkInSuggestions.length - 1
+                                      ? "1px solid rgba(255,255,255,0.04)"
+                                      : "none",
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                  transition: "background 0.15s",
+                                }}
+                                onMouseEnter={(e) =>
+                                  (e.currentTarget.style.background = `${passColor}08`)
+                                }
+                                onMouseLeave={(e) =>
+                                  (e.currentTarget.style.background =
+                                    "transparent")
+                                }
+                              >
+                                <div
+                                  style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 8,
+                                    flexShrink: 0,
+                                    background: `${passColor}12`,
+                                    border: `1px solid ${passColor}28`,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  <span style={{ fontSize: "1rem" }}>🎫</span>
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div
+                                    className="font-['Bebas_Neue'] text-[#f0f0f0]"
+                                    style={{
+                                      fontSize: "1rem",
+                                      letterSpacing: "0.05em",
+                                    }}
+                                  >
+                                    {w.name}
+                                  </div>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: 8,
+                                      marginTop: 2,
+                                    }}
+                                  >
+                                    <span
+                                      className="font-['Space_Mono']"
+                                      style={{
+                                        fontSize: "0.5rem",
+                                        color: passColor,
+                                      }}
+                                    >
+                                      {w.walkId}
+                                    </span>
+                                    <span
+                                      className="font-['Space_Mono']"
+                                      style={{
+                                        fontSize: "0.5rem",
+                                        color: "#444",
+                                      }}
+                                    >
+                                      {w.passType.toUpperCase()}
+                                    </span>
+                                  </div>
+                                </div>
+                                {!w.isCheckedOut && (
+                                  <span
+                                    className="font-['Space_Mono'] text-green-400"
+                                    style={{
+                                      fontSize: "0.48rem",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    ● INSIDE
+                                  </span>
+                                )}
+                                {w.isCheckedOut && (
+                                  <span
+                                    className="font-['Space_Mono']"
+                                    style={{
+                                      fontSize: "0.48rem",
+                                      flexShrink: 0,
+                                      color: "#444",
+                                    }}
+                                  >
+                                    OUT
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                    {/* end scroll */}
 
-          {/* Hints */}
-          <div className="flex gap-2 mb-6 flex-wrap">
-            {[
-              ["GYM-XXXXX", "Member ID"],
-              ["WALK-XXX", "Day Pass"],
-              ["Full Name", "Name search"],
-            ].map(([code, label]) => (
-              <div className="hint-tag" key={code}>
-                <span>{code}</span>
-                {label}
+                    {/* Fade indicator at bottom — shows more results are available */}
+                    {suggestions.length + walkInSuggestions.length > 3 && (
+                      <div
+                        style={{
+                          padding: "6px 16px 8px",
+                          borderTop: "1px solid rgba(255,255,255,0.04)",
+                          background: "#1e1e1e",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          className="font-['Space_Mono']"
+                          style={{
+                            fontSize: "0.42rem",
+                            color: "#444",
+                            letterSpacing: "0.12em",
+                          }}
+                        >
+                          SCROLL FOR MORE RESULTS
+                        </span>
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                          <path
+                            d="M1 3l3 3 3-3"
+                            stroke="#444"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                )}
+            </div>
+
+            {/* Hint tags */}
+            {/* To adjust spacing below hints, change marginBottom */}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                justifyContent: "center",
+                marginBottom: "2rem",
+              }}
+            >
+              {[
+                ["GYM-XXXXX", "Member ID"],
+                ["WALK-XXX", "Day Pass"],
+                ["Full Name", "Name Search"],
+              ].map(([code, label]) => (
+                <div className="hint-tag" key={code}>
+                  <span>{code}</span>
+                  {label}
+                </div>
+              ))}
+              <div className="hint-tag">
+                <span style={{ color: "#2a2a2a" }}>ESC</span>Clear
               </div>
-            ))}
-            <div className="hint-tag ml-auto">
-              <span style={{ color: "#444" }}>ESC</span>CLEAR
+            </div>
+
+            {/* Results */}
+            {/* To adjust spacing between result cards, change gap */}
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+            >
+              {phase === "searching" && <Shimmer />}
+              {phase === "selecting" && result?.type === "member_list" && (
+                <SelectionList
+                  members={result.data}
+                  onSelect={handleSelectMember}
+                />
+              )}
+              {["found", "processing", "success"].includes(phase) &&
+                result?.type === "member" && (
+                  <MemberCard
+                    member={result.data}
+                    onAction={handleAction}
+                    phase={phase}
+                  />
+                )}
+              {["found", "processing", "success"].includes(phase) &&
+                result?.type === "walkin" && (
+                  <WalkInCard
+                    walkIn={result.data}
+                    onAction={handleAction}
+                    phase={phase}
+                  />
+                )}
+              {phase === "success" && statusMessage && (
+                <Banner
+                  type="success"
+                  message={statusMessage}
+                  resetMs={RESET_DELAY_MS}
+                />
+              )}
+              {phase === "error" && errorMessage && (
+                <Banner type="error" message={errorMessage} />
+              )}
             </div>
           </div>
+        </div>
 
-          {/* Results */}
-          <div className="flex flex-col gap-3">
-            {phase === "searching" && <Shimmer />}
-
-            {phase === "selecting" && result?.type === "member_list" && (
-              <SelectionList
-                members={result.data}
-                onSelect={handleSelectMember}
-              />
-            )}
-
-            {["found", "processing", "success"].includes(phase) &&
-              result?.type === "member" && (
-                <MemberCard
-                  member={result.data}
-                  onAction={handleAction}
-                  phase={phase}
-                />
-              )}
-
-            {["found", "processing", "success"].includes(phase) &&
-              result?.type === "walkin" && (
-                <WalkInCard
-                  walkIn={result.data}
-                  onAction={handleAction}
-                  phase={phase}
-                />
-              )}
-
-            {phase === "success" && statusMessage && (
-              <Banner
-                type="success"
-                message={statusMessage}
-                resetMs={RESET_DELAY_MS}
-              />
-            )}
-
-            {phase === "error" && errorMessage && (
-              <Banner type="error" message={errorMessage} />
-            )}
-          </div>
-
-          <div className="flex-1" />
-
-          {/* Footer */}
-          <div className="divider mb-3.5" />
-          <div className="flex justify-between">
-            <span className="font-['Space_Mono'] text-[0.54rem] text-[#282828] tracking-[0.12em]">
-              {gymName + " GMS · KIOSK TERMINAL v2.0"}
-            </span>
-            <span className="font-['Space_Mono'] text-[0.54rem] text-[#282828] tracking-[0.12em]">
-              HAVING TROUBLE? SEE THE FRONT DESK
-            </span>
-          </div>
+        {/* ── Footer ── */}
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            borderTop: "1px solid rgba(255,255,255,0.04)",
+            padding: "14px 40px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span
+            className="font-['Space_Mono']"
+            style={{
+              fontSize: "0.46rem",
+              color: "rgba(255,255,255,0.1)",
+              letterSpacing: "0.12em",
+            }}
+          >
+            {gymName} GMS · KIOSK TERMINAL v2.0
+          </span>
+          <span
+            className="font-['Space_Mono']"
+            style={{
+              fontSize: "0.46rem",
+              color: "rgba(255,255,255,0.1)",
+              letterSpacing: "0.12em",
+            }}
+          >
+            HAVING TROUBLE? SEE THE FRONT DESK
+          </span>
         </div>
       </div>
     </>
