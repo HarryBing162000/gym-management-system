@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { walkInService } from "../services/walkInService";
 import { useToastStore } from "../store/toastStore";
 import type { WalkIn, WalkInSummary } from "../types";
+import ConfirmModal from "../components/ConfirmModal";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,8 @@ function RegisterModal({
   );
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // ── Bug 1 fixed: checkoutTarget removed from here, it belongs in WalkInsPage ──
 
   const passConfig = [
     { type: "regular" as const, label: "Regular", price: 150 },
@@ -449,7 +452,7 @@ function WalkInRow({
           {!w.isCheckedOut ? (
             <button
               onClick={() => onCheckOut?.(w.walkId)}
-              className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-white/20 rounded-md transition-all cursor-pointer"
+              className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-amber-400 hover:border-amber-400/30 border border-white/10 rounded-md transition-all cursor-pointer"
             >
               Check Out
             </button>
@@ -535,6 +538,9 @@ export default function WalkInsPage() {
   const { showToast } = useToastStore();
   const [activeTab, setActiveTab] = useState<"today" | "history">("today");
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+
+  // ── Bug 1 fixed: checkoutTarget lives here in WalkInsPage, not in RegisterModal ──
+  const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null);
 
   // Today
   const [todayWalkIns, setTodayWalkIns] = useState<WalkIn[]>([]);
@@ -646,10 +652,14 @@ export default function WalkInsPage() {
     setHistoryPage(1);
   }, [quickFilter, customFrom, customTo, historySearch]);
 
-  const handleCheckOut = async (walkId: string) => {
+  // ── Bug 2 fixed: saves walkId before clearing, uses fetchToday not loadToday ──
+  const confirmCheckOut = async () => {
+    if (!checkoutTarget) return;
+    const id = checkoutTarget;
+    setCheckoutTarget(null); // close modal immediately for snappy feel
     try {
-      await walkInService.checkOut(walkId);
-      showToast(`${walkId} checked out.`, "success");
+      await walkInService.checkOut(id);
+      showToast(`${id} checked out.`, "success");
       fetchToday();
     } catch {
       showToast("Checkout failed. Please try again.", "error");
@@ -666,8 +676,8 @@ export default function WalkInsPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Bug 4 fixed: pulse-dot removed — now lives in index.css globally */}
       <style>{`
-        @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         .walkin-row:nth-child(even) { background: rgba(255,255,255,0.012); }
         .walkin-row:hover { background: rgba(255,184,0,0.04) !important; }
@@ -792,7 +802,8 @@ export default function WalkInsPage() {
                           key={w._id}
                           w={w}
                           showCheckout
-                          onCheckOut={handleCheckOut}
+                          // Bug 3 fixed: opens confirm modal instead of calling API directly
+                          onCheckOut={(walkId) => setCheckoutTarget(walkId)}
                         />
                       ))
                   )}
@@ -1026,10 +1037,23 @@ export default function WalkInsPage() {
         )}
       </div>
 
+      {/* Register Modal */}
       {showRegisterModal && (
         <RegisterModal
           onClose={() => setShowRegisterModal(false)}
           onRegistered={fetchToday}
+        />
+      )}
+
+      {/* Checkout Confirmation Modal */}
+      {checkoutTarget && (
+        <ConfirmModal
+          title="Check out this visitor?"
+          message={`This will record the check-out time for ${checkoutTarget}. You won't be able to undo this.`}
+          confirmLabel="Check Out"
+          variant="warning"
+          onConfirm={confirmCheckOut}
+          onCancel={() => setCheckoutTarget(null)}
         />
       )}
     </>

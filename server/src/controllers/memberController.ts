@@ -70,12 +70,22 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
 
     const filter: Record<string, unknown> = {};
 
+    // ── Status filter ─────────────────────────────────────────────────────────
     if (status && ["active", "inactive", "expired"].includes(status)) {
       filter.status = status;
     }
+
+    // ── Plan filter ───────────────────────────────────────────────────────────
     if (plan && ["Monthly", "Quarterly", "Annual", "Student"].includes(plan)) {
       filter.plan = plan;
     }
+
+    // ── checkedIn filter — OUTSIDE search block so dashboard call works ───────
+    if (req.query.checkedIn === "true") {
+      filter.checkedIn = true;
+    }
+
+    // ── Search filter ─────────────────────────────────────────────────────────
     if (search) {
       // Strip regex metacharacters but preserve hyphen — needed for GYM-XXXX
       const safeSearch = String(search)
@@ -116,6 +126,53 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── GET /api/members/stats ───────────────────────────────────────────────────
+export const getMemberStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const now = new Date();
+    const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    // All 5 queries fire at the SAME TIME — Promise.all waits for all of them
+    const [total, checkedIn, expiringSoon, withBalance, expired] =
+      await Promise.all([
+        // How many members exist total
+        Member.countDocuments({ isActive: true }),
+
+        // How many are currently inside the gym
+        Member.countDocuments({ isActive: true, checkedIn: true }),
+
+        // How many active memberships expire within 7 days
+        Member.countDocuments({
+          isActive: true,
+          status: "active",
+          expiresAt: { $gte: now, $lte: in7Days },
+        }),
+
+        // How many have an outstanding balance
+        Member.countDocuments({ isActive: true, balance: { $gt: 0 } }),
+
+        // How many are expired
+        Member.countDocuments({ isActive: true, status: "expired" }),
+      ]);
+
+    return res.json({
+      success: true,
+      stats: {
+        total,
+        checkedIn,
+        expiringSoon,
+        withBalance,
+        expired,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load member stats",
+    });
   }
 };
 

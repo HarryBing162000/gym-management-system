@@ -14,9 +14,23 @@ export const memberService = {
     search?: string;
     page?: number;
     limit?: number;
+    checkedIn?: string;
   }): Promise<MembersResponse> => {
     const res = await api.get("/members", { params });
     return res.data;
+  },
+
+  // client/src/services/memberService.ts — ADD this function
+
+  getMemberStats: async () => {
+    const res = await api.get("/members/stats");
+    return res.data.stats as {
+      total: number;
+      checkedIn: number;
+      expiringSoon: number;
+      withBalance: number;
+      expired: number;
+    };
   },
 
   // GET /api/members/:gymId — single member

@@ -1,6 +1,6 @@
 /**
  * KioskPage.tsx
- * IronCore GMS — Public Self Check-In Kiosk
+ *  GMS — Public Self Check-In Kiosk
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -932,7 +932,7 @@ const RESET_DELAY_MS = 8000;
 
 export default function KioskPage() {
   const { settings } = useGymStore();
-  const gymName = settings?.gymName?.toUpperCase() || "IRONCORE";
+  const gymName = settings?.gymName?.toUpperCase() || "GMS";
 
   const [query, setQuery] = useState("");
   const [phase, setPhase] = useState<KioskPhase>("idle");

@@ -1,4 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+/**
+ * OwnerDashboard.tsx
+ * IronCore GMS — Owner Portal
+ *
+ * Page persistence fix: activePage is stored in the URL as ?page=members
+ * so refreshing the browser restores the correct page instead of
+ * always resetting to "dashboard".
+ *
+ * URL examples:
+ *   /dashboard          → dashboard home
+ *   /dashboard?page=members   → Members page
+ *   /dashboard?page=payments  → Payments page
+ */
+
+import { useEffect, useCallback, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import MembersPage from "./MembersPage";
 import WalkInsPage from "./WalkInsPage";
 import PaymentsPage from "./PaymentsPage";
@@ -11,8 +26,38 @@ import { memberService } from "../services/memberService";
 import { paymentService } from "../services/paymentService";
 import { walkInService } from "../services/walkInService";
 
+// Valid page keys — used to guard against bad URL params
+const VALID_PAGES = [
+  "dashboard",
+  "members",
+  "walkins",
+  "payments",
+  "staff",
+  "reports",
+  "settings",
+] as const;
+type PageKey = (typeof VALID_PAGES)[number];
+
+function isValidPage(p: string | null): p is PageKey {
+  return VALID_PAGES.includes(p as PageKey);
+}
+
 export default function OwnerDashboard() {
-  const [activePage, setActivePage] = useState("dashboard");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read page from URL — fall back to "dashboard" if missing or invalid
+  const rawPage = searchParams.get("page");
+  const activePage: PageKey = isValidPage(rawPage) ? rawPage : "dashboard";
+
+  // Update URL when navigating — replaces history so Back button works naturally
+  const setActivePage = (page: string) => {
+    if (page === "dashboard") {
+      // Clean URL for the home page: /dashboard instead of /dashboard?page=dashboard
+      setSearchParams({}, { replace: false });
+    } else {
+      setSearchParams({ page }, { replace: false });
+    }
+  };
 
   const pageTitles: Record<string, string> = {
     dashboard: "Dashboard",
@@ -77,7 +122,7 @@ function DashboardContent({
   const [recentCheckins, setRecentCheckins] = useState<
     { id: string; name: string; gymId: string }[]
   >([]);
-  const [atRisk, setAtRisk] = useState<
+  const [atRisk] = useState<
     {
       gymId: string;
       name: string;
@@ -99,63 +144,24 @@ function DashboardContent({
 
   // ── Fetch all dashboard data ──
   const load = useCallback(async () => {
-    // Members
+    // ── Members — ONE stats call + one checkedIn call ──
     try {
-      const [allMembers, expiringSoonRes, expiredRes, checkedInRes] =
-        await Promise.all([
-          memberService.getAll({ limit: 1 }),
-          memberService.getAll({ status: "active", limit: 100 }),
-          memberService.getAll({ status: "expired", limit: 10 }),
-          memberService.getAll({ status: "active", limit: 200 }),
-        ]);
-
-      const now = new Date();
-      const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-      const expiring = expiringSoonRes.members.filter((m) => {
-        const exp = new Date(m.expiresAt);
-        return exp >= now && exp <= in7Days;
-      });
-
-      const checkedInMembers = checkedInRes.members.filter((m) => m.checkedIn);
-      const withBalance = checkedInRes.members.filter(
-        (m) => m.balance > 0,
-      ).length;
-
-      const atRiskList = [
-        ...expiring.map((m) => ({
-          gymId: m.gymId,
-          name: m.name,
-          expiresAt: m.expiresAt,
-          daysLeft: Math.ceil(
-            (new Date(m.expiresAt).getTime() - now.getTime()) / 86400000,
-          ),
-          status: "expiring",
-        })),
-        ...expiredRes.members.slice(0, 5).map((m) => ({
-          gymId: m.gymId,
-          name: m.name,
-          expiresAt: m.expiresAt,
-          daysLeft: Math.ceil(
-            (new Date(m.expiresAt).getTime() - now.getTime()) / 86400000,
-          ),
-          status: "overdue",
-        })),
-      ].slice(0, 6);
-
+      const stats = await memberService.getMemberStats();
       setMemberStats({
-        total: allMembers.total,
-        checkedIn: checkedInMembers.length,
-        expiringSoon: expiring.length,
-        withBalance,
+        total: stats.total,
+        checkedIn: stats.checkedIn,
+        expiringSoon: stats.expiringSoon,
+        withBalance: stats.withBalance,
         loading: false,
       });
 
-      setAtRisk(atRiskList);
-
-      // Recent check-ins — members currently inside
+      // Fetch checked-in members for the "Members Inside Now" panel
+      const checkedInRes = await memberService.getAll({
+        checkedIn: "true",
+        limit: 50,
+      });
       setRecentCheckins(
-        checkedInMembers.slice(0, 8).map((m) => ({
+        checkedInRes.members.map((m) => ({
           id: m.gymId,
           name: m.name,
           gymId: m.gymId,
@@ -165,7 +171,7 @@ function DashboardContent({
       setMemberStats((s) => ({ ...s, loading: false }));
     }
 
-    // Payments
+    // ── Payments ──
     try {
       const summary = await paymentService.getSummary();
       setPaymentSummary({
@@ -177,7 +183,7 @@ function DashboardContent({
       setPaymentSummary((s) => ({ ...s, loading: false }));
     }
 
-    // Walk-ins
+    // ── Walk-ins ──
     try {
       const walkins = await walkInService.getToday();
       setWalkInToday({
@@ -247,7 +253,7 @@ function DashboardContent({
 
   return (
     <div className="space-y-5 pb-24 lg:pb-6 max-w-7xl mx-auto">
-      {/* ── HEADER — greeting + quick actions ── */}
+      {/* ── HEADER ── */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-white">
@@ -259,8 +265,6 @@ function DashboardContent({
             today.
           </p>
         </div>
-
-        {/* Quick action buttons */}
         <div className="flex gap-2 shrink-0">
           <button
             onClick={() => onNavigate("walkins")}
@@ -300,7 +304,7 @@ function DashboardContent({
         ))}
       </div>
 
-      {/* ── WALK-IN SUMMARY — matching stat card style ── */}
+      {/* ── WALK-IN SUMMARY ── */}
       <div className="grid grid-cols-3 gap-3">
         {[
           {
@@ -356,9 +360,10 @@ function DashboardContent({
 
       {/* ── MAIN TWO-COLUMN ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Recent Check-ins */}
-        <div className="lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-4">
+        {/* ── MEMBERS INSIDE NOW ── */}
+        <div className="lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col min-h-[280px]">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4 shrink-0">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
               Members Inside Now
             </h3>
@@ -371,8 +376,9 @@ function DashboardContent({
             </span>
           </div>
 
+          {/* Body */}
           {recentCheckins.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
+            <div className="flex flex-col items-center justify-center py-10 text-center flex-1">
               <div className="text-3xl mb-2 opacity-20">◉</div>
               <div className="text-white/25 text-sm font-semibold">
                 No members inside
@@ -382,7 +388,13 @@ function DashboardContent({
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 gap-2 gms-scroll ${
+                recentCheckins.length > 10
+                  ? "overflow-y-auto max-h-[420px] pr-1"
+                  : ""
+              }`}
+            >
               {recentCheckins.map((m) => (
                 <div
                   key={m.gymId}
@@ -415,10 +427,15 @@ function DashboardContent({
 
           {/* Footer */}
           {recentCheckins.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between shrink-0">
               <span className="text-[11px] text-white/25">
                 {memberStats.checkedIn} member
                 {memberStats.checkedIn !== 1 ? "s" : ""} currently inside
+                {recentCheckins.length > 10 && (
+                  <span className="ml-1 text-[#FF6B1A]/50">
+                    · scroll to see all
+                  </span>
+                )}
               </span>
               <button
                 onClick={() => onNavigate("members")}
@@ -507,7 +524,6 @@ function DashboardContent({
               <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
                 At-Risk Members
               </h3>
-              {/* Only show badge if there are at-risk members */}
               {atRisk.length > 0 ? (
                 <span className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 px-2 py-0.5 rounded-full font-semibold">
                   {atRisk.length}

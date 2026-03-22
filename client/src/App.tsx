@@ -19,7 +19,7 @@ const queryClient = new QueryClient({
   },
 });
 
-// 🔐 Protected Route
+// ── Protected Route ───────────────────────────────────────────────────────────
 function ProtectedRoute({
   children,
   allowedRoles,
@@ -29,6 +29,8 @@ function ProtectedRoute({
 }) {
   const { isAuthenticated, user, _hasHydrated } = useAuthStore();
 
+  // Wait for Zustand to rehydrate from localStorage before deciding to redirect.
+  // Without this, a logged-in user gets briefly flashed to /login on refresh.
   if (!_hasHydrated) return null;
 
   if (!isAuthenticated) {
@@ -46,17 +48,16 @@ function App() {
   const fetchGymInfo = useGymStore((state) => state.fetchGymInfo);
   const settings = useGymStore((state) => state.settings);
 
-  // Fetch gym info once on app load
   useEffect(() => {
     fetchGymInfo();
   }, [fetchGymInfo]);
 
-  // Update document title whenever gym name changes
+  // Bug fix: was "Gym Management Syste," — fixed typo + removed leading space
   useEffect(() => {
     if (settings?.gymName) {
-      document.title = ` ${settings.gymName} — GMS`;
+      document.title = `${settings.gymName} — GMS`;
     } else {
-      document.title = " Gym Management Syste,";
+      document.title = "Gym Management System";
     }
   }, [settings?.gymName]);
 
@@ -68,7 +69,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/kiosk" element={<KioskPage />} />
 
-          {/* Owner only */}
+          {/* Owner only — all sub-pages use ?page= query param */}
           <Route
             path="/dashboard"
             element={
@@ -88,8 +89,10 @@ function App() {
             }
           />
 
-          {/* Default redirect */}
+          {/* Root → login */}
           <Route path="/" element={<Navigate to="/login" replace />} />
+
+          {/* Catch-all — redirect unknown URLs to login */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>

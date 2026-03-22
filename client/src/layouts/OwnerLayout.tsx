@@ -6,15 +6,193 @@ import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import api from "../services/api";
 
-// Nav items — Settings removed (moved to profile dropdown)
+// ─── SVG Icon Components ──────────────────────────────────────────────────────
+
+const Icons = {
+  dashboard: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  ),
+  members: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="9" cy="7" r="4" />
+      <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M21 21v-2a4 4 0 0 0-3-3.85" />
+    </svg>
+  ),
+  walkins: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      <polyline points="10 17 15 12 10 7" />
+      <line x1="15" y1="12" x2="3" y2="12" />
+    </svg>
+  ),
+  payments: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </svg>
+  ),
+  staff: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  reports: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  ),
+  settings: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  ),
+  logout: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  ),
+  menu: (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    >
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  ),
+};
+
+// Nav items — using icon keys
 const navItems = [
-  { id: "dashboard", label: "Dashboard", icon: "◼" },
-  { id: "members", label: "Members", icon: "◉" },
-  { id: "walkins", label: "Walk-ins", icon: "⊕" },
-  { id: "payments", label: "Payments", icon: "◈" },
-  { id: "staff", label: "Staff", icon: "◎" },
-  { id: "reports", label: "Reports", icon: "▤" },
+  { id: "dashboard", label: "Dashboard", iconKey: "dashboard" },
+  { id: "members", label: "Members", iconKey: "members" },
+  { id: "walkins", label: "Walk-ins", iconKey: "walkins" },
+  { id: "payments", label: "Payments", iconKey: "payments" },
+  { id: "staff", label: "Staff", iconKey: "staff" },
+  { id: "reports", label: "Reports", iconKey: "reports" },
 ];
+
+// ─── Live Status Hook ─────────────────────────────────────────────────────────
+// Pings the server every 20s to show real online/offline status
+
+function useLiveStatus() {
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        await api.get("/auth/gym-info", { timeout: 5000 });
+        if (!cancelled) setIsOnline(true);
+      } catch {
+        if (!cancelled) setIsOnline(false);
+      }
+    };
+
+    check();
+    const id = setInterval(check, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  return isOnline;
+}
 
 // ─── Logout Confirm Modal ─────────────────────────────────────────────────────
 
@@ -42,32 +220,8 @@ function LogoutModal({
           style={{ animation: "logoutFadeIn 0.2s ease" }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <polyline
-                points="16 17 21 12 16 7"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <line
-                x1="21"
-                y1="12"
-                x2="9"
-                y2="12"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
+          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4 text-red-400">
+            {Icons.logout}
           </div>
           <div className="text-center mb-5">
             <div className="text-white font-bold text-base mb-1">Sign out?</div>
@@ -111,7 +265,6 @@ function SettingsModal({
   const { showToast } = useToastStore();
   const { settings, updateSettings, setLogoUrl } = useGymStore();
 
-  // Account tab state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -120,7 +273,6 @@ function SettingsModal({
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
 
-  // Gym tab state
   const [gymName, setGymName] = useState(settings?.gymName || "");
   const [gymAddress, setGymAddress] = useState(settings?.gymAddress || "");
   const [savingGym, setSavingGym] = useState(false);
@@ -131,7 +283,6 @@ function SettingsModal({
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync gym fields when tab opens
   useEffect(() => {
     if (activeTab === "gym" && settings) {
       setGymName(settings.gymName);
@@ -217,21 +368,15 @@ function SettingsModal({
   const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Validate file type
     const allowed = ["image/jpeg", "image/png", "image/svg+xml", "image/webp"];
     if (!allowed.includes(file.type)) {
       showToast("Only JPG, PNG, SVG, and WebP files are allowed", "error");
       return;
     }
-
-    // Validate file size (2MB)
     if (file.size > 2 * 1024 * 1024) {
       showToast("File size must be under 2MB", "error");
       return;
     }
-
-    // Show preview
     const reader = new FileReader();
     reader.onload = (ev) => setPreviewUrl(ev.target?.result as string);
     reader.readAsDataURL(file);
@@ -243,21 +388,16 @@ function SettingsModal({
       showToast("Please select a logo file first", "error");
       return;
     }
-
     setUploadingLogo(true);
     try {
       const formData = new FormData();
       formData.append("logo", file);
-
       const res = await api.post("/auth/upload-logo", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-
       setLogoUrl(res.data.logoUrl);
       setPreviewUrl(res.data.logoUrl);
       showToast("Logo uploaded successfully", "success");
-
-      // Reset file input
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err: any) {
       showToast(
@@ -304,7 +444,6 @@ function SettingsModal({
           style={{ animation: "settingsFadeIn 0.2s ease" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
             <div>
               <div className="text-white font-bold text-base">Settings</div>
@@ -318,7 +457,6 @@ function SettingsModal({
             </button>
           </div>
 
-          {/* Tabs */}
           <div className="flex border-b border-white/10">
             <button
               onClick={() => setActiveTab("account")}
@@ -334,12 +472,9 @@ function SettingsModal({
             </button>
           </div>
 
-          {/* Tab Content */}
-          <div className="p-6 max-h-[65vh] overflow-y-auto">
-            {/* ── Account Tab ── */}
+          <div className="p-6 max-h-[65vh] overflow-y-auto gms-scroll">
             {activeTab === "account" && (
               <div className="space-y-6">
-                {/* Change Password */}
                 <div>
                   <div className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">
                     Change Password
@@ -375,10 +510,7 @@ function SettingsModal({
                     </button>
                   </div>
                 </div>
-
                 <div className="border-t border-white/10" />
-
-                {/* Change Email */}
                 <div>
                   <div className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-1">
                     Change Email
@@ -413,16 +545,12 @@ function SettingsModal({
               </div>
             )}
 
-            {/* ── Gym Info Tab ── */}
             {activeTab === "gym" && (
               <div className="space-y-6">
-                {/* Logo Upload */}
                 <div>
                   <div className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">
                     Gym Logo
                   </div>
-
-                  {/* Logo Preview */}
                   <div className="flex items-center gap-4 mb-3">
                     <div className="w-16 h-16 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
                       {previewUrl ? (
@@ -432,7 +560,9 @@ function SettingsModal({
                           className="w-full h-full object-contain p-1"
                         />
                       ) : (
-                        <span className="text-2xl">⚡</span>
+                        <span className="text-2xl text-[#FF6B1A]">
+                          {Icons.dashboard}
+                        </span>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -458,8 +588,6 @@ function SettingsModal({
                       </div>
                     </div>
                   </div>
-
-                  {/* Hidden file input */}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -467,8 +595,6 @@ function SettingsModal({
                     onChange={handleLogoSelect}
                     className="hidden"
                   />
-
-                  {/* Upload button — only shows after file selected */}
                   {fileInputRef.current?.files?.[0] && (
                     <button
                       onClick={handleUploadLogo}
@@ -479,10 +605,7 @@ function SettingsModal({
                     </button>
                   )}
                 </div>
-
                 <div className="border-t border-white/10" />
-
-                {/* Gym Name & Address */}
                 <div>
                   <div className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">
                     Gym Information
@@ -548,44 +671,38 @@ export default function OwnerLayout({
   const { user, logout } = useAuthStore();
   const { settings } = useGymStore();
   const navigate = useNavigate();
+  const isOnline = useLiveStatus();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-
-  // Desktop top-right avatar dropdown
   const [showAvatarDropdown, setShowAvatarDropdown] = useState(false);
-  const avatarDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Mobile sidebar profile chip dropdown
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
-  const sidebarDropdownRef = useRef<HTMLDivElement>(null);
 
+  const avatarDropdownRef = useRef<HTMLDivElement>(null);
+  const sidebarDropdownRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToastStore();
 
-  // Close avatar dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
         avatarDropdownRef.current &&
         !avatarDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowAvatarDropdown(false);
-      }
     }
     if (showAvatarDropdown)
       document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showAvatarDropdown]);
 
-  // Close sidebar dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
         sidebarDropdownRef.current &&
         !sidebarDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowSidebarDropdown(false);
-      }
     }
     if (showSidebarDropdown)
       document.addEventListener("mousedown", handleClickOutside);
@@ -597,13 +714,11 @@ export default function OwnerLayout({
     setShowSidebarDropdown(false);
     setShowLogoutModal(true);
   };
-
   const confirmLogout = () => {
     logout();
     showToast("You have been signed out.", "info");
     navigate("/login");
   };
-
   const handleNav = (id: string) => {
     onPageChange(id);
     setSidebarOpen(false);
@@ -615,13 +730,12 @@ export default function OwnerLayout({
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
   const gymName = settings?.gymName || "IronCore";
   const logoUrl = settings?.logoUrl || null;
 
   return (
     <div className="min-h-screen bg-[#1a1a1a] flex">
-      {/* ── SIDEBAR OVERLAY (mobile only) ── */}
+      {/* Sidebar overlay — mobile */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-40 lg:hidden"
@@ -631,12 +745,7 @@ export default function OwnerLayout({
 
       {/* ── SIDEBAR ── */}
       <aside
-        className={`
-        fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7
-        flex flex-col z-50 transition-transform duration-250
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0 lg:sticky lg:z-auto
-      `}
+        className={`fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7 flex flex-col z-50 transition-transform duration-250 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:sticky lg:z-auto`}
       >
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/7">
@@ -659,8 +768,8 @@ export default function OwnerLayout({
           </div>
         </div>
 
-        {/* Nav Items */}
-        <nav className="flex-1 py-3 overflow-y-auto">
+        {/* Nav */}
+        <nav className="flex-1 py-3 overflow-y-auto gms-scroll">
           <div className="px-5 py-2 text-[10px] font-semibold tracking-widest text-white/30 uppercase">
             Overview
           </div>
@@ -674,7 +783,9 @@ export default function OwnerLayout({
                   : "text-white/50 border-transparent hover:text-white hover:bg-white/3"
               }`}
             >
-              <span className="text-base">{item.icon}</span>
+              <span className="shrink-0">
+                {Icons[item.iconKey as keyof typeof Icons]}
+              </span>
               {item.label}
             </button>
           ))}
@@ -692,18 +803,19 @@ export default function OwnerLayout({
                   : "text-white/50 border-transparent hover:text-white hover:bg-white/3"
               }`}
             >
-              <span className="text-base">{item.icon}</span>
+              <span className="shrink-0">
+                {Icons[item.iconKey as keyof typeof Icons]}
+              </span>
               {item.label}
             </button>
           ))}
         </nav>
 
-        {/* ── Sidebar Profile Chip ── */}
+        {/* Sidebar Profile Chip */}
         <div
           className="px-4 py-4 border-t border-white/7 relative"
           ref={sidebarDropdownRef}
         >
-          {/* Mobile dropdown */}
           {showSidebarDropdown && (
             <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-10 lg:hidden">
               <button
@@ -713,7 +825,7 @@ export default function OwnerLayout({
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
               >
-                <span className="text-base">⚙</span>
+                <span className="text-white/50">{Icons.settings}</span>
                 Settings
               </button>
               <div className="border-t border-white/10" />
@@ -721,13 +833,12 @@ export default function OwnerLayout({
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-all cursor-pointer"
               >
-                <span className="text-base">⏻</span>
+                <span>{Icons.logout}</span>
                 Logout
               </button>
             </div>
           )}
 
-          {/* Profile chip — clickable on mobile, display only on desktop */}
           <div
             onClick={() => {
               if (window.innerWidth < 1024)
@@ -757,13 +868,12 @@ export default function OwnerLayout({
       <div className="flex-1 flex flex-col min-h-screen">
         {/* ── TOPBAR ── */}
         <header className="sticky top-0 z-30 bg-[#1a1a1a]/90 backdrop-blur-md border-b border-white/7 px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          {/* Left — Hamburger + Date + Badge */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
               className="lg:hidden p-2 border border-white/10 rounded-lg text-white/50 hover:text-white transition-colors"
             >
-              ☰
+              {Icons.menu}
             </button>
             <span className="text-xs text-white/30 font-mono">
               {new Date().toLocaleDateString("en-PH", {
@@ -772,12 +882,28 @@ export default function OwnerLayout({
                 year: "numeric",
               })}
             </span>
-            <span className="flex items-center gap-1 text-xs bg-[#FF6B1A]/10 text-[#FF6B1A] border border-[#FF6B1A]/20 px-2.5 py-1 rounded-full font-semibold">
-              ● Live
+
+            {/* ── REAL LIVE STATUS BADGE ── */}
+            <span
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold border transition-all duration-500 ${
+                isOnline
+                  ? "bg-[#FF6B1A]/10 text-[#FF6B1A] border-[#FF6B1A]/20"
+                  : "bg-red-500/10 text-red-400 border-red-500/20"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline ? "bg-[#FF6B1A]" : "bg-red-400"}`}
+                style={
+                  isOnline
+                    ? { animation: "pulse-dot 2s ease-in-out infinite" }
+                    : undefined
+                }
+              />
+              {isOnline ? "Live" : "Offline"}
             </span>
           </div>
 
-          {/* Right — Avatar dropdown (desktop only) */}
+          {/* Avatar dropdown — desktop */}
           <div className="hidden lg:block relative" ref={avatarDropdownRef}>
             {showAvatarDropdown && (
               <div className="absolute right-0 top-full mt-2 w-44 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
@@ -794,7 +920,7 @@ export default function OwnerLayout({
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
                 >
-                  <span>⚙</span>
+                  <span className="text-white/50">{Icons.settings}</span>
                   Settings
                 </button>
                 <div className="border-t border-white/10" />
@@ -802,7 +928,7 @@ export default function OwnerLayout({
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-all cursor-pointer"
                 >
-                  <span>⏻</span>
+                  <span>{Icons.logout}</span>
                   Logout
                 </button>
               </div>
@@ -817,10 +943,12 @@ export default function OwnerLayout({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 sm:p-6 overflow-y-auto">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 overflow-y-scroll gms-scroll">
+          {children}
+        </main>
       </div>
 
-      {/* ── MODALS ── */}
+      {/* Modals */}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={confirmLogout}

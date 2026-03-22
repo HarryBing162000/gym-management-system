@@ -6,11 +6,138 @@ import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import api from "../services/api";
 
+// ─── SVG Icon Components ──────────────────────────────────────────────────────
+
+const Icons = {
+  checkin: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  ),
+  walkin: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      <polyline points="10 17 15 12 10 7" />
+      <line x1="15" y1="12" x2="3" y2="12" />
+    </svg>
+  ),
+  members: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="9" cy="7" r="4" />
+      <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M21 21v-2a4 4 0 0 0-3-3.85" />
+    </svg>
+  ),
+  settings: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  ),
+  logout: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  ),
+  menu: (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+    >
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  ),
+};
+
 const navItems = [
-  { id: "checkin", label: "Check-in", icon: "◼" },
-  { id: "walkin", label: "Walk-in", icon: "⊕" },
-  { id: "members", label: "Members", icon: "◉" },
+  { id: "checkin", label: "Check-in", iconKey: "checkin" },
+  { id: "walkin", label: "Walk-in", iconKey: "walkin" },
+  { id: "members", label: "Members", iconKey: "members" },
 ];
+
+// ─── Live Status Hook ─────────────────────────────────────────────────────────
+
+function useLiveStatus() {
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        await api.get("/auth/gym-info", { timeout: 5000 });
+        if (!cancelled) setIsOnline(true);
+      } catch {
+        if (!cancelled) setIsOnline(false);
+      }
+    };
+
+    check();
+    const id = setInterval(check, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  return isOnline;
+}
 
 // ─── Logout Confirm Modal ─────────────────────────────────────────────────────
 
@@ -38,32 +165,8 @@ function LogoutModal({
           style={{ animation: "logoutFadeIn 0.2s ease" }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <polyline
-                points="16 17 21 12 16 7"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <line
-                x1="21"
-                y1="12"
-                x2="9"
-                y2="12"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
+          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4 text-red-400">
+            {Icons.logout}
           </div>
           <div className="text-center mb-5">
             <div className="text-white font-bold text-base mb-1">Sign out?</div>
@@ -92,7 +195,7 @@ function LogoutModal({
   );
 }
 
-// ─── Staff Settings Modal — Change Password Only ──────────────────────────────
+// ─── Staff Settings Modal ─────────────────────────────────────────────────────
 
 function StaffSettingsModal({
   onClose,
@@ -155,7 +258,6 @@ function StaffSettingsModal({
           style={{ animation: "staffSettingsFadeIn 0.2s ease" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
             <div>
               <div className="text-white font-bold text-base">Settings</div>
@@ -168,8 +270,6 @@ function StaffSettingsModal({
               ✕
             </button>
           </div>
-
-          {/* Content */}
           <div className="p-6">
             <div className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">
               Change Password
@@ -229,18 +329,16 @@ export default function StaffLayout({
   const { user, logout } = useAuthStore();
   const { settings } = useGymStore();
   const navigate = useNavigate();
+  const isOnline = useLiveStatus();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-
-  // Desktop top-right avatar dropdown
   const [showAvatarDropdown, setShowAvatarDropdown] = useState(false);
-  const avatarDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Mobile sidebar profile chip dropdown
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
-  const sidebarDropdownRef = useRef<HTMLDivElement>(null);
 
+  const avatarDropdownRef = useRef<HTMLDivElement>(null);
+  const sidebarDropdownRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToastStore();
 
   useEffect(() => {
@@ -248,9 +346,8 @@ export default function StaffLayout({
       if (
         avatarDropdownRef.current &&
         !avatarDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowAvatarDropdown(false);
-      }
     }
     if (showAvatarDropdown)
       document.addEventListener("mousedown", handleClickOutside);
@@ -262,9 +359,8 @@ export default function StaffLayout({
       if (
         sidebarDropdownRef.current &&
         !sidebarDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowSidebarDropdown(false);
-      }
     }
     if (showSidebarDropdown)
       document.addEventListener("mousedown", handleClickOutside);
@@ -276,13 +372,11 @@ export default function StaffLayout({
     setShowSidebarDropdown(false);
     setShowLogoutModal(true);
   };
-
   const confirmLogout = () => {
     logout();
     showToast("You have been signed out.", "info");
     navigate("/login");
   };
-
   const handleNav = (id: string) => {
     onPageChange(id);
     setSidebarOpen(false);
@@ -294,13 +388,11 @@ export default function StaffLayout({
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
   const gymName = settings?.gymName || "IronCore";
   const logoUrl = settings?.logoUrl || null;
 
   return (
     <div className="min-h-screen bg-[#1a1a1a] flex">
-      {/* Sidebar overlay — mobile only */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-40 lg:hidden"
@@ -308,16 +400,10 @@ export default function StaffLayout({
         />
       )}
 
-      {/* Sidebar */}
+      {/* ── SIDEBAR ── */}
       <aside
-        className={`
-        fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7
-        flex flex-col z-50 transition-transform duration-250
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0 lg:sticky lg:z-auto
-      `}
+        className={`fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7 flex flex-col z-50 transition-transform duration-250 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:sticky lg:z-auto`}
       >
-        {/* Logo */}
         <div className="px-5 py-5 border-b border-white/7">
           {logoUrl ? (
             <div className="w-full h-12 flex items-center">
@@ -329,7 +415,7 @@ export default function StaffLayout({
               />
             </div>
           ) : (
-            <div className="text-lg  font-black tracking-widest text-[#FF6B1A] uppercase">
+            <div className="text-lg font-black tracking-widest text-[#FF6B1A] uppercase">
               ⚡ {gymName}
             </div>
           )}
@@ -338,7 +424,6 @@ export default function StaffLayout({
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 py-3">
           <div className="px-5 py-2 text-[10px] font-semibold tracking-widest text-white/30 uppercase">
             Desk
@@ -353,18 +438,19 @@ export default function StaffLayout({
                   : "text-white/50 border-transparent hover:text-white hover:bg-white/3"
               }`}
             >
-              <span className="text-base">{item.icon}</span>
+              <span className="shrink-0">
+                {Icons[item.iconKey as keyof typeof Icons]}
+              </span>
               {item.label}
             </button>
           ))}
         </nav>
 
-        {/* Sidebar Profile Chip */}
+        {/* Profile Chip */}
         <div
           className="px-4 py-4 border-t border-white/7 relative"
           ref={sidebarDropdownRef}
         >
-          {/* Mobile dropdown */}
           {showSidebarDropdown && (
             <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-10 lg:hidden">
               <button
@@ -374,7 +460,7 @@ export default function StaffLayout({
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
               >
-                <span className="text-base">⚙</span>
+                <span className="text-white/50">{Icons.settings}</span>
                 Settings
               </button>
               <div className="border-t border-white/10" />
@@ -382,13 +468,11 @@ export default function StaffLayout({
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-all cursor-pointer"
               >
-                <span className="text-base">⏻</span>
+                <span>{Icons.logout}</span>
                 Logout
               </button>
             </div>
           )}
-
-          {/* Profile chip */}
           <div
             onClick={() => {
               if (window.innerWidth < 1024)
@@ -414,17 +498,15 @@ export default function StaffLayout({
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* ── MAIN CONTENT ── */}
       <div className="flex-1 flex flex-col min-h-screen">
-        {/* Topbar */}
         <header className="sticky top-0 z-30 bg-[#1a1a1a]/90 backdrop-blur-md border-b border-white/7 px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          {/* Left */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
               className="lg:hidden p-2 border border-white/10 rounded-lg text-white/50 hover:text-white transition-colors"
             >
-              ☰
+              {Icons.menu}
             </button>
             <span className="text-xs text-white/30 font-mono">
               {new Date().toLocaleDateString("en-PH", {
@@ -433,12 +515,28 @@ export default function StaffLayout({
                 year: "numeric",
               })}
             </span>
-            <span className="text-xs bg-blue-400/10 text-blue-400 border border-blue-400/20 px-2.5 py-1 rounded-full font-semibold">
-              Staff
+
+            {/* ── REAL LIVE STATUS BADGE ── */}
+            <span
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold border transition-all duration-500 ${
+                isOnline
+                  ? "bg-blue-400/10 text-blue-400 border-blue-400/20"
+                  : "bg-red-500/10 text-red-400 border-red-500/20"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline ? "bg-blue-400" : "bg-red-400"}`}
+                style={
+                  isOnline
+                    ? { animation: "pulse-dot 2s ease-in-out infinite" }
+                    : undefined
+                }
+              />
+              {isOnline ? "Online" : "Offline"}
             </span>
           </div>
 
-          {/* Right — Avatar (desktop only) */}
+          {/* Avatar dropdown — desktop */}
           <div className="hidden lg:block relative" ref={avatarDropdownRef}>
             {showAvatarDropdown && (
               <div className="absolute right-0 top-full mt-2 w-44 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
@@ -455,7 +553,7 @@ export default function StaffLayout({
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
                 >
-                  <span>⚙</span>
+                  <span className="text-white/50">{Icons.settings}</span>
                   Settings
                 </button>
                 <div className="border-t border-white/10" />
@@ -463,7 +561,7 @@ export default function StaffLayout({
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-all cursor-pointer"
                 >
-                  <span>⏻</span>
+                  <span>{Icons.logout}</span>
                   Logout
                 </button>
               </div>
@@ -477,11 +575,11 @@ export default function StaffLayout({
           </div>
         </header>
 
-        {/* Content */}
-        <main className="flex-1 p-4 sm:p-6 overflow-y-auto">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 overflow-y-auto gms-scroll">
+          {children}
+        </main>
       </div>
 
-      {/* Modals */}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={confirmLogout}

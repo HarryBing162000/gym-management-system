@@ -68,3 +68,76 @@ body {
     -webkit-user-select: none;
     touch-action: manipulation;
 }
+
+/* ─── Global Pulse Animation ─────────────────────────────────────────────────
+   Used by: Live badge in topbar, Members Inside Now panel, WalkIns live dot
+   Apply via: style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
+*/
+@keyframes pulse-dot {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.35;
+        transform: scale(0.8);
+    }
+}
+
+/* ─── Shared Scrollbar Design ────────────────────────────────────────────────
+   Apply class "gms-scroll" to any scrollable container in the system.
+   Works on Chrome, Safari (webkit) and Firefox (scrollbar-*).
+   Color: orange brand tint to match the dark UI theme.
+
+*/
+
+html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 107, 26, 0.5) #1a1a1a;
+}
+
+html::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+html::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+html::-webkit-scrollbar-thumb {
+    background: rgba(255, 107, 26, 0.25);
+    border-radius: 999px;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 107, 26, 0.5);
+}
+
+html::-webkit-scrollbar-corner {
+    background: #1a1a1a;
+}
+
+.gms-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 107, 26, 0.25) transparent;
+}
+
+.gms-scroll::-webkit-scrollbar {
+    width: 4px;
+}
+
+.gms-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.gms-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 107, 26, 0.25);
+    border-radius: 999px;
+    transition: background 0.2s;
+}
+
+.gms-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 107, 26, 0.5);
+}

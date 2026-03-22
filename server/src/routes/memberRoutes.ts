@@ -1,6 +1,5 @@
 /**
  * memberRoutes.ts
- * IronCore GMS — Member Management Router
  *
  * All routes require JWT authentication (protect).
  * Role enforcement per route:
@@ -27,11 +26,14 @@ import {
   checkInMember,
   checkOutMember,
 } from "../controllers/memberController";
+import { getMemberStats } from "../controllers/memberController";
 
 const router = Router();
 
 // ── All routes require a valid JWT ───────────────────────────────────────────
 router.use(protect);
+
+router.get("/stats", getMemberStats);
 
 // ── Owner + Staff ─────────────────────────────────────────────────────────────
 
