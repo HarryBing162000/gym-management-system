@@ -146,3 +146,10 @@ Content-Type: image/png
 ### Delete Logo
 DELETE http://localhost:5000/api/auth/delete-logo
 Authorization: Bearer {{ownerToken}}
+
+
+//--------------------------------------------------------------------
+
+### Get At-Risk Members
+GET http://localhost:5000/api/members/at-risk
+Authorization: Bearer {{ownerToken}}

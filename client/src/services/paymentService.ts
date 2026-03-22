@@ -76,7 +76,10 @@ export const paymentService = {
     method: PaymentMethod;
     type?: PaymentType;
     amountPaid?: number;
+    totalAmount?: number;
     notes?: string;
+    plan?: string;
+    renewExpiry?: boolean;
   }): Promise<{ success: boolean; message: string; payment: Payment }> => {
     const res = await api.post("/payments", payload);
     return res.data;

@@ -28,7 +28,7 @@ export interface IPayment extends Document {
   amount: number;
   method: PaymentMethod;
   type: PaymentType;
-  plan: "Monthly" | "Quarterly" | "Annual" | "Student";
+  plan: string; // plan name from Settings.plans
   amountPaid: number; // actual amount received
   totalAmount: number; // full plan price
   balance: number; // remaining (0 if fully paid)
@@ -72,8 +72,8 @@ const PaymentSchema = new Schema<IPayment>(
     },
     plan: {
       type: String,
-      enum: ["Monthly", "Quarterly", "Annual", "Student"],
       required: true,
+      trim: true,
     },
     amountPaid: {
       type: Number,

@@ -6,31 +6,44 @@ import type {
   UpdateMemberPayload,
 } from "../types";
 
+export interface AtRiskMember {
+  gymId: string;
+  name: string;
+  plan: string;
+  expiresAt: string;
+  daysLeft: number;
+  status: "expiring" | "overdue";
+}
+
 export const memberService = {
   // GET /api/members — list with optional filters
   getAll: async (params?: {
     status?: string;
     plan?: string;
     search?: string;
+    checkedIn?: string;
     page?: number;
     limit?: number;
-    checkedIn?: string;
   }): Promise<MembersResponse> => {
     const res = await api.get("/members", { params });
     return res.data;
   },
 
-  // client/src/services/memberService.ts — ADD this function
-
-  getMemberStats: async () => {
+  // GET /api/members/stats — dashboard summary counts
+  getMemberStats: async (): Promise<{
+    total: number;
+    checkedIn: number;
+    expiringSoon: number;
+    withBalance: number;
+  }> => {
     const res = await api.get("/members/stats");
-    return res.data.stats as {
-      total: number;
-      checkedIn: number;
-      expiringSoon: number;
-      withBalance: number;
-      expired: number;
-    };
+    return res.data;
+  },
+
+  // GET /api/members/at-risk — expiring/overdue members
+  getAtRiskMembers: async (): Promise<{ atRisk: AtRiskMember[] }> => {
+    const res = await api.get("/members/at-risk");
+    return res.data;
   },
 
   // GET /api/members/:gymId — single member
@@ -53,6 +66,22 @@ export const memberService = {
   update: async (
     gymId: string,
     payload: UpdateMemberPayload,
+  ): Promise<{ success: boolean; message: string; member: Member }> => {
+    const res = await api.patch(`/members/${gymId}`, payload);
+    return res.data;
+  },
+
+  // PATCH /api/members/:gymId — renew membership (update + payment info)
+  renew: async (
+    gymId: string,
+    payload: {
+      plan: string;
+      expiresAt: string;
+      paymentMethod: "cash" | "online";
+      amountPaid: number;
+      totalAmount?: number;
+      status: string;
+    },
   ): Promise<{ success: boolean; message: string; member: Member }> => {
     const res = await api.patch(`/members/${gymId}`, payload);
     return res.data;

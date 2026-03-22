@@ -4,6 +4,7 @@ import "./config/env";
 import express from "express";
 import cors from "cors";
 import connectDB from "./config/db";
+import Settings, { DEFAULT_PLANS } from "./models/Settings";
 import authRoutes from "./routes/authRoutes";
 import walkInRoutes from "./routes/walkInRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
@@ -87,6 +88,23 @@ app.use(globalErrorHandler);
 // ============================================================
 app.listen(PORT, async () => {
   await connectDB();
+
+  // ── Ensure Settings document exists with defaults ──────────────────────────
+  const existingSettings = await Settings.findOne({});
+  if (!existingSettings) {
+    await Settings.create({
+      gymName: process.env.GYM_NAME || "IronCore Gym",
+      gymAddress: process.env.GYM_ADDRESS || "Cebu City, Philippines",
+      plans: DEFAULT_PLANS,
+    });
+    console.log("⚙️  Settings initialized with defaults (including plans)");
+  } else if (!existingSettings.plans || existingSettings.plans.length === 0) {
+    // Migrate existing settings — add default plans if missing
+    existingSettings.plans = DEFAULT_PLANS as any;
+    await existingSettings.save();
+    console.log("⚙️  Default plans added to existing settings");
+  }
+
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`🔐 Security layers active`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);

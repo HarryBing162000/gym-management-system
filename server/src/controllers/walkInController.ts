@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import WalkIn from "../models/WalkIn";
+import Settings from "../models/Settings";
 import { WalkInInput, WalkInCheckOutInput } from "../middleware/authSchemas";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -10,13 +11,25 @@ const getTodayDate = (): string =>
     new Date(),
   );
 
-const getPassAmount = (passType: "regular" | "student" | "couple"): number => {
-  const prices: Record<string, number> = {
+const getPassAmount = async (
+  passType: "regular" | "student" | "couple",
+): Promise<number> => {
+  const fallback: Record<string, number> = {
     regular: 150,
     student: 100,
     couple: 250,
   };
-  return prices[passType] ?? 150;
+  try {
+    const settings = await Settings.findOne({}).select("walkInPrices").lean();
+    if (settings?.walkInPrices) {
+      return (
+        (settings.walkInPrices as any)[passType] ?? fallback[passType] ?? 150
+      );
+    }
+  } catch {
+    /* fall through */
+  }
+  return fallback[passType] ?? 150;
 };
 
 const generateWalkId = async (): Promise<string> => {
@@ -52,7 +65,7 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
     const { name, phone, passType }: WalkInInput = req.body;
     const walkId = await generateWalkId();
     const today = getTodayDate();
-    const amount = getPassAmount(passType);
+    const amount = await getPassAmount(passType);
 
     const walkIn = await WalkIn.create({
       walkId,

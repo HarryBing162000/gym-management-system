@@ -9,6 +9,7 @@ import { Response } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import Payment, { IPayment } from "../models/Payment";
 import Member from "../models/Member";
+import Settings from "../models/Settings";
 
 export type PaymentMethod = "cash" | "online";
 export type PaymentType =
@@ -17,11 +18,36 @@ export type PaymentType =
   | "manual"
   | "balance_settlement";
 
-const PLAN_PRICES: Record<string, number> = {
+// Fallback prices — used only if Settings hasn't been seeded yet
+const FALLBACK_PRICES: Record<string, number> = {
   Monthly: 800,
   Quarterly: 2100,
   Annual: 7500,
   Student: 500,
+};
+const FALLBACK_DURATIONS: Record<string, number> = {
+  Monthly: 1,
+  Quarterly: 3,
+  Annual: 12,
+  Student: 1,
+};
+
+// ─── Helper — get plan price from Settings DB (single source of truth) ───────
+const getPlanPrice = async (planName: string): Promise<number> => {
+  const settings = await Settings.findOne({}).select("plans").lean();
+  const plan = settings?.plans?.find(
+    (p: any) => p.name === planName && p.isActive,
+  );
+  return plan?.price ?? FALLBACK_PRICES[planName] ?? 0;
+};
+
+// ─── Helper — get plan duration from Settings DB ─────────────────────────────
+const getPlanDuration = async (planName: string): Promise<number> => {
+  const settings = await Settings.findOne({}).select("plans").lean();
+  const plan = settings?.plans?.find(
+    (p: any) => p.name === planName && p.isActive,
+  );
+  return plan?.durationMonths ?? FALLBACK_DURATIONS[planName] ?? 1;
 };
 
 const getDateRange = (range: string): { from: Date; to: Date } => {
@@ -189,8 +215,10 @@ export const getPaymentSummary = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// ─── Plan durations — now read from Settings via getPlanDuration() ────────────
+
 // ─── POST /api/payments ───────────────────────────────────────────────────────
-// Manually log a payment — supports partial amount
+// Log a payment — supports partial amount, plan change, and auto-extend expiry
 export const createPayment = async (req: AuthRequest, res: Response) => {
   try {
     const {
@@ -198,13 +226,19 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       method,
       type = "manual",
       amountPaid: rawAmount,
+      totalAmount: clientTotal,
       notes,
+      plan: newPlan,
+      renewExpiry,
     } = req.body as {
       gymId: string;
       method: PaymentMethod;
       type?: PaymentType;
       amountPaid?: number;
+      totalAmount?: number;
       notes?: string;
+      plan?: string;
+      renewExpiry?: boolean;
     };
 
     if (!gymId || !method) {
@@ -218,6 +252,29 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         .json({ success: false, message: "Method must be cash or online." });
     }
 
+    // Validate amount if provided
+    if (rawAmount != null && Number(rawAmount) <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Amount must be greater than zero." });
+    }
+
+    // Validate plan if provided — check against Settings plans
+    if (newPlan) {
+      const settings = await Settings.findOne({}).select("plans").lean();
+      const validPlan = settings?.plans?.some(
+        (p: any) => p.name === newPlan && p.isActive,
+      );
+      if (!validPlan) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: `Plan "${newPlan}" is not available.`,
+          });
+      }
+    }
+
     const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
     if (!member) {
       return res
@@ -225,7 +282,37 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         .json({ success: false, message: `Member ${gymId} not found.` });
     }
 
-    const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+    // Block payments for deactivated members
+    if (!member.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} is deactivated. Reactivate the member first.`,
+      });
+    }
+
+    // Guard against duplicate submissions within 3 seconds
+    const recentPayment = await Payment.findOne({
+      gymId: member.gymId,
+      type,
+      createdAt: { $gte: new Date(Date.now() - 3000) },
+    });
+    if (recentPayment) {
+      return res.status(409).json({
+        success: false,
+        message: "Payment already processed. Please wait a moment.",
+      });
+    }
+
+    // If plan is changing, update the member's plan
+    const effectivePlan = newPlan || member.plan;
+    if (newPlan && newPlan !== member.plan) {
+      member.plan = newPlan as typeof member.plan;
+    }
+
+    const totalAmount =
+      clientTotal != null && clientTotal > 0
+        ? clientTotal
+        : await getPlanPrice(effectivePlan);
     const amountPaid =
       rawAmount != null
         ? Math.min(Number(rawAmount), totalAmount)
@@ -233,8 +320,22 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
     const balance = Math.max(0, totalAmount - amountPaid);
     const isPartial = balance > 0;
 
-    // Update member's outstanding balance
-    member.balance = balance;
+    // Update member balance — ADD for manual, REPLACE for others
+    if (type === "manual") {
+      member.balance = (member.balance ?? 0) + balance;
+    } else {
+      member.balance = balance;
+    }
+
+    // Auto-extend expiry if requested (payment acts as renewal)
+    if (renewExpiry) {
+      const months = await getPlanDuration(effectivePlan);
+      const baseDate = new Date();
+      baseDate.setMonth(baseDate.getMonth() + months);
+      member.expiresAt = baseDate;
+      member.status = "active";
+    }
+
     await member.save();
 
     const payment = await Payment.create({
@@ -246,8 +347,8 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       balance,
       isPartial,
       method,
-      type,
-      plan: member.plan,
+      type: renewExpiry ? "renewal" : type,
+      plan: effectivePlan,
       notes,
       processedBy: req.user!.id,
     });
@@ -257,12 +358,28 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       "name username role",
     );
 
+    // Build response message
+    let msg = isPartial
+      ? `Partial payment of ₱${amountPaid} logged. Remaining balance: ₱${balance}.`
+      : `Full payment of ₱${amountPaid} logged for ${member.name}.`;
+    if (renewExpiry) {
+      msg += ` Membership extended to ${member.expiresAt.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}.`;
+    }
+    if (newPlan && newPlan !== effectivePlan) {
+      msg += ` Plan changed to ${effectivePlan}.`;
+    }
+
     return res.status(201).json({
       success: true,
-      message: isPartial
-        ? `Partial payment of ₱${amountPaid} logged. Remaining balance: ₱${balance}.`
-        : `Full payment of ₱${amountPaid} logged for ${member.name}.`,
+      message: msg,
       payment: populated,
+      member: {
+        gymId: member.gymId,
+        plan: member.plan,
+        status: member.status,
+        expiresAt: member.expiresAt,
+        balance: member.balance,
+      },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
@@ -318,7 +435,7 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
         ? Math.min(rawAmount, member.balance)
         : member.balance;
 
-    const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+    const totalAmount = await getPlanPrice(member.plan);
     const remainingBalance = Math.max(0, member.balance - amountPaid);
     const isFullySettled = remainingBalance === 0;
 
@@ -377,6 +494,7 @@ export const autoLogPayment = async ({
   type,
   processedBy,
   amountPaid,
+  totalAmountOverride,
 }: {
   gymId: string;
   memberName: string;
@@ -385,8 +503,13 @@ export const autoLogPayment = async ({
   type: PaymentType;
   processedBy: string;
   amountPaid?: number;
+  totalAmountOverride?: number;
 }): Promise<void> => {
-  const totalAmount = PLAN_PRICES[plan] ?? 0;
+  // Prefer the client-sent totalAmount (from gymStore) over Settings DB
+  const totalAmount =
+    totalAmountOverride != null && totalAmountOverride > 0
+      ? totalAmountOverride
+      : await getPlanPrice(plan);
   const paid =
     amountPaid != null ? Math.min(amountPaid, totalAmount) : totalAmount;
   const balance = Math.max(0, totalAmount - paid);
@@ -405,8 +528,11 @@ export const autoLogPayment = async ({
     processedBy,
   });
 
-  // Update member balance
-  if (balance > 0) {
-    await Member.updateOne({ gymId }, { balance });
+  // Add new balance to any existing debt (cumulative)
+  // e.g. member owes ₱100 + renews with ₱200 partial = ₱300 total debt
+  const member = await Member.findOne({ gymId });
+  if (member) {
+    member.balance = (member.balance ?? 0) + balance;
+    await member.save();
   }
 };

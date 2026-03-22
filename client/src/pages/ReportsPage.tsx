@@ -548,8 +548,11 @@ function StatPillSkeleton({ count = 4 }: { count?: number }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
-  const { settings } = useGymStore();
+  const { settings, getWalkInPrice } = useGymStore();
   const gymName = settings?.gymName || "IronCore GMS";
+  const wiRegular = getWalkInPrice("regular");
+  const wiStudent = getWalkInPrice("student");
+  const wiCouple = getWalkInPrice("couple");
 
   const [preset, setPreset] = useState<RangePreset>("month");
   const [customFrom, setCustomFrom] = useState(getManilaDate(30));
@@ -1045,16 +1048,21 @@ export default function ReportsPage() {
           {
             label: "Regular",
             count: regularCount,
-            price: 150,
+            price: wiRegular,
             color: "#FF6B1A",
           },
           {
             label: "Student",
             count: studentCount,
-            price: 100,
+            price: wiStudent,
             color: "#60a5fa",
           },
-          { label: "Couple", count: coupleCount, price: 250, color: "#c084fc" },
+          {
+            label: "Couple",
+            count: coupleCount,
+            price: wiCouple,
+            color: "#c084fc",
+          },
         ]
           .map(({ label, count, price, color }) => {
             const pct3 =
@@ -1723,19 +1731,19 @@ export default function ReportsPage() {
                           {
                             label: "Regular",
                             count: regularCount,
-                            price: 150,
+                            price: wiRegular,
                             color: "#FF6B1A",
                           },
                           {
                             label: "Student",
                             count: studentCount,
-                            price: 100,
+                            price: wiStudent,
                             color: "#60a5fa",
                           },
                           {
                             label: "Couple",
                             count: coupleCount,
-                            price: 250,
+                            price: wiCouple,
                             color: "#c084fc",
                           },
                         ].map(({ label, count, price, color }) => {

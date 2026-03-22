@@ -15,6 +15,7 @@ import { memberService } from "../services/memberService";
 import MembersPage from "./MembersPage";
 import { walkInService } from "../services/walkInService";
 import { useToastStore } from "../store/toastStore";
+import { useGymStore } from "../store/gymStore";
 import type { Member, WalkIn, WalkInRegisterResponse } from "../types";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -32,7 +33,8 @@ export default function StaffDashboard() {
     <StaffLayout
       activePage={activePage}
       onPageChange={setActivePage}
-      pageTitle={pageTitles[activePage] ?? "Check-in Desk"}>
+      pageTitle={pageTitles[activePage] ?? "Check-in Desk"}
+    >
       {activePage === "checkin" && <CheckInDesk />}
       {activePage === "walkin" && <WalkInDesk />}
       {activePage === "members" && <MembersPage forceStaffView />}
@@ -224,7 +226,8 @@ function CheckInDesk() {
                   setResults([]);
                   inputRef.current?.focus();
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-xs cursor-pointer">
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white text-xs cursor-pointer"
+              >
                 ✕
               </button>
             )}
@@ -244,7 +247,8 @@ function CheckInDesk() {
                 <button
                   key={m.gymId}
                   onClick={() => selectMember(m)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0 transition-colors text-left cursor-pointer">
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0 transition-colors text-left cursor-pointer"
+                >
                   <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
                     {m.name
                       .split(" ")
@@ -262,7 +266,8 @@ function CheckInDesk() {
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_STYLES[m.status] ?? "text-white/30"}`}>
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_STYLES[m.status] ?? "text-white/30"}`}
+                    >
                       {m.status}
                     </span>
                     {m.checkedIn && (
@@ -292,7 +297,8 @@ function CheckInDesk() {
                 selected.checkedIn
                   ? "bg-blue-400/5 border-blue-400/20"
                   : "bg-[#FF6B1A]/5 border-[#FF6B1A]/20"
-              }`}>
+              }`}
+            >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 flex items-center justify-center text-sm font-bold text-[#FF6B1A] shrink-0">
                   {selected.name
@@ -313,7 +319,8 @@ function CheckInDesk() {
                   </div>
                 </div>
                 <span
-                  className={`text-xs font-semibold px-2 py-1 rounded-full border ${STATUS_STYLES[selected.status] ?? "text-white/30"}`}>
+                  className={`text-xs font-semibold px-2 py-1 rounded-full border ${STATUS_STYLES[selected.status] ?? "text-white/30"}`}
+                >
                   {selected.status}
                 </span>
               </div>
@@ -323,21 +330,24 @@ function CheckInDesk() {
               selected.status === "inactive" ? (
                 <button
                   disabled
-                  className="w-full py-3 bg-transparent border border-amber-400/30 text-amber-400 text-sm font-bold rounded-lg cursor-not-allowed opacity-60">
+                  className="w-full py-3 bg-transparent border border-amber-400/30 text-amber-400 text-sm font-bold rounded-lg cursor-not-allowed opacity-60"
+                >
                   ⚠ Membership {selected.status} — See Front Desk
                 </button>
               ) : selected.checkedIn ? (
                 <button
                   onClick={() => handleCheckOut(selected)}
                   disabled={actionLoading}
-                  className="w-full py-3 bg-transparent border border-blue-400/40 text-blue-400 text-sm font-bold rounded-lg hover:bg-blue-400/10 transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                  className="w-full py-3 bg-transparent border border-blue-400/40 text-blue-400 text-sm font-bold rounded-lg hover:bg-blue-400/10 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
                   {actionLoading ? "Processing..." : "← Check Out"}
                 </button>
               ) : (
                 <button
                   onClick={() => handleCheckIn(selected)}
                   disabled={actionLoading}
-                  className="w-full py-3 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer">
+                  className="w-full py-3 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
                   {actionLoading ? "Processing..." : "✓ Check In"}
                 </button>
               )}
@@ -376,7 +386,8 @@ function CheckInDesk() {
                   .map((entry, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+                      className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0"
+                    >
                       <div
                         className={`w-2 h-2 rounded-full shrink-0 ${entry.action === "in" ? "bg-[#FF6B1A]" : "bg-blue-400"}`}
                       />
@@ -390,7 +401,8 @@ function CheckInDesk() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span
-                          className={`text-[10px] font-semibold ${entry.action === "in" ? "text-[#FF6B1A]" : "text-blue-400"}`}>
+                          className={`text-[10px] font-semibold ${entry.action === "in" ? "text-[#FF6B1A]" : "text-blue-400"}`}
+                        >
                           {entry.action === "in" ? "IN" : "OUT"}
                         </span>
                         <span className="text-[11px] font-mono text-white/30">
@@ -412,7 +424,8 @@ function CheckInDesk() {
                     <button
                       onClick={() => setLogPage((p) => Math.max(1, p - 1))}
                       disabled={logPage === 1}
-                      className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                      className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    >
                       ←
                     </button>
                     <button
@@ -427,7 +440,8 @@ function CheckInDesk() {
                       disabled={
                         logPage === Math.ceil(todayLog.length / LOG_PAGE_SIZE)
                       }
-                      className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer">
+                      className="px-2.5 py-1 text-[10px] border border-white/10 text-white/40 hover:text-white hover:border-white/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    >
                       →
                     </button>
                   </div>
@@ -445,6 +459,7 @@ function CheckInDesk() {
 
 function WalkInDesk() {
   const { showToast } = useToastStore();
+  const { getWalkInPrice } = useGymStore();
   const [tab, setTab] = useState<"register" | "checkout">("register");
 
   // Register state
@@ -465,9 +480,24 @@ function WalkInDesk() {
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
 
   const passConfig = [
-    { type: "regular" as const, icon: "☀", label: "Regular", price: 150 },
-    { type: "student" as const, icon: "◎", label: "Student", price: 100 },
-    { type: "couple" as const, icon: "♡", label: "Couple", price: 250 },
+    {
+      type: "regular" as const,
+      icon: "☀",
+      label: "Regular",
+      price: getWalkInPrice("regular"),
+    },
+    {
+      type: "student" as const,
+      icon: "◎",
+      label: "Student",
+      price: getWalkInPrice("student"),
+    },
+    {
+      type: "couple" as const,
+      icon: "♡",
+      label: "Couple",
+      price: getWalkInPrice("couple"),
+    },
   ];
 
   const formatPhone = (val: string) => {
@@ -567,7 +597,8 @@ function WalkInDesk() {
               tab === t
                 ? "bg-[#FFB800]/15 text-[#FFB800] border border-[#FFB800]/30"
                 : "text-white/40 hover:text-white/60"
-            }`}>
+            }`}
+          >
             {t === "register"
               ? "Register"
               : `Check Out ${inside.length > 0 && tab === "checkout" ? `(${inside.length})` : ""}`}
@@ -625,7 +656,8 @@ function WalkInDesk() {
               </div>
               <button
                 onClick={handleReset}
-                className="w-full py-3 bg-[#FF6B1A] text-black font-bold text-sm rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer">
+                className="w-full py-3 bg-[#FF6B1A] text-black font-bold text-sm rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer"
+              >
                 Register Another ➜
               </button>
             </div>
@@ -676,7 +708,8 @@ function WalkInDesk() {
                           passType === type
                             ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
                             : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
-                        }`}>
+                        }`}
+                      >
                         <div className="text-lg mb-1">{icon}</div>
                         <div className="text-[10px] font-bold uppercase tracking-wide">
                           {label}
@@ -698,7 +731,8 @@ function WalkInDesk() {
                 <button
                   onClick={handleRegister}
                   disabled={loading}
-                  className="w-full py-3.5 bg-[#FFB800] text-black font-bold text-sm uppercase tracking-widest rounded-lg hover:bg-[#ffc933] transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed mt-2 cursor-pointer">
+                  className="w-full py-3.5 bg-[#FFB800] text-black font-bold text-sm uppercase tracking-widest rounded-lg hover:bg-[#ffc933] transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed mt-2 cursor-pointer"
+                >
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -743,7 +777,8 @@ function WalkInDesk() {
           {inside.map((w) => (
             <div
               key={w._id}
-              className="flex items-center gap-3 px-5 py-3.5 border-b border-white/5 last:border-0">
+              className="flex items-center gap-3 px-5 py-3.5 border-b border-white/5 last:border-0"
+            >
               <div
                 className="w-2 h-2 rounded-full bg-[#FF6B1A] shrink-0"
                 style={{ animation: "pulse 2s infinite" }}
@@ -759,7 +794,8 @@ function WalkInDesk() {
               <button
                 onClick={() => handleCheckOut(w.walkId, w.name)}
                 disabled={checkingOut === w.walkId}
-                className="px-3 py-1.5 text-xs font-semibold border border-blue-400/30 text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all cursor-pointer disabled:opacity-50">
+                className="px-3 py-1.5 text-xs font-semibold border border-blue-400/30 text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all cursor-pointer disabled:opacity-50"
+              >
                 {checkingOut === w.walkId ? "..." : "Check Out"}
               </button>
             </div>
@@ -776,7 +812,8 @@ function WalkInDesk() {
               {checkedOut.map((w) => (
                 <div
                   key={w._id}
-                  className="flex items-center gap-3 px-5 py-3 border-b border-white/5 last:border-0 opacity-40">
+                  className="flex items-center gap-3 px-5 py-3 border-b border-white/5 last:border-0 opacity-40"
+                >
                   <div className="w-2 h-2 rounded-full bg-white/20 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-white truncate">

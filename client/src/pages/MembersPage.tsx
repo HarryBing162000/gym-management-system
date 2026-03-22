@@ -17,26 +17,19 @@ import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/authStore";
 import { useToastStore } from "../store/toastStore";
+import { useGymStore } from "../store/gymStore";
 import { memberService } from "../services/memberService";
 import { paymentService } from "../services/paymentService";
 import type {
   Member,
   MemberStatus,
-  MemberPlan,
   CreateMemberPayload,
   UpdateMemberPayload,
 } from "../types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PLANS: MemberPlan[] = ["Monthly", "Quarterly", "Annual", "Student"];
-
-const PLAN_PRICES: Record<MemberPlan, number> = {
-  Monthly: 800,
-  Quarterly: 2100,
-  Annual: 7500,
-  Student: 500,
-};
+// Plans now come from gymStore — no hardcoded list
 
 const STATUS_STYLES: Record<MemberStatus, string> = {
   active: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
@@ -80,7 +73,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
   const [name, setName] = useState(member?.name ?? "");
   const [email, setEmail] = useState(member?.email ?? "");
   const [phone, setPhone] = useState(member?.phone ?? "");
-  const [plan, setPlan] = useState<MemberPlan>(member?.plan ?? "Monthly");
   const [status, setStatus] = useState<"active" | "inactive">(
     member?.status === "expired" ? "inactive" : (member?.status ?? "active"),
   );
@@ -92,16 +84,22 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "online">("cash");
   const [amountPaid, setAmountPaid] = useState<string>("");
 
+  // Read plans from gymStore — single source of truth
+  const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
+  const activePlans = getActivePlans();
+  const defaultPlan = member?.plan ?? activePlans[0]?.name ?? "Monthly";
+  const [plan, setPlan] = useState(defaultPlan);
+  const planPrice = getPlanPrice(plan);
+
+  // Auto-calculate expiry when plan changes (add mode only)
   useEffect(() => {
     if (mode === "add" && plan) {
+      const months = getPlanDuration(plan);
       const base = new Date();
-      if (plan === "Monthly") base.setMonth(base.getMonth() + 1);
-      if (plan === "Quarterly") base.setMonth(base.getMonth() + 3);
-      if (plan === "Annual") base.setFullYear(base.getFullYear() + 1);
-      if (plan === "Student") base.setMonth(base.getMonth() + 6);
+      base.setMonth(base.getMonth() + months);
       setExpiresAt(base.toISOString().split("T")[0]);
     }
-  }, [plan, mode]);
+  }, [plan, mode, getPlanDuration]);
 
   const handleSubmit = async () => {
     setErrorMsg("");
@@ -265,21 +263,21 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
               Membership Plan <span className="text-[#FF6B1A]">*</span>
             </label>
             <div className="grid grid-cols-2 gap-2">
-              {PLANS.map((p) => (
+              {activePlans.map((p) => (
                 <button
-                  key={p}
-                  onClick={() => setPlan(p)}
+                  key={p.name}
+                  onClick={() => setPlan(p.name)}
                   className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
-                    plan === p
+                    plan === p.name
                       ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
                       : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
                   }`}
                 >
                   <div className="text-xs font-bold uppercase tracking-wide">
-                    {p}
+                    {p.name}
                   </div>
                   <div className="text-xs font-mono mt-0.5 opacity-70">
-                    ₱{PLAN_PRICES[p].toLocaleString()}
+                    ₱{p.price.toLocaleString()}
                   </div>
                 </button>
               ))}
@@ -385,7 +383,7 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                     ₱
                     {Math.max(
                       0,
-                      PLAN_PRICES[plan] - Number(amountPaid),
+                      planPrice - Number(amountPaid),
                     ).toLocaleString()}
                   </span>
                 </div>
@@ -506,6 +504,8 @@ export default function MembersPage({
 }: MembersPageProps = {}) {
   const { user } = useAuthStore();
   const isOwner = forceStaffView ? false : user?.role === "owner";
+  const { getActivePlans } = useGymStore();
+  const activePlans = getActivePlans();
 
   const [members, setMembers] = useState<Member[]>([]);
   const [total, setTotal] = useState(0);
@@ -743,9 +743,9 @@ export default function MembersPage({
               style={{ colorScheme: "dark" }}
             >
               <option value="">All Plans</option>
-              {PLANS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+              {activePlans.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
                 </option>
               ))}
             </select>
@@ -769,7 +769,7 @@ export default function MembersPage({
         {/* ── Table ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
           {/* Table header — with background */}
-          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
+          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_100px] gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             {["Member", "Plan", "Status", "Expires", "In Gym", "Actions"].map(
               (h) => (
                 <div
@@ -843,7 +843,7 @@ export default function MembersPage({
               return (
                 <div
                   key={m.gymId}
-                  className="member-row grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
+                  className="member-row grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_100px] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
                 >
                   {/* Member info */}
                   <div className="flex items-center gap-3 min-w-0">
@@ -854,8 +854,18 @@ export default function MembersPage({
                       <div className="text-sm font-semibold text-white truncate">
                         {m.name}
                       </div>
-                      <div className="text-[11px] text-white/30 font-mono">
-                        {m.gymId}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/30 font-mono">
+                          {m.gymId}
+                        </span>
+                        {m.balance > 0 && (
+                          <button
+                            onClick={() => setSettleTarget(m)}
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 hover:bg-amber-400/20 rounded transition-all cursor-pointer"
+                          >
+                            ₱{m.balance.toLocaleString()} owed
+                          </button>
+                        )}
                       </div>
                       {(m.email || m.phone) && (
                         <div className="text-[10px] text-white/20 truncate mt-0.5">
@@ -924,17 +934,7 @@ export default function MembersPage({
                   </div>
 
                   {/* Actions — consistent alignment */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Outstanding balance */}
-                    {m.balance > 0 && (
-                      <button
-                        onClick={() => setSettleTarget(m)}
-                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/30 hover:bg-amber-400/20 rounded-md transition-all cursor-pointer"
-                      >
-                        ₱{m.balance.toLocaleString()} owed
-                      </button>
-                    )}
-
+                  <div className="flex items-center gap-1.5">
                     {/* Edit */}
                     <button
                       onClick={() => {

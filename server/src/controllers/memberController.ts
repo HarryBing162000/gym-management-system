@@ -35,7 +35,7 @@ const MEMBER_SAFE_FIELDS = {
 // ─── Helper — generate next GYM-XXXX ID ──────────────────────────────────────
 const generateGymId = async (): Promise<string> => {
   const lastMember = await Member.findOne({})
-    .sort({ gymId: -1 })
+    .sort({ createdAt: -1 })
     .select("gymId");
   if (!lastMember?.gymId) return "GYM-1001";
   const lastNum = parseInt(lastMember.gymId.replace("GYM-", ""), 10);
@@ -60,6 +60,7 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
       status,
       plan,
       search,
+      checkedIn,
       page = "1",
       limit = "20",
     } = req.query as Record<string, string>;
@@ -68,24 +69,17 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = { isActive: true };
 
-    // ── Status filter ─────────────────────────────────────────────────────────
     if (status && ["active", "inactive", "expired"].includes(status)) {
       filter.status = status;
     }
-
-    // ── Plan filter ───────────────────────────────────────────────────────────
-    if (plan && ["Monthly", "Quarterly", "Annual", "Student"].includes(plan)) {
+    if (plan && plan.trim().length > 0) {
       filter.plan = plan;
     }
-
-    // ── checkedIn filter — OUTSIDE search block so dashboard call works ───────
-    if (req.query.checkedIn === "true") {
+    if (checkedIn === "true") {
       filter.checkedIn = true;
     }
-
-    // ── Search filter ─────────────────────────────────────────────────────────
     if (search) {
       // Strip regex metacharacters but preserve hyphen — needed for GYM-XXXX
       const safeSearch = String(search)
@@ -129,50 +123,92 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ─── GET /api/members/stats ───────────────────────────────────────────────────
-export const getMemberStats = async (req: AuthRequest, res: Response) => {
+// ─── GET /api/members/stats ──────────────────────────────────────────────────
+export const getMemberStats = async (_req: AuthRequest, res: Response) => {
   try {
+    await autoExpireMembers();
+
     const now = new Date();
     const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    // All 5 queries fire at the SAME TIME — Promise.all waits for all of them
-    const [total, checkedIn, expiringSoon, withBalance, expired] =
-      await Promise.all([
-        // How many members exist total
-        Member.countDocuments({ isActive: true }),
+    const [total, checkedIn, expiringSoon, withBalance] = await Promise.all([
+      Member.countDocuments({ isActive: true }),
+      Member.countDocuments({ isActive: true, checkedIn: true }),
+      Member.countDocuments({
+        isActive: true,
+        status: "active",
+        expiresAt: { $gte: now, $lte: in7Days },
+      }),
+      Member.countDocuments({ isActive: true, balance: { $gt: 0 } }),
+    ]);
 
-        // How many are currently inside the gym
-        Member.countDocuments({ isActive: true, checkedIn: true }),
-
-        // How many active memberships expire within 7 days
-        Member.countDocuments({
-          isActive: true,
-          status: "active",
-          expiresAt: { $gte: now, $lte: in7Days },
-        }),
-
-        // How many have an outstanding balance
-        Member.countDocuments({ isActive: true, balance: { $gt: 0 } }),
-
-        // How many are expired
-        Member.countDocuments({ isActive: true, status: "expired" }),
-      ]);
-
-    return res.json({
+    return res.status(200).json({
       success: true,
-      stats: {
-        total,
-        checkedIn,
-        expiringSoon,
-        withBalance,
-        expired,
-      },
+      total,
+      checkedIn,
+      expiringSoon,
+      withBalance,
     });
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load member stats",
-    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
+  }
+};
+
+// ─── GET /api/members/at-risk ───────────────────────────────────────────────
+export const getAtRiskMembers = async (_req: AuthRequest, res: Response) => {
+  try {
+    await autoExpireMembers();
+
+    const now = new Date();
+    const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    // Members expiring within 7 days
+    const expiring = await Member.find({
+      isActive: true,
+      status: "active",
+      expiresAt: { $gte: now, $lte: in7Days },
+    })
+      .select(MEMBER_SAFE_FIELDS)
+      .sort({ expiresAt: 1 })
+      .limit(10);
+
+    // Recently expired members (overdue)
+    const overdue = await Member.find({
+      isActive: true,
+      status: "expired",
+    })
+      .select(MEMBER_SAFE_FIELDS)
+      .sort({ expiresAt: -1 })
+      .limit(5);
+
+    const atRisk = [
+      ...expiring.map((m) => ({
+        gymId: m.gymId,
+        name: m.name,
+        plan: m.plan,
+        expiresAt: m.expiresAt,
+        daysLeft: Math.ceil(
+          (new Date(m.expiresAt).getTime() - now.getTime()) / 86400000,
+        ),
+        status: "expiring" as const,
+      })),
+      ...overdue.map((m) => ({
+        gymId: m.gymId,
+        name: m.name,
+        plan: m.plan,
+        expiresAt: m.expiresAt,
+        daysLeft: Math.ceil(
+          (new Date(m.expiresAt).getTime() - now.getTime()) / 86400000,
+        ),
+        status: "overdue" as const,
+      })),
+    ].slice(0, 10);
+
+    return res.status(200).json({ success: true, atRisk });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Server error";
+    return res.status(500).json({ success: false, message });
   }
 };
 
@@ -417,6 +453,12 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // ── Snapshot old expiresAt BEFORE update — needed for renewal detection ──
+    const oldMember = await Member.findOne({ gymId: currentGymId }).select(
+      "expiresAt",
+    );
+    const oldExpiresAt = oldMember?.expiresAt;
+
     const member = await Member.findOneAndUpdate(
       { gymId: currentGymId },
       { $set: setPayload },
@@ -433,7 +475,8 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
     // Auto-log renewal payment only if expiresAt is being pushed forward
     const isRenewal =
       setPayload.expiresAt &&
-      new Date(setPayload.expiresAt as Date) > new Date(member!.expiresAt);
+      oldExpiresAt &&
+      new Date(setPayload.expiresAt as Date) > new Date(oldExpiresAt);
 
     if (isRenewal) {
       try {
@@ -447,6 +490,10 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
           amountPaid:
             req.body.amountPaid != null
               ? Number(req.body.amountPaid)
+              : undefined,
+          totalAmountOverride:
+            req.body.totalAmount != null
+              ? Number(req.body.totalAmount)
               : undefined,
         });
       } catch {
@@ -506,20 +553,33 @@ export const deactivateMember = async (req: AuthRequest, res: Response) => {
 export const reactivateMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
-    const member = await Member.findOneAndUpdate(
-      { gymId: String(gymId).toUpperCase() },
-      { $set: { isActive: true, status: "active" } },
-      { returnDocument: "after" },
-    ).select(MEMBER_SAFE_FIELDS);
+    const upperGymId = String(gymId).toUpperCase();
 
-    if (!member) {
+    // First fetch the member to check expiry
+    const existing = await Member.findOne({ gymId: upperGymId });
+    if (!existing) {
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
     }
+
+    // If their membership has expired, set status to "expired" not "active"
+    const isExpired = new Date(existing.expiresAt) < new Date();
+    const newStatus = isExpired ? "expired" : "active";
+
+    const member = await Member.findOneAndUpdate(
+      { gymId: upperGymId },
+      { $set: { isActive: true, status: newStatus } },
+      { returnDocument: "after" },
+    ).select(MEMBER_SAFE_FIELDS);
+
+    const message = isExpired
+      ? `Member ${gymId} has been reactivated but their membership is expired. Please renew their plan.`
+      : `Member ${gymId} has been reactivated.`;
+
     return res.status(200).json({
       success: true,
-      message: `Member ${gymId} has been reactivated.`,
+      message,
       member,
     });
   } catch (err: unknown) {

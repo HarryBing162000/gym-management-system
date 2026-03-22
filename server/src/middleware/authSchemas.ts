@@ -85,9 +85,7 @@ export const createMemberSchema = z.object({
     .string()
     .regex(/^[0-9+\-\s()]*$/, "Invalid phone number")
     .optional(),
-  plan: z.enum(["Monthly", "Quarterly", "Annual", "Student"], {
-    error: "Plan must be Monthly, Quarterly, Annual, or Student",
-  }),
+  plan: z.string().min(1, "Plan is required").max(30, "Plan name too long"),
   status: z.enum(["active", "inactive"], {
     error: "Status must be active or inactive",
   }),
@@ -116,7 +114,7 @@ export const updateMemberSchema = z.object({
     .string()
     .regex(/^[0-9+\-\s()]*$/, "Invalid phone number")
     .optional(),
-  plan: z.enum(["Monthly", "Quarterly", "Annual", "Student"]).optional(),
+  plan: z.string().min(1).max(30).optional(),
   status: z.enum(["active", "inactive", "expired"]).optional(),
   expiresAt: z
     .string()
@@ -124,6 +122,10 @@ export const updateMemberSchema = z.object({
     .transform((val) => new Date(val))
     .optional(),
   photoUrl: z.string().url("Invalid photo URL").optional(),
+  // Payment fields — passed through to autoLogPayment on renewal, not stored on Member
+  paymentMethod: z.enum(["cash", "online"]).optional(),
+  amountPaid: z.number().positive().optional(),
+  totalAmount: z.number().positive().optional(),
 });
 
 // ============================================================

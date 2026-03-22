@@ -2,31 +2,31 @@
  * OwnerDashboard.tsx
  * IronCore GMS — Owner Portal
  *
- * Page persistence fix: activePage is stored in the URL as ?page=members
- * so refreshing the browser restores the correct page instead of
- * always resetting to "dashboard".
- *
- * URL examples:
- *   /dashboard          → dashboard home
- *   /dashboard?page=members   → Members page
- *   /dashboard?page=payments  → Payments page
+ * Page persistence: activePage stored in URL as ?page=members
+ * At-Risk panel: wired to GET /api/members/at-risk
+ * Renew modal: quick renewal directly from At-Risk panel
+ * Prices: read from gymStore — no hardcoded values
  */
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
 import MembersPage from "./MembersPage";
 import WalkInsPage from "./WalkInsPage";
 import PaymentsPage from "./PaymentsPage";
 import StaffPage from "./StaffPage";
 import ReportsPage from "./ReportsPage";
+import SettingsPage from "./SettingsPage";
 import OwnerLayout from "../layouts/OwnerLayout";
 import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import { memberService } from "../services/memberService";
+import type { AtRiskMember } from "../services/memberService";
 import { paymentService } from "../services/paymentService";
 import { walkInService } from "../services/walkInService";
+import { useToastStore } from "../store/toastStore";
 
-// Valid page keys — used to guard against bad URL params
+// ─── Valid pages ──────────────────────────────────────────────────────────────
 const VALID_PAGES = [
   "dashboard",
   "members",
@@ -37,22 +37,257 @@ const VALID_PAGES = [
   "settings",
 ] as const;
 type PageKey = (typeof VALID_PAGES)[number];
-
 function isValidPage(p: string | null): p is PageKey {
   return VALID_PAGES.includes(p as PageKey);
 }
 
+// ─── Renew Modal ──────────────────────────────────────────────────────────────
+function RenewModal({
+  member,
+  onClose,
+  onSuccess,
+}: {
+  member: AtRiskMember;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { showToast } = useToastStore();
+  const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
+  const activePlans = getActivePlans();
+
+  const [plan, setPlan] = useState(member.plan);
+  const [method, setMethod] = useState<"cash" | "online">("cash");
+  const [amount, setAmount] = useState(String(getPlanPrice(member.plan)));
+  const [saving, setSaving] = useState(false);
+
+  // When plan changes, update the pre-filled amount
+  const handlePlanChange = (newPlan: string) => {
+    setPlan(newPlan);
+    setAmount(String(getPlanPrice(newPlan)));
+  };
+
+  // Calculate new expiry using duration from store
+  const calcNewExpiry = (selectedPlan: string): string => {
+    const months = getPlanDuration(selectedPlan);
+    const d = new Date();
+    d.setMonth(d.getMonth() + months);
+    return d.toISOString().split("T")[0];
+  };
+
+  const handleRenew = async () => {
+    const parsedAmount = Number(amount);
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      showToast("Please enter a valid amount.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const planTotal = getPlanPrice(plan);
+      await memberService.renew(member.gymId, {
+        plan,
+        expiresAt: calcNewExpiry(plan),
+        paymentMethod: method,
+        amountPaid: parsedAmount,
+        totalAmount: planTotal,
+        status: "active",
+      });
+      showToast(
+        `${member.name.split(" ")[0]}'s membership renewed successfully.`,
+        "success",
+      );
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      showToast(
+        err?.response?.data?.message || "Renewal failed. Please try again.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Compute balance preview
+  const planTotal = getPlanPrice(plan);
+  const parsedAmount = Number(amount);
+  const isPartial =
+    !isNaN(parsedAmount) && parsedAmount > 0 && parsedAmount < planTotal;
+  const balanceOwed = isPartial ? planTotal - parsedAmount : 0;
+
+  return createPortal(
+    <>
+      <style>{`
+        @keyframes renewFadeIn {
+          from { opacity: 0; transform: scale(0.95); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
+      <div
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div
+          className="w-full max-w-sm bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+          style={{ animation: "renewFadeIn 0.2s ease" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
+                Renew Membership
+              </div>
+              <div className="text-white font-bold text-base truncate">
+                {member.name}
+              </div>
+              <div className="text-[10px] font-mono text-white/30 mt-0.5">
+                {member.gymId} ·{" "}
+                <span
+                  className={
+                    member.status === "overdue"
+                      ? "text-red-400"
+                      : "text-amber-400"
+                  }
+                >
+                  {member.status === "overdue"
+                    ? `${Math.abs(member.daysLeft)}d overdue`
+                    : `${member.daysLeft}d left`}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all cursor-pointer text-lg shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="p-6 space-y-4">
+            {/* Plan */}
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                Plan
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {activePlans.map((p) => (
+                  <button
+                    key={p.name}
+                    onClick={() => handlePlanChange(p.name)}
+                    className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
+                      plan === p.name
+                        ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
+                        : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                    }`}
+                  >
+                    <div className="text-xs font-bold">{p.name}</div>
+                    <div className="text-[10px] font-mono mt-0.5">
+                      ₱{p.price.toLocaleString()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* New expiry preview */}
+            <div className="px-3 py-2 bg-white/[0.03] border border-white/10 rounded-lg flex items-center justify-between">
+              <span className="text-[10px] text-white/40 uppercase tracking-widest font-semibold">
+                New expiry
+              </span>
+              <span className="text-xs font-mono text-emerald-400 font-semibold">
+                {new Date(calcNewExpiry(plan)).toLocaleDateString("en-PH", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                Amount Paid
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
+                  ₱
+                </span>
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-7 pr-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-[#FF6B1A]/50 transition-colors"
+                  placeholder="0"
+                  min={0}
+                />
+              </div>
+              {isPartial ? (
+                <p className="text-[10px] text-amber-400 mt-1">
+                  Partial — ₱{balanceOwed.toLocaleString()} will be added as
+                  outstanding balance.
+                </p>
+              ) : (
+                <p className="text-[10px] text-white/25 mt-1">
+                  Pre-filled based on plan. Override if partial payment.
+                </p>
+              )}
+            </div>
+
+            {/* Payment method */}
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                Payment Method
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["cash", "online"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMethod(m)}
+                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
+                      method === m
+                        ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
+                        : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 pb-6 flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 border border-white/10 text-white/50 hover:text-white hover:border-white/20 text-sm font-semibold rounded-xl transition-all cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRenew}
+              disabled={saving}
+              className="flex-1 py-2.5 bg-[#FF6B1A] hover:bg-[#ff8a45] disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-bold rounded-xl transition-all active:scale-95 cursor-pointer"
+            >
+              {saving ? "Renewing..." : "Confirm Renewal"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+// ─── Owner Dashboard ──────────────────────────────────────────────────────────
 export default function OwnerDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
-
-  // Read page from URL — fall back to "dashboard" if missing or invalid
   const rawPage = searchParams.get("page");
   const activePage: PageKey = isValidPage(rawPage) ? rawPage : "dashboard";
 
-  // Update URL when navigating — replaces history so Back button works naturally
   const setActivePage = (page: string) => {
     if (page === "dashboard") {
-      // Clean URL for the home page: /dashboard instead of /dashboard?page=dashboard
       setSearchParams({}, { replace: false });
     } else {
       setSearchParams({ page }, { replace: false });
@@ -83,14 +318,12 @@ export default function OwnerDashboard() {
       {activePage === "payments" && <PaymentsPage />}
       {activePage === "staff" && <StaffPage />}
       {activePage === "reports" && <ReportsPage />}
-      {activePage === "settings" && (
-        <PlaceholderContent title="Settings" icon="◌" />
-      )}
+      {activePage === "settings" && <SettingsPage />}
     </OwnerLayout>
   );
 }
 
-// ── DASHBOARD CONTENT ──────────────────────────────────────
+// ─── Dashboard Content ────────────────────────────────────────────────────────
 function DashboardContent({
   onNavigate,
 }: {
@@ -100,7 +333,6 @@ function DashboardContent({
   const { settings } = useGymStore();
   const gymName = settings?.gymName || "the gym";
 
-  // ── State ──
   const [memberStats, setMemberStats] = useState({
     total: 0,
     checkedIn: 0,
@@ -122,29 +354,20 @@ function DashboardContent({
   const [recentCheckins, setRecentCheckins] = useState<
     { id: string; name: string; gymId: string }[]
   >([]);
-  const [atRisk] = useState<
-    {
-      gymId: string;
-      name: string;
-      expiresAt: string;
-      daysLeft: number;
-      status: string;
-    }[]
-  >([]);
+  const [atRisk, setAtRisk] = useState<AtRiskMember[]>([]);
+  const [atRiskLoading, setAtRiskLoading] = useState(true);
+  const [renewTarget, setRenewTarget] = useState<AtRiskMember | null>(null);
 
-  // ── Greeting ──
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
     if (hour < 18) return "Good afternoon";
     return "Good evening";
   };
-
   const firstName = user?.name?.split(" ")[0] || "Owner";
 
-  // ── Fetch all dashboard data ──
   const load = useCallback(async () => {
-    // ── Members — ONE stats call + one checkedIn call ──
+    // Member stats — single API call
     try {
       const stats = await memberService.getMemberStats();
       setMemberStats({
@@ -154,8 +377,7 @@ function DashboardContent({
         withBalance: stats.withBalance,
         loading: false,
       });
-
-      // Fetch checked-in members for the "Members Inside Now" panel
+      // Fetch checked-in members for "Inside Now" panel
       const checkedInRes = await memberService.getAll({
         checkedIn: "true",
         limit: 50,
@@ -171,7 +393,17 @@ function DashboardContent({
       setMemberStats((s) => ({ ...s, loading: false }));
     }
 
-    // ── Payments ──
+    // At-risk members — single API call
+    try {
+      const res = await memberService.getAtRiskMembers();
+      setAtRisk(res.atRisk);
+    } catch {
+      setAtRisk([]);
+    } finally {
+      setAtRiskLoading(false);
+    }
+
+    // Payments
     try {
       const summary = await paymentService.getSummary();
       setPaymentSummary({
@@ -183,7 +415,7 @@ function DashboardContent({
       setPaymentSummary((s) => ({ ...s, loading: false }));
     }
 
-    // ── Walk-ins ──
+    // Walk-ins
     try {
       const walkins = await walkInService.getToday();
       setWalkInToday({
@@ -253,6 +485,9 @@ function DashboardContent({
 
   return (
     <div className="space-y-5 pb-24 lg:pb-6 max-w-7xl mx-auto">
+      <style>{`
+      `}</style>
+
       {/* ── HEADER ── */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
@@ -362,27 +597,22 @@ function DashboardContent({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* ── MEMBERS INSIDE NOW ── */}
         <div
-          className={`lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col min-h-[280px] ${
-            recentCheckins.length > 10
-              ? "overflow-y-auto max-h-[420px] pr-1 members-scroll"
-              : ""
-          }`}
+          className="lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col"
+          style={{ minHeight: 280, maxHeight: 480 }}
         >
-          {/* Header */}
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
               Members Inside Now
             </h3>
             <span className="text-xs text-[#FF6B1A] bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1.5">
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] inline-block"
-                style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
-              />
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-[#FF6B1A] opacity-75 animate-ping" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#FF6B1A]" />
+              </span>
               Live
             </span>
           </div>
 
-          {/* Body */}
           {recentCheckins.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center flex-1">
               <div className="text-3xl mb-2 opacity-20">◉</div>
@@ -395,11 +625,11 @@ function DashboardContent({
             </div>
           ) : (
             <div
-              className={`grid grid-cols-1 sm:grid-cols-2 gap-2 gms-scroll ${
-                recentCheckins.length > 10
-                  ? "overflow-y-auto max-h-[420px] pr-1"
-                  : ""
-              }`}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto flex-1 pr-1"
+              style={{
+                scrollbarWidth: "thin",
+                scrollbarColor: "rgba(255,107,26,0.2) transparent",
+              }}
             >
               {recentCheckins.map((m) => (
                 <div
@@ -422,16 +652,11 @@ function DashboardContent({
                       {m.gymId}
                     </div>
                   </div>
-                  <div
-                    className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] shrink-0"
-                    style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
-                  />
                 </div>
               ))}
             </div>
           )}
 
-          {/* Footer */}
           {recentCheckins.length > 0 && (
             <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between shrink-0">
               <span className="text-[11px] text-white/25">
@@ -468,7 +693,6 @@ function DashboardContent({
                 View all →
               </button>
             </div>
-
             {paymentSummary.loading ? (
               <div className="space-y-2.5">
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -530,7 +754,9 @@ function DashboardContent({
               <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
                 At-Risk Members
               </h3>
-              {atRisk.length > 0 ? (
+              {atRiskLoading ? (
+                <div className="w-12 h-4 bg-white/5 rounded animate-pulse" />
+              ) : atRisk.length > 0 ? (
                 <span className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 px-2 py-0.5 rounded-full font-semibold">
                   {atRisk.length}
                 </span>
@@ -541,7 +767,16 @@ function DashboardContent({
               )}
             </div>
 
-            {atRisk.length === 0 ? (
+            {atRiskLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-12 bg-white/5 rounded-lg animate-pulse"
+                  />
+                ))}
+              </div>
+            ) : atRisk.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-6 text-center">
                 <div className="text-2xl mb-1.5">✅</div>
                 <div className="text-white/25 text-xs font-semibold">
@@ -586,15 +821,16 @@ function DashboardContent({
                           className={`text-[10px] ${member.status === "overdue" ? "text-red-400" : "text-amber-400"}`}
                         >
                           {member.status === "overdue"
-                            ? `Overdue since ${expiresLabel}`
+                            ? `Overdue since ${expiresLabel} · ${Math.abs(member.daysLeft)}d ago`
                             : `Expires ${expiresLabel} · ${member.daysLeft}d left`}
                         </div>
                       </div>
-                      <span
-                        className={`text-[10px] font-mono font-semibold shrink-0 ${member.status === "overdue" ? "text-red-400/60" : "text-amber-400/60"}`}
+                      <button
+                        onClick={() => setRenewTarget(member)}
+                        className="shrink-0 px-2 py-1 text-[10px] font-bold text-[#FF6B1A] bg-[#FF6B1A]/10 hover:bg-[#FF6B1A]/20 border border-[#FF6B1A]/20 rounded-md transition-all cursor-pointer"
                       >
-                        {member.gymId}
-                      </span>
+                        Renew
+                      </button>
                     </div>
                   );
                 })}
@@ -603,17 +839,15 @@ function DashboardContent({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-// ── PLACEHOLDER ──────────────────────────────────────────
-function PlaceholderContent({ title, icon }: { title: string; icon: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-64 text-white/20 pb-24 lg:pb-0">
-      <div className="text-5xl mb-4">{icon}</div>
-      <div className="text-lg font-bold uppercase tracking-widest">{title}</div>
-      <div className="text-sm mt-2 text-white/20">Coming soon</div>
+      {/* Renew Modal */}
+      {renewTarget && (
+        <RenewModal
+          member={renewTarget}
+          onClose={() => setRenewTarget(null)}
+          onSuccess={load}
+        />
+      )}
     </div>
   );
 }

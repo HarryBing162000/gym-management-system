@@ -16,7 +16,7 @@ export interface IMember extends Document {
   name: string;
   email?: string; // optional
   phone?: string; // optional
-  plan: "Monthly" | "Quarterly" | "Annual" | "Student";
+  plan: string; // plan name from Settings.plans
   status: "active" | "inactive" | "expired";
   expiresAt: Date;
   checkedIn: boolean; // real-time gym presence
@@ -58,8 +58,8 @@ const MemberSchema = new Schema<IMember>(
     },
     plan: {
       type: String,
-      enum: ["Monthly", "Quarterly", "Annual", "Student"],
       required: [true, "Plan is required"],
+      trim: true,
     },
     status: {
       type: String,

@@ -388,6 +388,9 @@ export const getGymInfo = async (_req: Request, res: Response) => {
   try {
     const settings = await Settings.findOne({});
 
+    // Build plans lookup for convenience — only active plans
+    const activePlans = settings?.plans?.filter((p) => p.isActive) ?? [];
+
     return res.status(200).json({
       success: true,
       settings: settings
@@ -395,11 +398,19 @@ export const getGymInfo = async (_req: Request, res: Response) => {
             gymName: settings.gymName,
             gymAddress: settings.gymAddress,
             logoUrl: settings.logoUrl || null,
+            plans: activePlans,
+            walkInPrices: settings.walkInPrices ?? {
+              regular: 150,
+              student: 100,
+              couple: 250,
+            },
           }
         : {
             gymName: process.env.GYM_NAME || "IronCore Gym",
             gymAddress: process.env.GYM_ADDRESS || "",
             logoUrl: null,
+            plans: [],
+            walkInPrices: { regular: 150, student: 100, couple: 250 },
           },
     });
   } catch (err: any) {
@@ -477,6 +488,235 @@ export const deleteLogo = async (req: AuthRequest, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Logo deleted successfully",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// =================== PLAN MANAGEMENT ===================
+
+// GET /api/auth/plans — returns ALL plans (active + inactive) for owner management
+export const getPlans = async (_req: AuthRequest, res: Response) => {
+  try {
+    const settings = await Settings.findOne({});
+    return res.status(200).json({
+      success: true,
+      plans: settings?.plans ?? [],
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// POST /api/auth/plans — add a new plan
+export const addPlan = async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, price, durationMonths } = req.body as {
+      name: string;
+      price: number;
+      durationMonths: number;
+    };
+
+    if (!name || name.trim().length < 2) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Plan name must be at least 2 characters.",
+        });
+    }
+    if (price == null || price < 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Price must be zero or positive." });
+    }
+    if (!durationMonths || durationMonths < 1 || durationMonths > 24) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Duration must be between 1 and 24 months.",
+        });
+    }
+
+    const settings = await Settings.findOne({});
+    if (!settings) {
+      return res
+        .status(500)
+        .json({ success: false, message: "Settings not found." });
+    }
+
+    // Check for duplicate name (case-insensitive)
+    const exists = settings.plans.some(
+      (p) => p.name.toLowerCase() === name.trim().toLowerCase(),
+    );
+    if (exists) {
+      return res
+        .status(409)
+        .json({
+          success: false,
+          message: `A plan named "${name}" already exists.`,
+        });
+    }
+
+    settings.plans.push({
+      name: name.trim(),
+      price,
+      durationMonths,
+      isActive: true,
+      isDefault: false,
+    });
+    await settings.save();
+
+    return res.status(201).json({
+      success: true,
+      message: `Plan "${name}" added.`,
+      plans: settings.plans,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// PATCH /api/auth/plans/:planId — update a plan's price, duration, or active status
+export const updatePlan = async (req: AuthRequest, res: Response) => {
+  try {
+    const { planId } = req.params;
+    const { price, durationMonths, isActive, name } = req.body as {
+      price?: number;
+      durationMonths?: number;
+      isActive?: boolean;
+      name?: string;
+    };
+
+    const settings = await Settings.findOne({});
+    if (!settings) {
+      return res
+        .status(500)
+        .json({ success: false, message: "Settings not found." });
+    }
+
+    const plan = settings.plans.find(
+      (p) => (p as any)._id.toString() === planId,
+    );
+    if (!plan) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Plan not found." });
+    }
+
+    // Update allowed fields
+    if (name != null && name.trim().length >= 2) {
+      // Check for duplicate name (exclude self)
+      const dup = settings.plans.some(
+        (p) =>
+          (p as any)._id.toString() !== planId &&
+          p.name.toLowerCase() === name.trim().toLowerCase(),
+      );
+      if (dup) {
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message: `A plan named "${name}" already exists.`,
+          });
+      }
+      // Only allow renaming non-default plans
+      if (!plan.isDefault) {
+        plan.name = name.trim();
+      }
+    }
+    if (price != null && price >= 0) plan.price = price;
+    if (durationMonths != null && durationMonths >= 1 && durationMonths <= 24) {
+      plan.durationMonths = durationMonths;
+    }
+    if (isActive != null) plan.isActive = isActive;
+
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Plan "${plan.name}" updated.`,
+      plans: settings.plans,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// DELETE /api/auth/plans/:planId — delete a custom plan (default plans cannot be deleted)
+export const deletePlan = async (req: AuthRequest, res: Response) => {
+  try {
+    const { planId } = req.params;
+
+    const settings = await Settings.findOne({});
+    if (!settings) {
+      return res
+        .status(500)
+        .json({ success: false, message: "Settings not found." });
+    }
+
+    const planIndex = settings.plans.findIndex(
+      (p) => (p as any)._id.toString() === planId,
+    );
+    if (planIndex === -1) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Plan not found." });
+    }
+
+    const plan = settings.plans[planIndex];
+    if (plan.isDefault) {
+      return res.status(400).json({
+        success: false,
+        message: `"${plan.name}" is a default plan and cannot be deleted. You can deactivate it instead.`,
+      });
+    }
+
+    settings.plans.splice(planIndex, 1);
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Plan "${plan.name}" deleted.`,
+      plans: settings.plans,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// =================== WALK-IN PRICES ===================
+
+// PUT /api/auth/walkin-prices — update walk-in pass prices
+export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
+  try {
+    const { regular, student, couple } = req.body as {
+      regular?: number;
+      student?: number;
+      couple?: number;
+    };
+
+    const settings = await Settings.findOne({});
+    if (!settings) {
+      return res
+        .status(500)
+        .json({ success: false, message: "Settings not found." });
+    }
+
+    if (regular != null && regular >= 0)
+      settings.walkInPrices.regular = regular;
+    if (student != null && student >= 0)
+      settings.walkInPrices.student = student;
+    if (couple != null && couple >= 0) settings.walkInPrices.couple = couple;
+
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Walk-in prices updated.",
+      walkInPrices: settings.walkInPrices,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

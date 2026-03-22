@@ -14,6 +14,11 @@ import {
   getGymInfo,
   uploadLogoController,
   deleteLogo,
+  getPlans,
+  addPlan,
+  updatePlan,
+  deletePlan,
+  updateWalkInPrices,
 } from "../controllers/authController";
 import { validate } from "../middleware/validate";
 import {
@@ -118,5 +123,14 @@ router.post(
 );
 
 router.delete("/delete-logo", protect, requireRole("owner"), deleteLogo);
+
+// ── Plan Management (owner only) ─────────────────────────
+router.get("/plans", protect, requireRole("owner"), getPlans);
+router.post("/plans", protect, requireRole("owner"), addPlan);
+router.patch("/plans/:planId", protect, requireRole("owner"), updatePlan);
+router.delete("/plans/:planId", protect, requireRole("owner"), deletePlan);
+
+// ── Walk-in Prices (owner only) ──────────────────────────
+router.put("/walkin-prices", protect, requireRole("owner"), updateWalkInPrices);
 
 export default router;

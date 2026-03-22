@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { paymentService } from "../services/paymentService";
 import { memberService } from "../services/memberService";
 import { useToastStore } from "../store/toastStore";
+import { useGymStore } from "../store/gymStore";
 import type {
   Payment,
   PaymentSummary,
@@ -198,26 +199,53 @@ interface LogPaymentModalProps {
   onLogged: () => void;
 }
 
+// ─── Plan config — read from gymStore (single source of truth) ────────────────
+
 function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
   const { showToast } = useToastStore();
+  const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
+  const activePlans = getActivePlans();
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Member[]>([]);
   const [selected, setSelected] = useState<Member | null>(null);
   const [method, setMethod] = useState<"cash" | "online">("cash");
-  const [type, setType] = useState<"new_member" | "renewal" | "manual">(
-    "manual",
-  );
   const [notes, setNotes] = useState("");
   const [amountPaidInput, setAmountPaidInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const PLAN_PRICES: Record<string, number> = {
-    Monthly: 800,
-    Quarterly: 2100,
-    Annual: 7500,
-    Student: 500,
+  // Plan change — defaults to member's current plan when selected
+  const [selectedPlan, setSelectedPlan] = useState<string>("");
+  // Extend expiry toggle — ON by default for expired/expiring members
+  const [renewExpiry, setRenewExpiry] = useState(false);
+
+  // When member is selected, default to their plan and auto-enable renew if expired
+  const handleSelectMember = (m: Member) => {
+    setSelected(m);
+    setSelectedPlan(m.plan);
+    setSearch("");
+    setResults([]);
+    setAmountPaidInput("");
+    // Auto-enable renewal if member is expired or expiring within 7 days
+    const daysLeft = Math.ceil(
+      (new Date(m.expiresAt).getTime() - Date.now()) / 86400000,
+    );
+    setRenewExpiry(m.status === "expired" || daysLeft <= 7);
+  };
+
+  // When plan changes, update the pre-filled amount
+  const handlePlanChange = (plan: string) => {
+    setSelectedPlan(plan);
+    setAmountPaidInput("");
+  };
+
+  // Compute new expiry preview
+  const getNewExpiry = (plan: string): string => {
+    const months = getPlanDuration(plan);
+    const d = new Date();
+    d.setMonth(d.getMonth() + months);
+    return d.toISOString().split("T")[0];
   };
 
   useEffect(() => {
@@ -248,14 +276,26 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
       setErrorMsg("Please select a member.");
       return;
     }
+    if (amountPaidInput) {
+      const parsed = Number(amountPaidInput);
+      if (isNaN(parsed) || parsed <= 0) {
+        setErrorMsg("Amount must be greater than zero.");
+        return;
+      }
+    }
     setLoading(true);
     try {
+      const planPrice = getPlanPrice(selectedPlan);
+      const isPlanChange = selectedPlan !== selected.plan;
       const res = await paymentService.create({
         gymId: selected.gymId,
         method,
-        type,
+        type: "manual",
         amountPaid: amountPaidInput ? Number(amountPaidInput) : undefined,
+        totalAmount: planPrice,
         notes: notes.trim() || undefined,
+        plan: isPlanChange || renewExpiry ? selectedPlan : undefined,
+        renewExpiry: renewExpiry || undefined,
       });
       showToast(res.message, "success");
       onLogged();
@@ -268,6 +308,14 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     }
   };
 
+  const planPrice = selected ? getPlanPrice(selectedPlan) : 0;
+  const isPlanChange = selected ? selectedPlan !== selected.plan : false;
+  const daysLeft = selected
+    ? Math.ceil(
+        (new Date(selected.expiresAt).getTime() - Date.now()) / 86400000,
+      )
+    : 0;
+
   return createPortal(
     <>
       <style>{`@keyframes payFadeIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }`}</style>
@@ -276,11 +324,12 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
         onClick={onClose}
       >
         <div
-          className="w-full max-w-sm bg-[#1e1e1e] border border-white/10 rounded-2xl p-6 shadow-2xl"
-          style={{ animation: "payFadeIn 0.2s ease" }}
+          className="w-full max-w-md bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+          style={{ animation: "payFadeIn 0.2s ease", maxHeight: "90vh" }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between mb-5">
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
                 Log Payment
@@ -297,37 +346,85 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
             </button>
           </div>
 
-          <div className="space-y-4">
+          {/* Body — scrollable */}
+          <div
+            className="px-6 py-5 space-y-4 overflow-y-auto"
+            style={{ maxHeight: "calc(90vh - 140px)" }}
+          >
             {/* Member search */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Member <span className="text-[#FF6B1A]">*</span>
               </label>
               {selected ? (
-                <div className="flex items-center gap-3 px-4 py-3 bg-[#FF6B1A]/5 border border-[#FF6B1A]/20 rounded-lg">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-white">
-                      {selected.name}
+                <div className="px-4 py-3 bg-[#FF6B1A]/5 border border-[#FF6B1A]/20 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-white">
+                        {selected.name}
+                      </div>
+                      <div className="text-xs text-white/40">
+                        {selected.gymId} · {selected.plan}
+                      </div>
                     </div>
-                    <div className="text-xs text-white/40">
-                      {selected.gymId} · {selected.plan} · ₱
-                      {PLAN_PRICES[selected.plan]?.toLocaleString()}
+                    <button
+                      onClick={() => {
+                        setSelected(null);
+                        setSelectedPlan("");
+                        setSearch("");
+                        setRenewExpiry(false);
+                      }}
+                      className="text-white/30 hover:text-white text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {/* Member status row */}
+                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/5">
+                    <div className="flex-1">
+                      <div className="text-[10px] text-white/30 uppercase tracking-widest">
+                        Expires
+                      </div>
+                      <div
+                        className={`text-xs font-mono mt-0.5 ${daysLeft < 0 ? "text-red-400" : daysLeft <= 7 ? "text-amber-400" : "text-white/50"}`}
+                      >
+                        {new Date(selected.expiresAt).toLocaleDateString(
+                          "en-PH",
+                          { month: "short", day: "numeric", year: "numeric" },
+                        )}
+                        {daysLeft < 0 && (
+                          <span className="ml-1.5 text-red-400">
+                            ({Math.abs(daysLeft)}d overdue)
+                          </span>
+                        )}
+                        {daysLeft >= 0 && daysLeft <= 7 && (
+                          <span className="ml-1.5 text-amber-400">
+                            ({daysLeft}d left)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-[10px] text-white/30 uppercase tracking-widest">
+                        Status
+                      </div>
+                      <div
+                        className={`text-xs font-semibold mt-0.5 ${selected.status === "active" ? "text-emerald-400" : selected.status === "expired" ? "text-red-400" : "text-amber-400"}`}
+                      >
+                        {selected.status}
+                      </div>
                     </div>
                     {selected.balance > 0 && (
-                      <div className="text-xs text-amber-400 mt-0.5">
-                        ⚠ Outstanding: ₱{selected.balance.toLocaleString()}
+                      <div className="flex-1">
+                        <div className="text-[10px] text-white/30 uppercase tracking-widest">
+                          Owed
+                        </div>
+                        <div className="text-xs font-mono font-semibold text-amber-400 mt-0.5">
+                          ₱{selected.balance.toLocaleString()}
+                        </div>
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelected(null);
-                      setSearch("");
-                    }}
-                    className="text-white/30 hover:text-white text-xs cursor-pointer"
-                  >
-                    ✕
-                  </button>
                 </div>
               ) : (
                 <div className="relative">
@@ -346,105 +443,166 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   )}
                   {results.length > 0 && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-[#2a2a2a] border border-white/10 rounded-lg overflow-hidden z-10">
-                      {results.map((m) => (
-                        <button
-                          key={m.gymId}
-                          onClick={() => {
-                            setSelected(m);
-                            setSearch("");
-                            setResults([]);
-                          }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-0 text-left cursor-pointer"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold text-white truncate">
-                              {m.name}
+                      {results.map((m) => {
+                        const dl = Math.ceil(
+                          (new Date(m.expiresAt).getTime() - Date.now()) /
+                            86400000,
+                        );
+                        return (
+                          <button
+                            key={m.gymId}
+                            onClick={() => handleSelectMember(m)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-0 text-left cursor-pointer"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-semibold text-white truncate">
+                                {m.name}
+                              </div>
+                              <div className="text-xs text-white/30">
+                                {m.gymId} · {m.plan}
+                                {dl < 0 && (
+                                  <span className="ml-1 text-red-400">
+                                    expired
+                                  </span>
+                                )}
+                                {dl >= 0 && dl <= 7 && (
+                                  <span className="ml-1 text-amber-400">
+                                    {dl}d left
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <div className="text-xs text-white/30">
-                              {m.gymId} · {m.plan}
-                            </div>
-                          </div>
-                          <span className="text-xs font-mono text-[#FFB800]">
-                            ₱{PLAN_PRICES[m.plan]?.toLocaleString()}
-                          </span>
-                        </button>
-                      ))}
+                            <span className="text-xs font-mono text-[#FFB800]">
+                              ₱{getPlanPrice(m.plan).toLocaleString()}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               )}
             </div>
 
+            {/* Plan selector — shown when member is selected */}
+            {selected && activePlans.length > 0 && (
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Plan{" "}
+                  {isPlanChange && (
+                    <span className="text-[#FF6B1A] normal-case">
+                      (changing from {selected.plan})
+                    </span>
+                  )}
+                </label>
+                <div
+                  className={`grid gap-1.5 ${activePlans.length <= 4 ? `grid-cols-${activePlans.length}` : "grid-cols-3"}`}
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.min(activePlans.length, 4)}, 1fr)`,
+                  }}
+                >
+                  {activePlans.map((p) => (
+                    <button
+                      key={p.name}
+                      onClick={() => handlePlanChange(p.name)}
+                      className={`py-2 rounded-lg border text-center transition-all cursor-pointer ${
+                        selectedPlan === p.name
+                          ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
+                          : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
+                      }`}
+                    >
+                      <div className="text-[10px] font-bold uppercase truncate px-1">
+                        {p.name}
+                      </div>
+                      <div className="text-[10px] font-mono mt-0.5 opacity-70">
+                        ₱{p.price.toLocaleString()}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Extend expiry toggle */}
+            {selected && (
+              <div
+                onClick={() => setRenewExpiry(!renewExpiry)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-all ${
+                  renewExpiry
+                    ? "bg-emerald-400/5 border-emerald-400/30"
+                    : "bg-white/[0.02] border-white/10 hover:border-white/20"
+                }`}
+              >
+                <div
+                  className={`w-9 h-5 rounded-full transition-all relative shrink-0 ${
+                    renewExpiry ? "bg-emerald-400" : "bg-white/10"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                      renewExpiry ? "left-[18px]" : "left-0.5"
+                    }`}
+                  />
+                </div>
+                <div className="flex-1">
+                  <div
+                    className={`text-xs font-semibold ${renewExpiry ? "text-emerald-400" : "text-white/40"}`}
+                  >
+                    Extend membership
+                  </div>
+                  <div className="text-[10px] text-white/30 mt-0.5">
+                    {renewExpiry
+                      ? `New expiry: ${new Date(getNewExpiry(selectedPlan)).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} (+${getPlanDuration(selectedPlan)}mo)`
+                      : "Toggle to renew/extend the membership with this payment"}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Method */}
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
-                Method
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {(["cash", "online"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setMethod(m)}
-                    className={`py-2.5 rounded-lg border text-sm font-bold uppercase tracking-wide transition-all cursor-pointer ${method === m ? (m === "cash" ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]" : "border-blue-400 bg-blue-400/10 text-blue-400") : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
-                  >
-                    {m === "cash" ? "💵 Cash" : "🏦 Online"}
-                  </button>
-                ))}
+            {selected && (
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Method
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["cash", "online"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setMethod(m)}
+                      className={`py-2.5 rounded-lg border text-sm font-bold uppercase tracking-wide transition-all cursor-pointer ${method === m ? (m === "cash" ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]" : "border-blue-400 bg-blue-400/10 text-blue-400") : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
+                    >
+                      {m === "cash" ? "💵 Cash" : "🏦 Online"}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-
-            {/* Type */}
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
-                Type
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["new_member", "renewal", "manual"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setType(t)}
-                    className={`py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer ${type === t ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]" : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
-                  >
-                    {TYPE_LABELS[t]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
-                Notes <span className="text-white/20">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Paid via GCash ref #12345"
-                className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-              />
-            </div>
+            )}
 
             {/* Amount */}
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
-                Amount Paid{" "}
-                <span className="text-white/20">(leave blank for full)</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
-                  ₱
-                </span>
-                <input
-                  type="number"
-                  value={amountPaidInput}
-                  onChange={(e) => setAmountPaidInput(e.target.value)}
-                  placeholder="Leave blank for full amount"
-                  min={1}
-                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-                />
+            {selected && (
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Amount Paid{" "}
+                  <span className="text-white/20">
+                    (leave blank for full ₱{planPrice.toLocaleString()})
+                  </span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-sm font-mono">
+                    ₱
+                  </span>
+                  <input
+                    type="number"
+                    value={amountPaidInput}
+                    onChange={(e) => setAmountPaidInput(e.target.value)}
+                    placeholder={planPrice.toLocaleString()}
+                    min={1}
+                    className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Amount preview */}
             {selected && (
@@ -452,29 +610,46 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                 <div>
                   <span className="text-xs text-white/40">Amount to log</span>
                   {amountPaidInput &&
-                    Number(amountPaidInput) <
-                      (PLAN_PRICES[selected.plan] ?? 0) && (
+                    Number(amountPaidInput) > 0 &&
+                    Number(amountPaidInput) < planPrice && (
                       <div className="text-[10px] text-amber-400 mt-0.5">
                         Partial — ₱
                         {Math.max(
                           0,
-                          (PLAN_PRICES[selected.plan] ?? 0) -
-                            Number(amountPaidInput),
+                          planPrice - Number(amountPaidInput),
                         ).toLocaleString()}{" "}
                         remaining
                       </div>
                     )}
+                  {amountPaidInput && Number(amountPaidInput) > planPrice && (
+                    <div className="text-[10px] text-amber-400 mt-0.5">
+                      Capped at plan price ₱{planPrice.toLocaleString()}
+                    </div>
+                  )}
                 </div>
                 <span className="text-lg font-bold font-mono text-[#FFB800]">
                   ₱
-                  {(amountPaidInput
-                    ? Math.min(
-                        Number(amountPaidInput),
-                        PLAN_PRICES[selected.plan] ?? 0,
-                      )
-                    : (PLAN_PRICES[selected.plan] ?? 0)
+                  {(amountPaidInput && Number(amountPaidInput) > 0
+                    ? Math.min(Number(amountPaidInput), planPrice)
+                    : planPrice
                   ).toLocaleString()}
                 </span>
+              </div>
+            )}
+
+            {/* Notes */}
+            {selected && (
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Notes <span className="text-white/20">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="e.g. Paid via GCash ref #12345"
+                  className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                />
               </div>
             )}
 
@@ -483,22 +658,29 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                 <p className="text-red-400 text-xs">{errorMsg}</p>
               </div>
             )}
+          </div>
 
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={onClose}
-                className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={loading || !selected}
-                className="flex-1 py-2.5 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? "Logging..." : "Log Payment"}
-              </button>
-            </div>
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-white/10 flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={loading || !selected}
+              className="flex-1 py-2.5 bg-[#FF6B1A] text-black text-sm font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {loading
+                ? "Processing..."
+                : renewExpiry
+                  ? isPlanChange
+                    ? "Pay & Switch Plan"
+                    : "Pay & Renew"
+                  : "Log Payment"}
+            </button>
           </div>
         </div>
       </div>

@@ -28,14 +28,14 @@ export interface AuthResponse {
 
 // =================== MEMBER ===================
 export type MemberStatus = "active" | "inactive" | "expired";
-export type MemberPlan = "Monthly" | "Quarterly" | "Annual" | "Student";
+export type MemberPlan = string; // dynamic — plan names come from Settings.plans
 
 export interface Member {
   gymId: string;
   name: string;
   email?: string;
   phone?: string;
-  plan: MemberPlan;
+  plan: string;
   status: MemberStatus;
   expiresAt: string;
   checkedIn: boolean;
@@ -63,6 +63,7 @@ export interface CreateMemberPayload {
   expiresAt: string;
   paymentMethod?: "cash" | "online";
   amountPaid?: number;
+  totalAmount?: number;
 }
 
 export interface UpdateMemberPayload {
