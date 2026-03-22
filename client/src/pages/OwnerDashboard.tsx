@@ -361,7 +361,13 @@ function DashboardContent({
       {/* ── MAIN TWO-COLUMN ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* ── MEMBERS INSIDE NOW ── */}
-        <div className="lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col min-h-[280px]">
+        <div
+          className={`lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col min-h-[280px] ${
+            recentCheckins.length > 10
+              ? "overflow-y-auto max-h-[420px] pr-1 members-scroll"
+              : ""
+          }`}
+        >
           {/* Header */}
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
