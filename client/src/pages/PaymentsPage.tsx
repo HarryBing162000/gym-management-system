@@ -691,8 +691,15 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function PaymentsPage() {
+interface PaymentsPageProps {
+  forceStaffView?: boolean;
+}
+
+export default function PaymentsPage({
+  forceStaffView = false,
+}: PaymentsPageProps = {}) {
   const { showToast } = useToastStore();
+  const isStaff = forceStaffView;
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -704,12 +711,20 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Staff view — today's date for locking
+  const todayManila = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+  }).format(new Date());
+
   const [search, setSearch] = useState("");
   const [filterMethod, setFilterMethod] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterPartial, setFilterPartial] = useState(false);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(isStaff ? todayManila : "");
+  const [toDate, setToDate] = useState(isStaff ? todayManila : "");
+  const [activeDatePreset, setActiveDatePreset] = useState<string | null>(
+    isStaff ? "Today" : null,
+  );
   const [page, setPage] = useState(1);
   const LIMIT = 10;
 
@@ -784,16 +799,28 @@ export default function PaymentsPage() {
     fetchPayments();
   };
 
-  const hasFilters =
-    search || filterMethod || filterType || filterPartial || fromDate || toDate;
+  // For staff, date is always locked to today — don't count it as a "filter"
+  const hasFilters = isStaff
+    ? !!(search || filterMethod || filterType || filterPartial)
+    : !!(
+        search ||
+        filterMethod ||
+        filterType ||
+        filterPartial ||
+        fromDate ||
+        toDate
+      );
 
   const clearAllFilters = () => {
     setSearch("");
     setFilterMethod("");
     setFilterType("");
     setFilterPartial(false);
-    setFromDate("");
-    setToDate("");
+    if (!isStaff) {
+      setFromDate("");
+      setToDate("");
+      setActiveDatePreset(null);
+    }
   };
 
   const getManilaDate = (offsetDays = 0) => {
@@ -849,7 +876,9 @@ export default function PaymentsPage() {
           <div>
             <h2 className="text-lg font-bold text-white">Payments</h2>
             <p className="text-xs text-white/30 mt-0.5">
-              Membership payments — cash and online
+              {isStaff
+                ? "Today's payments — log and settle"
+                : "Membership payments — cash and online"}
               {summary?.withBalance ? (
                 <span className="ml-2 text-amber-400">
                   · {summary.withBalance} member
@@ -868,19 +897,20 @@ export default function PaymentsPage() {
           </button>
         </div>
 
-        {/* ── Summary ── */}
-        {summaryLoading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="bg-white/[0.02] border border-white/10 rounded-xl p-4 h-24 animate-pulse"
-              />
-            ))}
-          </div>
-        ) : summary ? (
-          <SummarySection summary={summary} />
-        ) : null}
+        {/* ── Summary — owner only ── */}
+        {!isStaff &&
+          (summaryLoading ? (
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="bg-white/[0.02] border border-white/10 rounded-xl p-4 h-24 animate-pulse"
+                />
+              ))}
+            </div>
+          ) : summary ? (
+            <SummarySection summary={summary} />
+          ) : null)}
 
         {/* ── Filters ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-4 space-y-3">
@@ -970,71 +1000,80 @@ export default function PaymentsPage() {
             )}
           </div>
 
-          {/* Row 2 — Date shortcuts + From/To range */}
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">
-              Date:
-            </span>
+          {/* Row 2 — Date shortcuts + From/To range (owner only) */}
+          {!isStaff && (
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">
+                Date:
+              </span>
 
-            {/* Shortcut buttons */}
-            {(
-              Object.entries(DATE_RANGES) as [
-                string,
-                { from: string; to: string },
-              ][]
-            ).map(([label, r]) => {
-              const isActive = fromDate === r.from && toDate === r.to;
-              return (
-                <button
-                  key={label}
-                  onClick={() => {
-                    setFromDate(r.from);
-                    setToDate(r.to);
+              {/* Shortcut buttons */}
+              {(
+                Object.entries(DATE_RANGES) as [
+                  string,
+                  { from: string; to: string },
+                ][]
+              ).map(([label, r]) => {
+                return (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      setFromDate(r.from);
+                      setToDate(r.to);
+                      setActiveDatePreset(label);
+                    }}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-lg border transition-all cursor-pointer ${
+                      activeDatePreset === label
+                        ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
+                        : "bg-[#2a2a2a] text-white/30 border-white/10 hover:text-white/60 hover:border-white/20"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+
+              {/* Divider */}
+              <div className="w-px h-5 bg-white/10" />
+
+              {/* From → To inline */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setActiveDatePreset(null);
                   }}
-                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-lg border transition-all cursor-pointer ${
-                    isActive
-                      ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
-                      : "bg-[#2a2a2a] text-white/30 border-white/10 hover:text-white/60 hover:border-white/20"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-
-            {/* Divider */}
-            <div className="w-px h-5 bg-white/10" />
-
-            {/* From → To inline */}
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-                style={{ colorScheme: "dark" }}
-              />
-              <span className="text-white/20 text-xs">→</span>
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-                style={{ colorScheme: "dark" }}
-              />
-              {(fromDate || toDate) && (
-                <button
-                  onClick={() => {
-                    setFromDate("");
-                    setToDate("");
+                  className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+                  style={{ colorScheme: "dark" }}
+                />
+                <span className="text-white/20 text-xs">→</span>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setActiveDatePreset(null);
                   }}
-                  className="text-xs text-white/30 hover:text-white/60 transition-colors cursor-pointer"
-                >
-                  ✕
-                </button>
-              )}
+                  className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+                  style={{ colorScheme: "dark" }}
+                />
+                {(fromDate || toDate) && (
+                  <button
+                    onClick={() => {
+                      setFromDate("");
+                      setToDate("");
+                      setActiveDatePreset(null);
+                    }}
+                    className="text-xs text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* ── Table ── */}
@@ -1223,7 +1262,7 @@ export default function PaymentsPage() {
               </div>
             ))}
 
-          {/* ── Table Footer — Page total + Grand total ── */}
+          {/* ── Table Footer ── */}
           {!loading && payments.length > 0 && (
             <div className="px-5 py-4 border-t border-white/10 bg-white/[0.02] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-xs text-white/30">
@@ -1232,28 +1271,30 @@ export default function PaymentsPage() {
                   <span className="ml-1 text-[#FF6B1A]/60">(filtered)</span>
                 )}
               </span>
-              <div className="flex items-center gap-4">
-                {/* Page total */}
-                <div className="text-right">
-                  <div className="text-[10px] text-white/25 uppercase tracking-widest">
-                    Page total
+              {!isStaff && (
+                <div className="flex items-center gap-4">
+                  {/* Page total */}
+                  <div className="text-right">
+                    <div className="text-[10px] text-white/25 uppercase tracking-widest">
+                      Page total
+                    </div>
+                    <div className="text-sm font-mono font-bold text-white/60">
+                      ₱{pageTotal.toLocaleString()}
+                    </div>
                   </div>
-                  <div className="text-sm font-mono font-bold text-white/60">
-                    ₱{pageTotal.toLocaleString()}
+                  {/* Divider */}
+                  <div className="w-px h-8 bg-white/10" />
+                  {/* Grand total */}
+                  <div className="text-right">
+                    <div className="text-[10px] text-white/25 uppercase tracking-widest">
+                      {hasFilters ? "Filtered total" : "Grand total"}
+                    </div>
+                    <div className="text-lg font-mono font-bold text-[#FFB800]">
+                      ₱{grandTotal.toLocaleString()}
+                    </div>
                   </div>
                 </div>
-                {/* Divider */}
-                <div className="w-px h-8 bg-white/10" />
-                {/* Grand total */}
-                <div className="text-right">
-                  <div className="text-[10px] text-white/25 uppercase tracking-widest">
-                    {hasFilters ? "Filtered total" : "Grand total"}
-                  </div>
-                  <div className="text-lg font-mono font-bold text-[#FFB800]">
-                    ₱{grandTotal.toLocaleString()}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           )}
         </div>

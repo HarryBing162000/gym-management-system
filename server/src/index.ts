@@ -4,7 +4,10 @@ import "./config/env";
 import express from "express";
 import cors from "cors";
 import connectDB from "./config/db";
-import Settings, { DEFAULT_PLANS } from "./models/Settings";
+import Settings, {
+  DEFAULT_PLANS,
+  DEFAULT_WALKIN_PRICES,
+} from "./models/Settings";
 import authRoutes from "./routes/authRoutes";
 import walkInRoutes from "./routes/walkInRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
@@ -96,13 +99,28 @@ app.listen(PORT, async () => {
       gymName: process.env.GYM_NAME || "IronCore Gym",
       gymAddress: process.env.GYM_ADDRESS || "Cebu City, Philippines",
       plans: DEFAULT_PLANS,
+      walkInPrices: DEFAULT_WALKIN_PRICES,
     });
-    console.log("⚙️  Settings initialized with defaults (including plans)");
-  } else if (!existingSettings.plans || existingSettings.plans.length === 0) {
-    // Migrate existing settings — add default plans if missing
-    existingSettings.plans = DEFAULT_PLANS as any;
-    await existingSettings.save();
-    console.log("⚙️  Default plans added to existing settings");
+    console.log(
+      "⚙️  Settings initialized with defaults (including plans and walk-in prices)",
+    );
+  } else {
+    let migrated = false;
+    if (!existingSettings.plans || existingSettings.plans.length === 0) {
+      existingSettings.plans = DEFAULT_PLANS as any;
+      migrated = true;
+    }
+    if (
+      !existingSettings.walkInPrices ||
+      !existingSettings.walkInPrices.regular
+    ) {
+      existingSettings.walkInPrices = DEFAULT_WALKIN_PRICES;
+      migrated = true;
+    }
+    if (migrated) {
+      await existingSettings.save();
+      console.log("⚙️  Settings migrated with missing defaults");
+    }
   }
 
   console.log(`🚀 Server running on http://localhost:${PORT}`);

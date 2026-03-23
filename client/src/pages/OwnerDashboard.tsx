@@ -787,7 +787,13 @@ function DashboardContent({
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div
+                className="space-y-2 max-h-[168px] overflow-y-auto pr-1"
+                style={{
+                  scrollbarWidth: "thin",
+                  scrollbarColor: "rgba(255,107,26,0.2) transparent",
+                }}
+              >
                 {atRisk.map((member) => {
                   const expiresLabel = new Date(
                     member.expiresAt,
