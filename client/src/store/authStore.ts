@@ -1,14 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { User } from "../types";
+import api from "../services/api";
 
 interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   _hasHydrated: boolean;
-
-  // Actions
   setAuth: (user: User, token: string) => void;
   logout: () => void;
   setHasHydrated: (state: boolean) => void;
@@ -16,21 +15,35 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       isAuthenticated: false,
       _hasHydrated: false,
 
-      // Called after successful login
-      // Zustand persist handles localStorage — no manual setItem needed
       setAuth: (user, token) => {
         set({ user, token, isAuthenticated: true });
       },
 
-      // Called on logout
-      // Zustand persist clears its own key — no manual removeItem needed
       logout: () => {
+        // Grab BEFORE clearing — once set() runs the token is gone
+        const { user, token } = get();
+
+        if (user && token) {
+          // Pass the token explicitly in the header so it doesn't depend
+          // on the axios interceptor reading from store state
+          api
+            .post(
+              "/action-logs/logout",
+              {},
+              { headers: { Authorization: `Bearer ${token}` } },
+            )
+            .catch(() => {
+              // Non-critical — never block logout
+            });
+        }
+
+        // Clear state AFTER the request is fired (fire-and-forget)
         set({ user: null, token: null, isAuthenticated: false });
       },
 
@@ -39,9 +52,8 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: "ironcore-auth",
+      name: "gms-auth",
       onRehydrateStorage: () => (state) => {
-        // Mark hydration complete so ProtectedRoute doesn't flash to /login
         state?.setHasHydrated(true);
       },
     },

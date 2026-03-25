@@ -27,10 +27,14 @@ const navItems = [
     label: "Payments",
     icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
   },
+  {
+    id: "my-activity",
+    label: "My Activity",
+    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  },
 ];
 
 // ─── Logout Confirm Modal ─────────────────────────────────────────────────────
-
 function LogoutModal({
   onConfirm,
   onCancel,
@@ -109,8 +113,7 @@ function LogoutModal({
   );
 }
 
-// ─── Staff Settings Modal — Change Password Only ──────────────────────────────
-
+// ─── Staff Settings Modal ─────────────────────────────────────────────────────
 function StaffSettingsModal({
   onClose,
   userName,
@@ -172,7 +175,6 @@ function StaffSettingsModal({
           style={{ animation: "staffSettingsFadeIn 0.2s ease" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
             <div>
               <div className="text-white font-bold text-base">Settings</div>
@@ -185,8 +187,6 @@ function StaffSettingsModal({
               ✕
             </button>
           </div>
-
-          {/* Content */}
           <div className="p-6">
             <div className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">
               Change Password
@@ -230,7 +230,6 @@ function StaffSettingsModal({
 }
 
 // ─── Staff Layout ─────────────────────────────────────────────────────────────
-
 interface StaffLayoutProps {
   children: React.ReactNode;
   activePage: string;
@@ -249,15 +248,10 @@ export default function StaffLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-
-  // Desktop top-right avatar dropdown
   const [showAvatarDropdown, setShowAvatarDropdown] = useState(false);
   const avatarDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Mobile sidebar profile chip dropdown
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
   const sidebarDropdownRef = useRef<HTMLDivElement>(null);
-
   const { showToast } = useToastStore();
 
   useEffect(() => {
@@ -265,9 +259,8 @@ export default function StaffLayout({
       if (
         avatarDropdownRef.current &&
         !avatarDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowAvatarDropdown(false);
-      }
     }
     if (showAvatarDropdown)
       document.addEventListener("mousedown", handleClickOutside);
@@ -279,9 +272,8 @@ export default function StaffLayout({
       if (
         sidebarDropdownRef.current &&
         !sidebarDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowSidebarDropdown(false);
-      }
     }
     if (showSidebarDropdown)
       document.addEventListener("mousedown", handleClickOutside);
@@ -311,13 +303,15 @@ export default function StaffLayout({
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
-  const gymName = settings?.gymName || "IronCore";
+  const gymName = settings?.gymName || "GMS";
   const logoUrl = settings?.logoUrl || null;
+
+  // Desk items = first 4, Activity = last 1
+  const deskItems = navItems.slice(0, 4);
+  const activityItems = navItems.slice(4);
 
   return (
     <div className="min-h-screen bg-[#1a1a1a] flex">
-      {/* Sidebar overlay — mobile only */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-40 lg:hidden"
@@ -325,14 +319,8 @@ export default function StaffLayout({
         />
       )}
 
-      {/* Sidebar */}
       <aside
-        className={`
-        fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7
-        flex flex-col z-50 transition-transform duration-250
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0 lg:sticky lg:z-auto
-      `}
+        className={`fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7 flex flex-col z-50 transition-transform duration-250 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 lg:sticky lg:z-auto`}
       >
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/7">
@@ -346,7 +334,7 @@ export default function StaffLayout({
               />
             </div>
           ) : (
-            <div className="text-lg  font-black tracking-widest text-[#FF6B1A] uppercase">
+            <div className="text-lg font-black tracking-widest text-[#FF6B1A] uppercase">
               ⚡ {gymName}
             </div>
           )}
@@ -356,19 +344,32 @@ export default function StaffLayout({
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 py-3">
+        <nav className="flex-1 py-3 overflow-y-auto">
           <div className="px-5 py-2 text-[10px] font-semibold tracking-widest text-white/30 uppercase">
             Desk
           </div>
-          {navItems.map((item) => (
+          {deskItems.map((item) => (
             <button
               key={item.id}
               onClick={() => handleNav(item.id)}
-              className={`w-full cursor-pointer flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-all border-l-2 ${
-                activePage === item.id
-                  ? "text-[#FF6B1A] bg-[#FF6B1A]/10 border-[#FF6B1A]"
-                  : "text-white/50 border-transparent hover:text-white hover:bg-white/3"
-              }`}
+              className={`w-full cursor-pointer flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-all border-l-2 ${activePage === item.id ? "text-[#FF6B1A] bg-[#FF6B1A]/10 border-[#FF6B1A]" : "text-white/50 border-transparent hover:text-white hover:bg-white/3"}`}
+            >
+              <span
+                className="w-4 h-4 shrink-0"
+                dangerouslySetInnerHTML={{ __html: item.icon }}
+              />
+              {item.label}
+            </button>
+          ))}
+
+          <div className="px-5 py-2 mt-2 text-[10px] font-semibold tracking-widest text-white/30 uppercase">
+            Activity
+          </div>
+          {activityItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => handleNav(item.id)}
+              className={`w-full cursor-pointer flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-all border-l-2 ${activePage === item.id ? "text-[#FF6B1A] bg-[#FF6B1A]/10 border-[#FF6B1A]" : "text-white/50 border-transparent hover:text-white hover:bg-white/3"}`}
             >
               <span
                 className="w-4 h-4 shrink-0"
@@ -384,7 +385,6 @@ export default function StaffLayout({
           className="px-4 py-4 border-t border-white/7 relative"
           ref={sidebarDropdownRef}
         >
-          {/* Mobile dropdown */}
           {showSidebarDropdown && (
             <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-10 lg:hidden">
               <button
@@ -394,21 +394,17 @@ export default function StaffLayout({
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
               >
-                <span className="text-base">⚙</span>
-                Settings
+                <span className="text-base">⚙</span> Settings
               </button>
               <div className="border-t border-white/10" />
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-all cursor-pointer"
               >
-                <span className="text-base">⏻</span>
-                Logout
+                <span className="text-base">⏻</span> Logout
               </button>
             </div>
           )}
-
-          {/* Profile chip */}
           <div
             onClick={() => {
               if (window.innerWidth < 1024)
@@ -436,9 +432,7 @@ export default function StaffLayout({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-h-screen">
-        {/* Topbar */}
         <header className="sticky top-0 z-30 bg-[#1a1a1a]/90 backdrop-blur-md border-b border-white/7 px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          {/* Left */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -458,7 +452,6 @@ export default function StaffLayout({
             </span>
           </div>
 
-          {/* Right — Avatar (desktop only) */}
           <div className="hidden lg:block relative" ref={avatarDropdownRef}>
             {showAvatarDropdown && (
               <div className="absolute right-0 top-full mt-2 w-44 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
@@ -475,16 +468,14 @@ export default function StaffLayout({
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
                 >
-                  <span>⚙</span>
-                  Settings
+                  <span>⚙</span> Settings
                 </button>
                 <div className="border-t border-white/10" />
                 <button
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/5 transition-all cursor-pointer"
                 >
-                  <span>⏻</span>
-                  Logout
+                  <span>⏻</span> Logout
                 </button>
               </div>
             )}
@@ -497,11 +488,9 @@ export default function StaffLayout({
           </div>
         </header>
 
-        {/* Content */}
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">{children}</main>
       </div>
 
-      {/* Modals */}
       {showLogoutModal && (
         <LogoutModal
           onConfirm={confirmLogout}

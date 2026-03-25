@@ -1,13 +1,3 @@
-/**
- * StaffDashboard.tsx
- * IronCore GMS — Staff Portal
- *
- * Pages:
- *   checkin — Member check-in / check-out desk (real API)
- *   walkin  — Walk-in registration + checkout (real API)
- *   members — Members list (staff view — no deactivate/reactivate)
- */
-
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
@@ -17,19 +7,24 @@ import { memberService } from "../services/memberService";
 import type { AtRiskMember } from "../services/memberService";
 import MembersPage from "./MembersPage";
 import PaymentsPage from "./PaymentsPage";
+import MyActivityPage from "./MyActivityPage";
 import { walkInService } from "../services/walkInService";
 import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
 import type { Member, WalkIn, WalkInRegisterResponse } from "../types";
 
 // ─── Valid pages ──────────────────────────────────────────────────────────────
-const VALID_PAGES = ["checkin", "walkin", "members", "payments"] as const;
+const VALID_PAGES = [
+  "checkin",
+  "walkin",
+  "members",
+  "payments",
+  "my-activity",
+] as const;
 type PageKey = (typeof VALID_PAGES)[number];
 function isValidPage(p: string | null): p is PageKey {
   return VALID_PAGES.includes(p as PageKey);
 }
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function StaffDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,6 +44,7 @@ export default function StaffDashboard() {
     walkin: "Walk-in Desk",
     members: "Members",
     payments: "Payments",
+    "my-activity": "My Activity",
   };
 
   return (
@@ -61,12 +57,12 @@ export default function StaffDashboard() {
       {activePage === "walkin" && <WalkInDesk />}
       {activePage === "members" && <MembersPage forceStaffView />}
       {activePage === "payments" && <PaymentsPage forceStaffView />}
+      {activePage === "my-activity" && <MyActivityPage />}
     </StaffLayout>
   );
 }
 
 // ─── Staff Renew Modal ────────────────────────────────────────────────────────
-
 function StaffRenewModal({
   member,
   onClose,
@@ -79,7 +75,6 @@ function StaffRenewModal({
   const { showToast } = useToastStore();
   const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
   const activePlans = getActivePlans();
-
   const [plan, setPlan] = useState(member.plan);
   const [method, setMethod] = useState<"cash" | "online">("cash");
   const [amount, setAmount] = useState(String(getPlanPrice(member.plan)));
@@ -89,7 +84,6 @@ function StaffRenewModal({
     setPlan(newPlan);
     setAmount(String(getPlanPrice(newPlan)));
   };
-
   const calcNewExpiry = (selectedPlan: string): string => {
     const months = getPlanDuration(selectedPlan);
     const d = new Date();
@@ -134,12 +128,7 @@ function StaffRenewModal({
 
   return createPortal(
     <>
-      <style>{`
-        @keyframes renewFadeIn {
-          from { opacity: 0; transform: scale(0.95); }
-          to   { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
+      <style>{`@keyframes renewFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
       <div
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
         onClick={onClose}
@@ -149,7 +138,6 @@ function StaffRenewModal({
           style={{ animation: "renewFadeIn 0.2s ease" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
           <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
@@ -180,10 +168,7 @@ function StaffRenewModal({
               ✕
             </button>
           </div>
-
-          {/* Body */}
           <div className="p-6 space-y-4">
-            {/* Plan */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Plan
@@ -193,11 +178,7 @@ function StaffRenewModal({
                   <button
                     key={p.name}
                     onClick={() => handlePlanChange(p.name)}
-                    className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
-                      plan === p.name
-                        ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
-                        : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
-                    }`}
+                    className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${plan === p.name ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]" : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"}`}
                   >
                     <div className="text-xs font-bold">{p.name}</div>
                     <div className="text-[10px] font-mono mt-0.5">
@@ -207,8 +188,6 @@ function StaffRenewModal({
                 ))}
               </div>
             </div>
-
-            {/* New expiry preview */}
             <div className="px-3 py-2 bg-white/[0.03] border border-white/10 rounded-lg flex items-center justify-between">
               <span className="text-[10px] text-white/40 uppercase tracking-widest font-semibold">
                 New expiry
@@ -221,8 +200,6 @@ function StaffRenewModal({
                 })}
               </span>
             </div>
-
-            {/* Amount */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Amount Paid
@@ -250,8 +227,6 @@ function StaffRenewModal({
                 </p>
               )}
             </div>
-
-            {/* Payment method */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Payment Method
@@ -261,11 +236,7 @@ function StaffRenewModal({
                   <button
                     key={m}
                     onClick={() => setMethod(m)}
-                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
-                      method === m
-                        ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
-                        : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
-                    }`}
+                    className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${method === m ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]" : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"}`}
                   >
                     {m}
                   </button>
@@ -273,8 +244,6 @@ function StaffRenewModal({
               </div>
             </div>
           </div>
-
-          {/* Footer */}
           <div className="px-6 pb-6 flex gap-2">
             <button
               onClick={onClose}
@@ -298,8 +267,10 @@ function StaffRenewModal({
 }
 
 // ─── Check-in Desk ────────────────────────────────────────────────────────────
-
 function CheckInDesk() {
+  // ✅ Moved inside the component so it's in scope where it's used
+  const LOG_PAGE_SIZE = 10;
+
   const { user } = useAuthStore();
   const { showToast } = useToastStore();
   const [search, setSearch] = useState("");
@@ -311,21 +282,15 @@ function CheckInDesk() {
     { gymId: string; name: string; time: string; action: "in" | "out" }[]
   >([]);
   const [logPage, setLogPage] = useState(1);
-  const LOG_PAGE_SIZE = 10;
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Quick stats
   const [statsLoading, setStatsLoading] = useState(true);
   const [membersInside, setMembersInside] = useState(0);
   const [walkInsToday, setWalkInsToday] = useState(0);
   const [totalCheckins, setTotalCheckins] = useState(0);
-
-  // At-risk members
   const [atRisk, setAtRisk] = useState<AtRiskMember[]>([]);
   const [atRiskLoading, setAtRiskLoading] = useState(true);
   const [renewTarget, setRenewTarget] = useState<AtRiskMember | null>(null);
 
-  // Fetch quick stats + checked-in members + at-risk on mount
   const loadDashData = useCallback(async () => {
     setStatsLoading(true);
     setAtRiskLoading(true);
@@ -340,7 +305,6 @@ function CheckInDesk() {
       setWalkInsToday(walkInRes.summary?.total ?? 0);
       setTotalCheckins(inside.length + (walkInRes.summary?.total ?? 0));
       setAtRisk(atRiskRes.atRisk ?? []);
-
       if (inside.length > 0) {
         setTodayLog(
           inside.map((m) => ({
@@ -370,7 +334,6 @@ function CheckInDesk() {
     inputRef.current?.focus();
   }, [loadDashData]);
 
-  // Debounced search
   useEffect(() => {
     if (!search.trim()) {
       setResults([]);
@@ -400,14 +363,12 @@ function CheckInDesk() {
     setResults([]);
   };
 
-  // Keyboard flow: Enter to select first result or trigger action
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== "Enter" || actionLoading) return;
-
-    // If member is selected → trigger check-in/out
     if (selected) {
       if (selected.status === "expired" || selected.status === "inactive")
         return;
+      // ✅ Replaced ternary-as-expression with if/else
       if (selected.checkedIn) {
         handleCheckOut(selected);
       } else {
@@ -415,11 +376,7 @@ function CheckInDesk() {
       }
       return;
     }
-
-    // If exactly 1 result → auto-select it
-    if (results.length === 1) {
-      selectMember(results[0]);
-    }
+    if (results.length === 1) selectMember(results[0]);
   };
 
   const handleCheckIn = async (member: Member) => {
@@ -495,7 +452,6 @@ function CheckInDesk() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 pb-24 lg:pb-6">
-      {/* Greeting */}
       <div>
         <h2 className="text-lg font-bold text-white">
           Welcome, {user?.name?.split(" ")[0]}! 👋
@@ -509,7 +465,6 @@ function CheckInDesk() {
         </p>
       </div>
 
-      {/* Quick Stats Bar */}
       <div className="grid grid-cols-3 gap-3">
         {[
           {
@@ -547,15 +502,12 @@ function CheckInDesk() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:items-stretch">
-        {/* ── Left Column — Lookup + At-Risk ── */}
         <div className="flex flex-col gap-5">
-          {/* ── Member Lookup ── */}
+          {/* Member Lookup */}
           <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50 mb-4">
               Member Lookup
             </h3>
-
-            {/* Search input */}
             <div className="relative mb-3">
               <input
                 ref={inputRef}
@@ -583,15 +535,11 @@ function CheckInDesk() {
                 </button>
               )}
             </div>
-
-            {/* Searching indicator */}
             {searching && (
               <div className="text-center py-4 text-white/20 text-xs">
                 Searching...
               </div>
             )}
-
-            {/* Results dropdown */}
             {!searching && results.length > 0 && !selected && (
               <div className="bg-[#2a2a2a] rounded-lg border border-white/10 mb-3 overflow-hidden">
                 {results.length === 1 && (
@@ -609,11 +557,7 @@ function CheckInDesk() {
                       className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0 transition-colors text-left cursor-pointer ${isBlocked ? "opacity-60" : ""}`}
                     >
                       <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                          isBlocked
-                            ? "bg-red-400/10 border border-red-400/20 text-red-400"
-                            : "bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 text-[#FF6B1A]"
-                        }`}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isBlocked ? "bg-red-400/10 border border-red-400/20 text-red-400" : "bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 text-[#FF6B1A]"}`}
                       >
                         {m.name
                           .split(" ")
@@ -651,8 +595,6 @@ function CheckInDesk() {
                 })}
               </div>
             )}
-
-            {/* No results */}
             {!searching &&
               search.trim() &&
               results.length === 0 &&
@@ -660,18 +602,11 @@ function CheckInDesk() {
                 <div className="text-center py-6 text-white/20">
                   <div className="text-2xl mb-2">◉</div>
                   <div className="text-xs">No member found</div>
-                  <div className="text-xs mt-1">Check the name or GYM-ID</div>
                 </div>
               )}
-
-            {/* Selected member card */}
             {selected && (
               <div
-                className={`rounded-xl p-4 border mb-1 ${
-                  selected.checkedIn
-                    ? "bg-blue-400/5 border-blue-400/20"
-                    : "bg-[#FF6B1A]/5 border-[#FF6B1A]/20"
-                }`}
+                className={`rounded-xl p-4 border mb-1 ${selected.checkedIn ? "bg-blue-400/5 border-blue-400/20" : "bg-[#FF6B1A]/5 border-[#FF6B1A]/20"}`}
               >
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/30 flex items-center justify-center text-sm font-bold text-[#FF6B1A] shrink-0">
@@ -687,11 +622,7 @@ function CheckInDesk() {
                       {selected.gymId} · {selected.plan} · Expires{" "}
                       {new Date(selected.expiresAt).toLocaleDateString(
                         "en-PH",
-                        {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        },
+                        { month: "short", day: "numeric", year: "numeric" },
                       )}
                     </div>
                   </div>
@@ -701,8 +632,6 @@ function CheckInDesk() {
                     {selected.status}
                   </span>
                 </div>
-
-                {/* Action button */}
                 {selected.status === "expired" ||
                 selected.status === "inactive" ? (
                   <button
@@ -730,8 +659,6 @@ function CheckInDesk() {
                 )}
               </div>
             )}
-
-            {/* Idle hint */}
             {!search && !selected && (
               <div className="text-center py-6 text-white/20">
                 <div className="text-xs">Type a name or GYM-ID to search</div>
@@ -739,7 +666,7 @@ function CheckInDesk() {
             )}
           </div>
 
-          {/* ── At-Risk Members ── */}
+          {/* At-Risk Members */}
           <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex-1">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
@@ -757,7 +684,6 @@ function CheckInDesk() {
                 </span>
               )}
             </div>
-
             {atRiskLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -772,9 +698,6 @@ function CheckInDesk() {
                 <div className="text-2xl mb-1.5 opacity-20">✓</div>
                 <div className="text-white/25 text-xs font-semibold">
                   No at-risk members
-                </div>
-                <div className="text-white/15 text-[11px] mt-0.5">
-                  All memberships are in good standing
                 </div>
               </div>
             ) : (
@@ -798,11 +721,7 @@ function CheckInDesk() {
                       className="flex items-center gap-2.5 p-2.5 bg-[#2a2a2a] rounded-lg border border-white/5"
                     >
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                          member.status === "overdue"
-                            ? "bg-red-400/10 text-red-400"
-                            : "bg-amber-400/10 text-amber-400"
-                        }`}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${member.status === "overdue" ? "bg-red-400/10 text-red-400" : "bg-amber-400/10 text-amber-400"}`}
                       >
                         {member.name
                           .split(" ")
@@ -835,9 +754,8 @@ function CheckInDesk() {
             )}
           </div>
         </div>
-        {/* end left column flex */}
 
-        {/* ── Today's Log (right column — full height) ── */}
+        {/* Today's Log */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
@@ -847,7 +765,6 @@ function CheckInDesk() {
               {todayLog.length} entries
             </span>
           </div>
-
           {todayLog.length === 0 ? (
             <div className="text-center py-10 text-white/20">
               <div className="text-2xl mb-2">◉</div>
@@ -887,7 +804,6 @@ function CheckInDesk() {
                     </div>
                   ))}
               </div>
-              {/* Pagination */}
               {todayLog.length > LOG_PAGE_SIZE && (
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
                   <span className="text-[10px] text-white/30">
@@ -925,11 +841,8 @@ function CheckInDesk() {
             </>
           )}
         </div>
-
-        {/* ── At-Risk is now in the left column ── */}
       </div>
 
-      {/* Renew Modal */}
       {renewTarget && (
         <StaffRenewModal
           member={renewTarget}
@@ -942,13 +855,10 @@ function CheckInDesk() {
 }
 
 // ─── Walk-in Desk ─────────────────────────────────────────────────────────────
-
 function WalkInDesk() {
   const { showToast } = useToastStore();
   const { getWalkInPrice } = useGymStore();
   const [tab, setTab] = useState<"register" | "checkout">("register");
-
-  // Register state
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [passType, setPassType] = useState<"regular" | "student" | "couple">(
@@ -959,8 +869,6 @@ function WalkInDesk() {
     WalkInRegisterResponse["walkIn"] | null
   >(null);
   const [errorMsg, setErrorMsg] = useState("");
-
-  // Checkout state
   const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
   const [todayLoading, setTodayLoading] = useState(false);
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
@@ -968,21 +876,66 @@ function WalkInDesk() {
   const passConfig = [
     {
       type: "regular" as const,
-      icon: "☀",
       label: "Regular",
       price: getWalkInPrice("regular"),
+      icon: (
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+        </svg>
+      ),
     },
     {
       type: "student" as const,
-      icon: "◎",
       label: "Student",
       price: getWalkInPrice("student"),
+      icon: (
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+          <path d="M6 12v5c3 3 9 3 12 0v-5" />
+        </svg>
+      ),
     },
     {
       type: "couple" as const,
-      icon: "♡",
       label: "Couple",
       price: getWalkInPrice("couple"),
+      icon: (
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="9" cy="7" r="3" />
+          <circle cx="15" cy="7" r="3" />
+          <path d="M2 20c0-3.3 3.1-6 7-6" />
+          <path d="M22 20c0-3.3-3.1-6-7-6" />
+          <path d="M9 14c1.7 1 4.3 1 6 0" />
+        </svg>
+      ),
     },
   ];
 
@@ -994,14 +947,12 @@ function WalkInDesk() {
     return digits;
   };
 
-  // Load today's walk-ins when switching to checkout tab
   useEffect(() => {
     if (tab !== "checkout") return;
     const load = async () => {
       setTodayLoading(true);
       try {
         const res = await walkInService.getToday();
-        // Only show still-inside walk-ins at the top, checked out below
         setWalkIns(res.walkIns);
       } catch {
         showToast("Failed to load today's walk-ins.", "error");
@@ -1064,7 +1015,6 @@ function WalkInDesk() {
     setErrorMsg("");
   };
 
-  // Auto-reset success card after 6 seconds
   useEffect(() => {
     if (!success) return;
     const timer = setTimeout(handleReset, 6000);
@@ -1076,7 +1026,6 @@ function WalkInDesk() {
 
   return (
     <div className="max-w-md mx-auto pb-24 lg:pb-6 space-y-4">
-      {/* Tabs */}
       <div className="flex gap-1 bg-[#212121] border border-white/10 rounded-lg p-1">
         {(["register", "checkout"] as const).map((t) => (
           <button
@@ -1086,20 +1035,15 @@ function WalkInDesk() {
               setSuccess(null);
               setErrorMsg("");
             }}
-            className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wide rounded-md transition-all cursor-pointer ${
-              tab === t
-                ? "bg-[#FFB800]/15 text-[#FFB800] border border-[#FFB800]/30"
-                : "text-white/40 hover:text-white/60"
-            }`}
+            className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wide rounded-md transition-all cursor-pointer ${tab === t ? "bg-[#FFB800]/15 text-[#FFB800] border border-[#FFB800]/30" : "text-white/40 hover:text-white/60"}`}
           >
             {t === "register"
               ? "Register"
-              : `Check Out ${inside.length > 0 && tab === "checkout" ? `(${inside.length})` : ""}`}
+              : `Check Out${inside.length > 0 && tab === "checkout" ? ` (${inside.length})` : ""}`}
           </button>
         ))}
       </div>
 
-      {/* ── Register Tab ── */}
       {tab === "register" && (
         <>
           {success ? (
@@ -1163,7 +1107,6 @@ function WalkInDesk() {
                 New Walk-in
               </h3>
               <div className="space-y-4">
-                {/* Name */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
                     Full Name <span className="text-[#FF6B1A]">*</span>
@@ -1177,7 +1120,6 @@ function WalkInDesk() {
                     className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
                   />
                 </div>
-                {/* Phone */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
                     Phone <span className="text-white/20">(optional)</span>
@@ -1190,7 +1132,6 @@ function WalkInDesk() {
                     className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
                   />
                 </div>
-                {/* Pass type */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">
                     Pass Type <span className="text-[#FF6B1A]">*</span>
@@ -1200,13 +1141,9 @@ function WalkInDesk() {
                       <button
                         key={type}
                         onClick={() => setPassType(type)}
-                        className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
-                          passType === type
-                            ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
-                            : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"
-                        }`}
+                        className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${passType === type ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]" : "border-white/10 bg-[#2a2a2a] text-white/40 hover:border-white/20"}`}
                       >
-                        <div className="text-lg mb-1">{icon}</div>
+                        <div className="flex justify-center mb-1">{icon}</div>
                         <div className="text-[10px] font-bold uppercase tracking-wide">
                           {label}
                         </div>
@@ -1217,13 +1154,11 @@ function WalkInDesk() {
                     ))}
                   </div>
                 </div>
-                {/* Error */}
                 {errorMsg && (
                   <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                     <p className="text-red-400 text-xs">{errorMsg}</p>
                   </div>
                 )}
-                {/* Submit */}
                 <button
                   onClick={handleRegister}
                   disabled={loading}
@@ -1244,7 +1179,6 @@ function WalkInDesk() {
         </>
       )}
 
-      {/* ── Checkout Tab ── */}
       {tab === "checkout" && (
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
           <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
@@ -1255,21 +1189,17 @@ function WalkInDesk() {
               {inside.length} inside
             </span>
           </div>
-
           {todayLoading && (
             <div className="py-10 text-center text-white/20 text-xs">
               Loading...
             </div>
           )}
-
           {!todayLoading && inside.length === 0 && (
             <div className="py-10 text-center text-white/20">
               <div className="text-2xl mb-2">⊕</div>
               <div className="text-xs">No one currently inside</div>
             </div>
           )}
-
-          {/* Still inside — can check out */}
           {inside.map((w) => (
             <div
               key={w._id}
@@ -1296,8 +1226,6 @@ function WalkInDesk() {
               </button>
             </div>
           ))}
-
-          {/* Already checked out */}
           {checkedOut.length > 0 && (
             <>
               <div className="px-5 py-2 bg-white/[0.02] border-t border-white/5">

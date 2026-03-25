@@ -1,14 +1,8 @@
 /**
  * PaymentsPage.tsx
  *
- * UX Improvements:
- *   - Merged Split card into revenue cards row
- *   - Combined date pickers into a single From→To range row
- *   - Cleaner filter bar — 2 logical groups
- *   - Row zebra striping + hover highlight
- *   - Replaced ⚠ Outstanding with clean toggle pill
- *   - Grand total shown alongside page total
- *   - Better pagination with page number buttons
+ * Modal fix: search results render inline (not absolutely positioned)
+ * so they push content down naturally without breaking layout.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -73,14 +67,12 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
     partial: raw?.partial ?? 0,
     outstanding: raw?.outstanding ?? 0,
   };
-
   const cashPct =
     data.revenue > 0 ? Math.round((data.cashRev / data.revenue) * 100) : 0;
   const onlinePct = data.revenue > 0 ? 100 - cashPct : 0;
 
   return (
     <div className="bg-[#212121] border border-white/10 rounded-xl p-5">
-      {/* Period tabs */}
       <div className="flex items-center justify-between mb-4">
         <div className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
           Revenue Overview
@@ -90,11 +82,7 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
             <button
               key={p}
               onClick={() => setActive(p)}
-              className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-md transition-all cursor-pointer ${
-                active === p
-                  ? "bg-[#FF6B1A]/20 text-[#FF6B1A]"
-                  : "text-white/30 hover:text-white/60"
-              }`}
+              className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wide rounded-md transition-all cursor-pointer ${active === p ? "bg-[#FF6B1A]/20 text-[#FF6B1A]" : "text-white/30 hover:text-white/60"}`}
             >
               {p === "today"
                 ? "Today"
@@ -105,10 +93,7 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
           ))}
         </div>
       </div>
-
-      {/* Cards row — now includes Split */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        {/* Total Revenue */}
         <div className="col-span-2 lg:col-span-1 bg-[#FF6B1A]/5 border border-t-2 border-[#FF6B1A]/20 border-t-[#FF6B1A] rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Total Revenue
@@ -120,8 +105,6 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
             {data.total} payment{data.total !== 1 ? "s" : ""}
           </div>
         </div>
-
-        {/* Cash */}
         <div className="bg-[#FFB800]/5 border border-t-2 border-[#FFB800]/20 border-t-[#FFB800] rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Cash
@@ -133,8 +116,6 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
             {data.cash} payment{data.cash !== 1 ? "s" : ""}
           </div>
         </div>
-
-        {/* Online */}
         <div className="bg-blue-400/5 border border-t-2 border-blue-400/20 border-t-blue-400 rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Online
@@ -146,8 +127,6 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
             {data.online} payment{data.online !== 1 ? "s" : ""}
           </div>
         </div>
-
-        {/* Outstanding */}
         <div className="bg-amber-400/5 border border-t-2 border-amber-400/20 border-t-amber-400 rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Outstanding
@@ -159,8 +138,6 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
             partial payment{data.partial !== 1 ? "s" : ""}
           </div>
         </div>
-
-        {/* Split — now inline with other cards */}
         <div className="bg-white/[0.02] border border-t-2 border-white/10 border-t-white/20 rounded-xl p-4 flex flex-col justify-between">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-3">
             Split
@@ -199,8 +176,6 @@ interface LogPaymentModalProps {
   onLogged: () => void;
 }
 
-// ─── Plan config — read from gymStore (single source of truth) ────────────────
-
 function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
   const { showToast } = useToastStore();
   const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
@@ -214,33 +189,26 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-
-  // Plan change — defaults to member's current plan when selected
   const [selectedPlan, setSelectedPlan] = useState<string>("");
-  // Extend expiry toggle — ON by default for expired/expiring members
   const [renewExpiry, setRenewExpiry] = useState(false);
 
-  // When member is selected, default to their plan and auto-enable renew if expired
   const handleSelectMember = (m: Member) => {
     setSelected(m);
     setSelectedPlan(m.plan);
     setSearch("");
     setResults([]);
     setAmountPaidInput("");
-    // Auto-enable renewal if member is expired or expiring within 7 days
     const daysLeft = Math.ceil(
       (new Date(m.expiresAt).getTime() - Date.now()) / 86400000,
     );
     setRenewExpiry(m.status === "expired" || daysLeft <= 7);
   };
 
-  // When plan changes, update the pre-filled amount
   const handlePlanChange = (plan: string) => {
     setSelectedPlan(plan);
     setAmountPaidInput("");
   };
 
-  // Compute new expiry preview
   const getNewExpiry = (plan: string): string => {
     const months = getPlanDuration(plan);
     const d = new Date();
@@ -324,12 +292,12 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
         onClick={onClose}
       >
         <div
-          className="w-full max-w-md bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+          className="w-full max-w-md bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl flex flex-col"
           style={{ animation: "payFadeIn 0.2s ease", maxHeight: "90vh" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+          {/* Header — fixed */}
+          <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between shrink-0">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
                 Log Payment
@@ -347,15 +315,13 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
           </div>
 
           {/* Body — scrollable */}
-          <div
-            className="px-6 py-5 space-y-4 overflow-y-auto"
-            style={{ maxHeight: "calc(90vh - 140px)" }}
-          >
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
             {/* Member search */}
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Member <span className="text-[#FF6B1A]">*</span>
               </label>
+
               {selected ? (
                 <div className="px-4 py-3 bg-[#FF6B1A]/5 border border-[#FF6B1A]/20 rounded-lg">
                   <div className="flex items-center gap-3">
@@ -379,7 +345,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       ✕
                     </button>
                   </div>
-                  {/* Member status row */}
                   <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/5">
                     <div className="flex-1">
                       <div className="text-[10px] text-white/30 uppercase tracking-widest">
@@ -427,22 +392,26 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   </div>
                 </div>
               ) : (
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search by name or GYM-ID..."
-                    autoFocus
-                    className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
-                  />
-                  {searching && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 text-xs">
-                      ...
-                    </div>
-                  )}
+                // FIX: search input + results are in normal document flow
+                // Results render as an inline block below the input — no absolute positioning
+                <div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search by name or GYM-ID..."
+                      autoFocus
+                      className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
+                    />
+                    {searching && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
+                    )}
+                  </div>
+
+                  {/* Inline results — part of normal flow, no absolute positioning */}
                   {results.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-[#2a2a2a] border border-white/10 rounded-lg overflow-hidden z-10">
+                    <div className="mt-1 bg-[#2a2a2a] border border-white/10 rounded-lg overflow-hidden">
                       {results.map((m) => {
                         const dl = Math.ceil(
                           (new Date(m.expiresAt).getTime() - Date.now()) /
@@ -452,8 +421,16 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                           <button
                             key={m.gymId}
                             onClick={() => handleSelectMember(m)}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-0 text-left cursor-pointer"
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0 text-left cursor-pointer transition-colors"
                           >
+                            <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
+                              {m.name
+                                .split(" ")
+                                .slice(0, 2)
+                                .map((n) => n[0])
+                                .join("")
+                                .toUpperCase()}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-semibold text-white truncate">
                                 {m.name}
@@ -472,7 +449,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                                 )}
                               </div>
                             </div>
-                            <span className="text-xs font-mono text-[#FFB800]">
+                            <span className="text-xs font-mono text-[#FFB800] shrink-0">
                               ₱{getPlanPrice(m.plan).toLocaleString()}
                             </span>
                           </button>
@@ -480,11 +457,18 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       })}
                     </div>
                   )}
+
+                  {/* No results state */}
+                  {!searching && search.trim() && results.length === 0 && (
+                    <div className="mt-1 px-4 py-3 bg-[#2a2a2a] border border-white/10 rounded-lg text-xs text-white/30 text-center">
+                      No member found for "{search}"
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Plan selector — shown when member is selected */}
+            {/* Plan selector */}
             {selected && activePlans.length > 0 && (
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
@@ -496,7 +480,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   )}
                 </label>
                 <div
-                  className={`grid gap-1.5 ${activePlans.length <= 4 ? `grid-cols-${activePlans.length}` : "grid-cols-3"}`}
+                  className="grid gap-1.5"
                   style={{
                     gridTemplateColumns: `repeat(${Math.min(activePlans.length, 4)}, 1fr)`,
                   }}
@@ -505,11 +489,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                     <button
                       key={p.name}
                       onClick={() => handlePlanChange(p.name)}
-                      className={`py-2 rounded-lg border text-center transition-all cursor-pointer ${
-                        selectedPlan === p.name
-                          ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
-                          : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                      }`}
+                      className={`py-2 rounded-lg border text-center transition-all cursor-pointer ${selectedPlan === p.name ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]" : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
                     >
                       <div className="text-[10px] font-bold uppercase truncate px-1">
                         {p.name}
@@ -527,21 +507,13 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
             {selected && (
               <div
                 onClick={() => setRenewExpiry(!renewExpiry)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-all ${
-                  renewExpiry
-                    ? "bg-emerald-400/5 border-emerald-400/30"
-                    : "bg-white/[0.02] border-white/10 hover:border-white/20"
-                }`}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-all ${renewExpiry ? "bg-emerald-400/5 border-emerald-400/30" : "bg-white/[0.02] border-white/10 hover:border-white/20"}`}
               >
                 <div
-                  className={`w-9 h-5 rounded-full transition-all relative shrink-0 ${
-                    renewExpiry ? "bg-emerald-400" : "bg-white/10"
-                  }`}
+                  className={`w-9 h-5 rounded-full transition-all relative shrink-0 ${renewExpiry ? "bg-emerald-400" : "bg-white/10"}`}
                 >
                   <div
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                      renewExpiry ? "left-[18px]" : "left-0.5"
-                    }`}
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${renewExpiry ? "left-[18px]" : "left-0.5"}`}
                   />
                 </div>
                 <div className="flex-1">
@@ -660,8 +632,8 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
             )}
           </div>
 
-          {/* Footer */}
-          <div className="px-6 py-4 border-t border-white/10 flex gap-2">
+          {/* Footer — fixed */}
+          <div className="px-6 py-4 border-t border-white/10 flex gap-2 shrink-0">
             <button
               onClick={onClose}
               className="flex-1 py-2.5 border border-white/10 text-white/40 hover:text-white text-sm font-semibold rounded-lg transition-all cursor-pointer"
@@ -703,7 +675,6 @@ export default function PaymentsPage({
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
-
   const [payments, setPayments] = useState<Payment[]>([]);
   const [total, setTotal] = useState(0);
   const [grandTotal, setGrandTotal] = useState(0);
@@ -711,7 +682,6 @@ export default function PaymentsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Staff view — today's date for locking
   const todayManila = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila",
   }).format(new Date());
@@ -727,7 +697,6 @@ export default function PaymentsPage({
   );
   const [page, setPage] = useState(1);
   const LIMIT = 10;
-
   const [showLogModal, setShowLogModal] = useState(false);
 
   const fetchSummary = useCallback(async () => {
@@ -759,7 +728,6 @@ export default function PaymentsPage({
       setPayments(res.payments);
       setTotal(res.total);
       setTotalPages(res.totalPages);
-      // Grand total — sum of ALL filtered payments (server should return this)
       setGrandTotal(
         res.grandTotal ??
           res.payments.reduce(
@@ -781,7 +749,6 @@ export default function PaymentsPage({
     const id = setTimeout(fetchPayments, search ? 400 : 0);
     return () => clearTimeout(id);
   }, [fetchPayments, search]);
-
   useEffect(() => {
     const id = setInterval(() => {
       fetchSummary();
@@ -789,7 +756,6 @@ export default function PaymentsPage({
     }, 60000);
     return () => clearInterval(id);
   }, [fetchSummary, fetchPayments]);
-
   useEffect(() => {
     setPage(1);
   }, [search, filterMethod, filterType, filterPartial, fromDate, toDate]);
@@ -799,7 +765,6 @@ export default function PaymentsPage({
     fetchPayments();
   };
 
-  // For staff, date is always locked to today — don't count it as a "filter"
   const hasFilters = isStaff
     ? !!(search || filterMethod || filterType || filterPartial)
     : !!(
@@ -859,10 +824,7 @@ export default function PaymentsPage({
   return (
     <>
       <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(-4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .payment-row:nth-child(even) { background: rgba(255,255,255,0.012); }
         .payment-row:hover { background: rgba(255,107,26,0.04) !important; }
       `}</style>
@@ -914,9 +876,7 @@ export default function PaymentsPage({
 
         {/* ── Filters ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-4 space-y-3">
-          {/* Row 1 — Search + Method + Type + Outstanding + Clear */}
           <div className="flex flex-wrap gap-2 items-center">
-            {/* Search */}
             <div className="relative flex-1 min-w-48">
               <svg
                 className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
@@ -947,8 +907,6 @@ export default function PaymentsPage({
                 className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FF6B1A] transition-colors"
               />
             </div>
-
-            {/* Method filter */}
             <select
               value={filterMethod}
               onChange={(e) => setFilterMethod(e.target.value)}
@@ -959,8 +917,6 @@ export default function PaymentsPage({
               <option value="cash">Cash</option>
               <option value="online">Online</option>
             </select>
-
-            {/* Type filter */}
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
@@ -973,23 +929,15 @@ export default function PaymentsPage({
               <option value="manual">Manual</option>
               <option value="balance_settlement">Settlement</option>
             </select>
-
-            {/* Outstanding toggle — cleaner pill */}
             <button
               onClick={() => setFilterPartial((p) => !p)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                filterPartial
-                  ? "bg-amber-400/15 text-amber-400 border-amber-400/30"
-                  : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${filterPartial ? "bg-amber-400/15 text-amber-400 border-amber-400/30" : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"}`}
             >
               <div
                 className={`w-2 h-2 rounded-full transition-colors ${filterPartial ? "bg-amber-400" : "bg-white/20"}`}
               />
               Outstanding only
             </button>
-
-            {/* Clear all */}
             {hasFilters && (
               <button
                 onClick={clearAllFilters}
@@ -1000,43 +948,30 @@ export default function PaymentsPage({
             )}
           </div>
 
-          {/* Row 2 — Date shortcuts + From/To range (owner only) */}
           {!isStaff && (
             <div className="flex flex-wrap gap-2 items-center">
               <span className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">
                 Date:
               </span>
-
-              {/* Shortcut buttons */}
               {(
                 Object.entries(DATE_RANGES) as [
                   string,
                   { from: string; to: string },
                 ][]
-              ).map(([label, r]) => {
-                return (
-                  <button
-                    key={label}
-                    onClick={() => {
-                      setFromDate(r.from);
-                      setToDate(r.to);
-                      setActiveDatePreset(label);
-                    }}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-lg border transition-all cursor-pointer ${
-                      activeDatePreset === label
-                        ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
-                        : "bg-[#2a2a2a] text-white/30 border-white/10 hover:text-white/60 hover:border-white/20"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-
-              {/* Divider */}
+              ).map(([label, r]) => (
+                <button
+                  key={label}
+                  onClick={() => {
+                    setFromDate(r.from);
+                    setToDate(r.to);
+                    setActiveDatePreset(label);
+                  }}
+                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-lg border transition-all cursor-pointer ${activeDatePreset === label ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30" : "bg-[#2a2a2a] text-white/30 border-white/10 hover:text-white/60 hover:border-white/20"}`}
+                >
+                  {label}
+                </button>
+              ))}
               <div className="w-px h-5 bg-white/10" />
-
-              {/* From → To inline */}
               <div className="flex items-center gap-2">
                 <input
                   type="date"
@@ -1078,7 +1013,6 @@ export default function PaymentsPage({
 
         {/* ── Table ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
-          {/* Header */}
           <div className="hidden md:grid md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             {[
               "Member",
@@ -1098,7 +1032,6 @@ export default function PaymentsPage({
             ))}
           </div>
 
-          {/* Loading */}
           {loading && (
             <div>
               {Array.from({ length: 6 }).map((_, i) => (
@@ -1116,7 +1049,6 @@ export default function PaymentsPage({
             </div>
           )}
 
-          {/* Error */}
           {!loading && error && (
             <div className="px-5 py-10 text-center">
               <div className="text-red-400 text-sm mb-2">{error}</div>
@@ -1129,7 +1061,6 @@ export default function PaymentsPage({
             </div>
           )}
 
-          {/* Empty */}
           {!loading && !error && payments.length === 0 && (
             <div className="px-5 py-16 text-center">
               <div className="text-4xl mb-3 opacity-20">◈</div>
@@ -1144,7 +1075,6 @@ export default function PaymentsPage({
             </div>
           )}
 
-          {/* Rows — with zebra striping via CSS class */}
           {!loading &&
             !error &&
             payments.map((p) => (
@@ -1152,7 +1082,6 @@ export default function PaymentsPage({
                 key={p._id}
                 className="payment-row grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] gap-2 md:gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
               >
-                {/* Member */}
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
                     {p.memberName
@@ -1172,8 +1101,6 @@ export default function PaymentsPage({
                     </div>
                   </div>
                 </div>
-
-                {/* Plan */}
                 <div className="flex md:items-center">
                   <span className="text-xs text-white/40 md:hidden mr-2 w-20 shrink-0">
                     Plan
@@ -1182,8 +1109,6 @@ export default function PaymentsPage({
                     {p.plan}
                   </span>
                 </div>
-
-                {/* Amount */}
                 <div className="flex md:items-center">
                   <span className="text-xs text-white/40 md:hidden mr-2 w-20 shrink-0">
                     Amount
@@ -1199,8 +1124,6 @@ export default function PaymentsPage({
                     )}
                   </div>
                 </div>
-
-                {/* Method */}
                 <div className="flex md:items-center">
                   <span className="text-xs text-white/40 md:hidden mr-2 w-20 shrink-0">
                     Method
@@ -1211,8 +1134,6 @@ export default function PaymentsPage({
                     {p.method === "online" ? "Online" : "Cash"}
                   </span>
                 </div>
-
-                {/* Type */}
                 <div className="flex md:items-center">
                   <span className="text-xs text-white/40 md:hidden mr-2 w-20 shrink-0">
                     Type
@@ -1223,8 +1144,6 @@ export default function PaymentsPage({
                     {TYPE_LABELS[p.type]}
                   </span>
                 </div>
-
-                {/* Balance */}
                 <div className="flex md:items-center">
                   <span className="text-xs text-white/40 md:hidden mr-2 w-20 shrink-0">
                     Balance
@@ -1249,8 +1168,6 @@ export default function PaymentsPage({
                     </span>
                   )}
                 </div>
-
-                {/* Processed by */}
                 <div className="flex md:items-center">
                   <span className="text-xs text-white/40 md:hidden mr-2 w-20 shrink-0">
                     By
@@ -1262,7 +1179,6 @@ export default function PaymentsPage({
               </div>
             ))}
 
-          {/* ── Table Footer ── */}
           {!loading && payments.length > 0 && (
             <div className="px-5 py-4 border-t border-white/10 bg-white/[0.02] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-xs text-white/30">
@@ -1273,7 +1189,6 @@ export default function PaymentsPage({
               </span>
               {!isStaff && (
                 <div className="flex items-center gap-4">
-                  {/* Page total */}
                   <div className="text-right">
                     <div className="text-[10px] text-white/25 uppercase tracking-widest">
                       Page total
@@ -1282,9 +1197,7 @@ export default function PaymentsPage({
                       ₱{pageTotal.toLocaleString()}
                     </div>
                   </div>
-                  {/* Divider */}
                   <div className="w-px h-8 bg-white/10" />
-                  {/* Grand total */}
                   <div className="text-right">
                     <div className="text-[10px] text-white/25 uppercase tracking-widest">
                       {hasFilters ? "Filtered total" : "Grand total"}
@@ -1306,7 +1219,6 @@ export default function PaymentsPage({
               Page {page} of {totalPages} · {total} total
             </span>
             <div className="flex gap-1">
-              {/* Prev */}
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
@@ -1314,8 +1226,6 @@ export default function PaymentsPage({
               >
                 ← Prev
               </button>
-
-              {/* Page number buttons */}
               {Array.from({ length: totalPages }, (_, i) => i + 1)
                 .filter(
                   (n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1,
@@ -1338,18 +1248,12 @@ export default function PaymentsPage({
                     <button
                       key={n}
                       onClick={() => setPage(n as number)}
-                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
-                        page === n
-                          ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
-                          : "border-white/10 text-white/40 hover:text-white hover:border-white/20"
-                      }`}
+                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${page === n ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30" : "border-white/10 text-white/40 hover:text-white hover:border-white/20"}`}
                     >
                       {n}
                     </button>
                   ),
                 )}
-
-              {/* Next */}
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}

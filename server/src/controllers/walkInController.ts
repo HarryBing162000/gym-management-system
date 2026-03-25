@@ -2,9 +2,8 @@ import { Response } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import WalkIn from "../models/WalkIn";
 import Settings from "../models/Settings";
+import { logAction } from "../utils/logAction";
 import { WalkInInput, WalkInCheckOutInput } from "../middleware/authSchemas";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getTodayDate = (): string =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
@@ -21,11 +20,10 @@ const getPassAmount = async (
   };
   try {
     const settings = await Settings.findOne({}).select("walkInPrices").lean();
-    if (settings?.walkInPrices) {
+    if (settings?.walkInPrices)
       return (
         (settings.walkInPrices as any)[passType] ?? fallback[passType] ?? 150
       );
-    }
   } catch {
     /* fall through */
   }
@@ -79,6 +77,18 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
       isCheckedOut: false,
     });
 
+    await logAction({
+      action: "walk_in_created",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: walkIn.walkId,
+      targetName: walkIn.name,
+      detail: `${req.user!.name} registered walk-in ${walkIn.name} (${walkIn.walkId}) — ${walkIn.passType} pass, ₱${walkIn.amount}`,
+    });
+
     return res.status(201).json({
       success: true,
       message: "Walk-in registered successfully",
@@ -105,22 +115,33 @@ export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
     const today = getTodayDate();
 
     const walkIn = await WalkIn.findOne({ walkId, date: today });
-    if (!walkIn) {
-      return res.status(404).json({
-        success: false,
-        message: `${walkId} not found for today.`,
-      });
-    }
-    if (walkIn.isCheckedOut) {
-      return res.status(400).json({
-        success: false,
-        message: `${walkId} has already checked out.`,
-      });
-    }
+    if (!walkIn)
+      return res
+        .status(404)
+        .json({ success: false, message: `${walkId} not found for today.` });
+    if (walkIn.isCheckedOut)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: `${walkId} has already checked out.`,
+        });
 
     walkIn.checkOut = new Date();
     walkIn.isCheckedOut = true;
     await walkIn.save();
+
+    await logAction({
+      action: "walk_in_checkout",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: walkIn.walkId,
+      targetName: walkIn.name,
+      detail: `${req.user!.name} checked out walk-in ${walkIn.name} (${walkIn.walkId}) — duration: ${calcDuration(walkIn.checkIn, walkIn.checkOut)}`,
+    });
 
     return res.status(200).json({
       success: true,
@@ -148,13 +169,14 @@ export const getTodayWalkIns = async (req: AuthRequest, res: Response) => {
     const walkIns = await WalkIn.find({ date: today })
       .populate("staffId", "name username")
       .sort({ checkIn: -1 });
-
-    return res.status(200).json({
-      success: true,
-      date: today,
-      summary: buildSummary(walkIns),
-      walkIns,
-    });
+    return res
+      .status(200)
+      .json({
+        success: true,
+        date: today,
+        summary: buildSummary(walkIns),
+        walkIns,
+      });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -162,8 +184,6 @@ export const getTodayWalkIns = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── GET /api/walkin/history ──────────────────────────────────────────────────
-// Owner only — view walk-ins for any past date or date range
-// Query params: ?date=2026-03-18  OR  ?from=2026-03-01&to=2026-03-18
 export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
   try {
     const {
@@ -181,16 +201,13 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
     const filter: Record<string, unknown> = {};
 
     if (date) {
-      // Single date
       filter.date = date;
     } else if (from || to) {
-      // Date range
       const rangeFilter: Record<string, string> = {};
       if (from) rangeFilter.$gte = from;
       if (to) rangeFilter.$lte = to;
       filter.date = rangeFilter;
     } else {
-      // Default — last 7 days (Manila time)
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       filter.date = {
@@ -200,17 +217,15 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
       };
     }
 
-    const [walkIns, total] = await Promise.all([
+    const [walkIns, total, allForRange] = await Promise.all([
       WalkIn.find(filter)
         .populate("staffId", "name username")
         .sort({ date: -1, checkIn: -1 })
         .skip(skip)
         .limit(limitNum),
       WalkIn.countDocuments(filter),
+      WalkIn.find(filter),
     ]);
-
-    // Summary for the filtered range
-    const allForRange = await WalkIn.find(filter);
 
     return res.status(200).json({
       success: true,
@@ -227,7 +242,6 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── GET /api/walkin/yesterday-revenue ───────────────────────────────────────
-// Returns yesterday's total revenue for comparison card.
 export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
   try {
     const yesterday = new Date();
@@ -250,6 +264,7 @@ export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── POST /api/walkin/kiosk-checkout (public) ─────────────────────────────────
+// No logAction here — kiosk is public, no authenticated user
 export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;
@@ -259,18 +274,20 @@ export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
       walkId: walkId.toUpperCase(),
       date: today,
     });
-    if (!walkIn) {
-      return res.status(404).json({
-        success: false,
-        message: `ID "${walkId}" not found for today. Please see the front desk.`,
-      });
-    }
-    if (walkIn.isCheckedOut) {
-      return res.status(400).json({
-        success: false,
-        message: "You have already checked out. Have a great day! 👋",
-      });
-    }
+    if (!walkIn)
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: `ID "${walkId}" not found for today. Please see the front desk.`,
+        });
+    if (walkIn.isCheckedOut)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "You have already checked out. Have a great day! 👋",
+        });
 
     walkIn.checkOut = new Date();
     walkIn.isCheckedOut = true;
@@ -280,7 +297,7 @@ export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: `Goodbye ${walkIn.name}! You spent ${duration} at IronCore. See you again! 💪`,
+      message: `Goodbye ${walkIn.name}! You spent ${duration} at the gym. See you again! 💪`,
       walkIn: {
         walkId: walkIn.walkId,
         name: walkIn.name,

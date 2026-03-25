@@ -13,6 +13,7 @@ import walkInRoutes from "./routes/walkInRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import kioskRoutes from "./routes/kioskRoutes";
 import memberRoutes from "./routes/memberRoutes";
+import actionLogsRouter from "./routes/actionLogRoutes";
 
 // Security middleware
 import {
@@ -31,40 +32,22 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Trust reverse proxy (Render, Railway, Nginx, Cloudflare)
-// Without this, all requests appear to come from the proxy IP
-// and everyone shares one rate limit bucket
 app.set("trust proxy", 1);
 
 // ============================================================
 // SECURITY LAYERS — ORDER MATTERS ⚠️
-// Apply security before routes so every request is filtered
 // ============================================================
 
-// 1. Secure HTTP headers
 app.use(helmetMiddleware);
-
-// 2. CORS — only whitelisted origins
 app.use(cors(corsOptions));
-
-// 3. Limit body size — prevent 100MB JSON bombs
 app.use(express.json({ limit: SECURITY_CONFIG.MAX_BODY_SIZE }));
 app.use(
   express.urlencoded({ extended: true, limit: SECURITY_CONFIG.MAX_BODY_SIZE }),
 );
-
-// 4. Strip NoSQL injection operators
 app.use(mongoSanitizeMiddleware);
-
-// 5. Prevent HTTP parameter pollution
 app.use(hppMiddleware);
-
-// 6. Strip XSS from inputs
 app.use(sanitizeInput);
-
-// 7. General rate limiter on all routes
 app.use("/api", generalRateLimiter);
-
-// 8. Security logger
 app.use(securityLogger);
 
 // ============================================================
@@ -74,7 +57,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/walkin", walkInRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/kiosk", kioskRoutes);
-app.use("/api/members", memberRoutes); // member management — JWT protected // public kiosk terminal — machine-auth only
+app.use("/api/members", memberRoutes);
+app.use("/api/action-logs", actionLogsRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "Server is running ✅" });
@@ -92,18 +76,15 @@ app.use(globalErrorHandler);
 app.listen(PORT, async () => {
   await connectDB();
 
-  // ── Ensure Settings document exists with defaults ──────────────────────────
   const existingSettings = await Settings.findOne({});
   if (!existingSettings) {
     await Settings.create({
-      gymName: process.env.GYM_NAME || "IronCore Gym",
+      gymName: process.env.GYM_NAME || "Gym",
       gymAddress: process.env.GYM_ADDRESS || "Cebu City, Philippines",
       plans: DEFAULT_PLANS,
       walkInPrices: DEFAULT_WALKIN_PRICES,
     });
-    console.log(
-      "⚙️  Settings initialized with defaults (including plans and walk-in prices)",
-    );
+    console.log("⚙️  Settings initialized with defaults");
   } else {
     let migrated = false;
     if (!existingSettings.plans || existingSettings.plans.length === 0) {

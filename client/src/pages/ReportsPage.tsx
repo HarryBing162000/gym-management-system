@@ -1,20 +1,15 @@
 /**
  * ReportsPage.tsx
- * IronCore GMS — Owner Reports (Final)
+ * Gym Management System — Owner Reports
  *
- * Audit fixes applied:
- *   - Section dividers between chart sub-sections
- *   - StatPill colored top borders matching system design language
- *   - Walk-in stat pill colors fixed (no duplicate orange)
- *   - Revenue Source week labels show actual date ranges
- *   - Member Growth empty state
- *   - Walk-in revenue estimate uses correct per-type pricing
- *   - Per-section loading skeletons instead of full-page block
- *   - Visible error banner on fetch failure
- *   - "txns" → "payments" in Staff table
- *   - Combined revenue total hero stat
- *   - Two-column layout on desktop (Revenue + Member side by side)
- *   - inactiveCount now displayed in Member stats
+ * Fixes applied:
+ *   - Race condition: fetchRevenue + fetchWalkIns now run together and merge
+ *     staffStats in one place after both complete — walk-ins no longer show 0
+ *   - settleBalance totalAmount fix reflected in reports
+ *   - newMembersList computed once, not twice
+ *   - Fetch limit raised to 1000 with truncation warning banner
+ *   - Export uses computed values that are always up to date
+ *   - Duplicate guard raised to 10s (controller fix)
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -98,7 +93,6 @@ function dateLabel(dateStr: string, totalDays: number): string {
   return d.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
 }
 
-// Correct walk-in revenue estimate using actual pass prices
 function estimateWalkInRevenue(
   walkInsByDate: Record<string, number>,
   walkInsByType: { regular: number; student: number; couple: number },
@@ -109,7 +103,6 @@ function estimateWalkInRevenue(
     .filter(([d]) => filterDates.has(d))
     .reduce((s, [, v]) => s + v, 0);
   if (totalWalkIns === 0) return 0;
-  // Weighted average price per walk-in
   const avgPrice =
     (walkInsByType.regular * 150 +
       walkInsByType.student * 100 +
@@ -151,7 +144,7 @@ function getRange(
   return { from: customFrom || today, to: customTo || today };
 }
 
-// ─── Chart: Dual Bar (Revenue + Walk-ins, range-aware) ───────────────────────
+// ─── Chart: Dual Bar ─────────────────────────────────────────────────────────
 
 function DualBarChart({
   dates,
@@ -173,13 +166,12 @@ function DualBarChart({
     sampled.some((d) => (revenueData[d] ?? 0) > 0) ||
     sampled.some((d) => (walkInData[d] ?? 0) > 0);
 
-  if (!hasAnyData) {
+  if (!hasAnyData)
     return (
       <div className="flex items-center justify-center h-24 text-white/20 text-xs">
         No data for this period
       </div>
     );
-  }
 
   return (
     <div>
@@ -256,7 +248,7 @@ function DualBarChart({
   );
 }
 
-// ─── Chart: Revenue Source — last 6 weeks with real date labels ───────────────
+// ─── Chart: Revenue Source ────────────────────────────────────────────────────
 
 function RevenueSourceChart({
   payments,
@@ -276,7 +268,6 @@ function RevenueSourceChart({
     weekStart.setDate(weekEnd.getDate() - 6);
     const startStr = getManilaDateFromDate(weekStart);
     const endStr = getManilaDateFromDate(weekEnd);
-    // Real date label e.g. "Mar 3–9"
     const label = `${formatShortDate(startStr)}–${new Date(endStr).getDate()}`;
     const memberRev = payments
       .filter((p) => {
@@ -297,13 +288,12 @@ function RevenueSourceChart({
   const maxVal = Math.max(...weeks.flatMap((w) => [w.memberRev, w.wiRev]), 1);
   const hasData = weeks.some((w) => w.memberRev > 0 || w.wiRev > 0);
 
-  if (!hasData) {
+  if (!hasData)
     return (
       <div className="flex items-center justify-center h-20 text-white/20 text-xs">
         No data for last 6 weeks
       </div>
     );
-  }
 
   return (
     <div>
@@ -364,7 +354,7 @@ function RevenueSourceChart({
   );
 }
 
-// ─── Chart: Member Growth — last 6 months ────────────────────────────────────
+// ─── Chart: Member Growth ─────────────────────────────────────────────────────
 
 function MemberGrowthChart({ members }: { members: Member[] }) {
   const months = Array.from({ length: 6 }, (_, i) => {
@@ -380,23 +370,21 @@ function MemberGrowthChart({ members }: { members: Member[] }) {
       const c = new Date(m.createdAt);
       return c.getFullYear() === year && c.getMonth() === month;
     }).length;
-    return { label, count, year, month };
+    return { label, count };
   });
 
   const max = Math.max(...months.map((m) => m.count), 1);
   const total6months = months.reduce((s, m) => s + m.count, 0);
-  const hasData = total6months > 0;
 
-  if (!hasData) {
+  if (!total6months)
     return (
       <div className="flex flex-col items-center justify-center h-24 text-center">
         <div className="text-2xl mb-1 opacity-20">📈</div>
         <div className="text-white/20 text-xs">
-          No new members registered in the last 6 months
+          No new members in the last 6 months
         </div>
       </div>
     );
-  }
 
   return (
     <div>
@@ -442,7 +430,7 @@ function MemberGrowthChart({ members }: { members: Member[] }) {
   );
 }
 
-// ─── UI: Section wrapper ──────────────────────────────────────────────────────
+// ─── UI Components ────────────────────────────────────────────────────────────
 
 function Section({
   title,
@@ -458,7 +446,7 @@ function Section({
   error?: string;
 }) {
   return (
-    <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden report-section">
+    <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
       <div className="px-5 py-4 border-b border-white/10 bg-white/[0.02] flex items-center gap-2.5">
         <span className="text-base">{icon}</span>
         <h3 className="text-sm font-bold text-white">{title}</h3>
@@ -489,8 +477,6 @@ function Section({
   );
 }
 
-// ─── UI: StatPill with colored top border ─────────────────────────────────────
-
 function StatPill({
   label,
   value,
@@ -516,12 +502,9 @@ function StatPill({
   );
 }
 
-// ─── UI: Divider between chart sub-sections ───────────────────────────────────
-
 function ChartDivider() {
   return <div className="border-t border-white/[0.06]" />;
 }
-
 function ChartLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] text-white/30 uppercase tracking-widest mb-3 font-semibold">
@@ -529,9 +512,6 @@ function ChartLabel({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
-// ─── Skeleton for stat pills row ─────────────────────────────────────────────
-
 function StatPillSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className={`grid grid-cols-2 lg:grid-cols-${count} gap-3`}>
@@ -547,9 +527,12 @@ function StatPillSkeleton({ count = 4 }: { count?: number }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// Raise limit to 1000 — show warning if truncated
+const FETCH_LIMIT = 1000;
+
 export default function ReportsPage() {
   const { settings, getWalkInPrice } = useGymStore();
-  const gymName = settings?.gymName || "IronCore GMS";
+  const gymName = settings?.gymName || "Gym Management System";
   const wiRegular = getWalkInPrice("regular");
   const wiStudent = getWalkInPrice("student");
   const wiCouple = getWalkInPrice("couple");
@@ -558,20 +541,18 @@ export default function ReportsPage() {
   const [customFrom, setCustomFrom] = useState(getManilaDate(30));
   const [customTo, setCustomTo] = useState(getManilaDate());
 
-  // Loading states per section
   const [revenueLoading, setRevenueLoading] = useState(true);
   const [memberLoading, setMemberLoading] = useState(true);
   const [walkInLoading, setWalkInLoading] = useState(true);
   const [staffLoading, setStaffLoading] = useState(true);
-
-  // Error states per section
   const [revenueError, setRevenueError] = useState("");
   const [memberError, setMemberError] = useState("");
   const [walkInError, setWalkInError] = useState("");
-
   const [exporting, setExporting] = useState(false);
 
-  // Revenue
+  // Truncation warning — shown if any fetch hits the limit
+  const [dataTruncated, setDataTruncated] = useState(false);
+
   const [payments, setPayments] = useState<Payment[]>([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [cashRevenue, setCashRevenue] = useState(0);
@@ -580,7 +561,6 @@ export default function ReportsPage() {
     {},
   );
 
-  // Walk-ins
   const [walkInTotal, setWalkInTotal] = useState(0);
   const [walkInRevenue, setWalkInRevenue] = useState(0);
   const [regularCount, setRegularCount] = useState(0);
@@ -590,14 +570,14 @@ export default function ReportsPage() {
     {},
   );
 
-  // Members
   const [members, setMembers] = useState<Member[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [inactiveCount, setInactiveCount] = useState(0);
   const [expiredCount, setExpiredCount] = useState(0);
   const [newInRange, setNewInRange] = useState(0);
 
-  // Staff
+  // FIX: staffStats built from BOTH payments and walk-ins together
+  // instead of separately to avoid the race condition
   const [staffStats, setStaffStats] = useState<
     { name: string; payments: number; amount: number; walkIns: number }[]
   >([]);
@@ -605,18 +585,39 @@ export default function ReportsPage() {
   const range = getRange(preset, customFrom, customTo);
   const rangeDates = buildDateRange(range.from, range.to);
 
-  // ── Fetch each section independently ──────────────────────────────────────
-
-  const fetchRevenue = useCallback(async () => {
+  // ── FIX: Single coordinated fetch for revenue + walk-ins + staffStats ────────
+  // Both datasets are needed to build staffStats correctly.
+  // Running them together with Promise.all and merging after prevents the race.
+  const fetchRevenueAndWalkIns = useCallback(async () => {
     setRevenueLoading(true);
+    setWalkInLoading(true);
+    setStaffLoading(true);
     setRevenueError("");
+    setWalkInError("");
+    setDataTruncated(false);
+
     try {
-      const payRes = await paymentService.getAll({
-        from: range.from,
-        to: range.to,
-        limit: 500,
-        page: 1,
-      });
+      const [payRes, wiRes] = await Promise.all([
+        paymentService.getAll({
+          from: range.from,
+          to: range.to,
+          limit: FETCH_LIMIT,
+          page: 1,
+        }),
+        walkInService.getHistory({
+          from: range.from,
+          to: range.to,
+          limit: FETCH_LIMIT,
+          page: 1,
+        }),
+      ]);
+
+      // Check for truncation
+      if (payRes.total > FETCH_LIMIT || (wiRes.total ?? 0) > FETCH_LIMIT) {
+        setDataTruncated(true);
+      }
+
+      // ── Payments ──
       const all = payRes.payments;
       setPayments(all);
       const total = all.reduce((s, p) => s + (p.amountPaid ?? p.amount), 0);
@@ -633,39 +634,7 @@ export default function ReportsPage() {
       });
       setRevenueByDate(revMap);
 
-      // Staff from payments
-      const staffMap: Record<
-        string,
-        { name: string; payments: number; amount: number; walkIns: number }
-      > = {};
-      all.forEach((p) => {
-        const name = p.processedBy?.name ?? "Unknown";
-        if (!staffMap[name])
-          staffMap[name] = { name, payments: 0, amount: 0, walkIns: 0 };
-        staffMap[name].payments += 1;
-        staffMap[name].amount += p.amountPaid ?? p.amount;
-      });
-      setStaffStats(
-        Object.values(staffMap).sort((a, b) => b.amount - a.amount),
-      );
-    } catch {
-      setRevenueError("Failed to load revenue data. Please try again.");
-    } finally {
-      setRevenueLoading(false);
-      setStaffLoading(false);
-    }
-  }, [range.from, range.to]);
-
-  const fetchWalkIns = useCallback(async () => {
-    setWalkInLoading(true);
-    setWalkInError("");
-    try {
-      const wiRes = await walkInService.getHistory({
-        from: range.from,
-        to: range.to,
-        limit: 500,
-        page: 1,
-      });
+      // ── Walk-ins ──
       setWalkInTotal(wiRes.summary?.total ?? 0);
       setWalkInRevenue(wiRes.summary?.revenue ?? 0);
       setRegularCount(wiRes.summary?.regular ?? 0);
@@ -678,19 +647,39 @@ export default function ReportsPage() {
       });
       setWalkInsByDate(wiMap);
 
-      // Add walk-in staff to staffStats
-      const wiStaffMap: Record<string, number> = {};
+      // ── Staff stats — built from BOTH sources at the same time ──
+      const staffMap: Record<
+        string,
+        { name: string; payments: number; amount: number; walkIns: number }
+      > = {};
+
+      // From payments
+      all.forEach((p) => {
+        const name = p.processedBy?.name ?? "Unknown";
+        if (!staffMap[name])
+          staffMap[name] = { name, payments: 0, amount: 0, walkIns: 0 };
+        staffMap[name].payments += 1;
+        staffMap[name].amount += p.amountPaid ?? p.amount;
+      });
+
+      // From walk-ins — merged into same map
       wiRes.walkIns?.forEach((w) => {
         const name = w.staffId?.name ?? "Unknown";
-        wiStaffMap[name] = (wiStaffMap[name] ?? 0) + 1;
+        if (!staffMap[name])
+          staffMap[name] = { name, payments: 0, amount: 0, walkIns: 0 };
+        staffMap[name].walkIns += 1;
       });
-      setStaffStats((prev) =>
-        prev.map((s) => ({ ...s, walkIns: wiStaffMap[s.name] ?? 0 })),
+
+      setStaffStats(
+        Object.values(staffMap).sort((a, b) => b.amount - a.amount),
       );
     } catch {
+      setRevenueError("Failed to load revenue data. Please try again.");
       setWalkInError("Failed to load walk-in data. Please try again.");
     } finally {
+      setRevenueLoading(false);
       setWalkInLoading(false);
+      setStaffLoading(false);
     }
   }, [range.from, range.to]);
 
@@ -699,10 +688,10 @@ export default function ReportsPage() {
     setMemberError("");
     try {
       const [activeRes, inactiveRes, expiredRes, allRes] = await Promise.all([
-        memberService.getAll({ status: "active", limit: 500 }),
-        memberService.getAll({ status: "inactive", limit: 500 }),
-        memberService.getAll({ status: "expired", limit: 500 }),
-        memberService.getAll({ limit: 500 }),
+        memberService.getAll({ status: "active", limit: FETCH_LIMIT }),
+        memberService.getAll({ status: "inactive", limit: FETCH_LIMIT }),
+        memberService.getAll({ status: "expired", limit: FETCH_LIMIT }),
+        memberService.getAll({ limit: FETCH_LIMIT }),
       ]);
       const allMembers = allRes.members;
       setMembers(allMembers);
@@ -725,25 +714,51 @@ export default function ReportsPage() {
     }
   }, [range.from, range.to]);
 
-  const fetchAllRef = useRef({ fetchRevenue, fetchWalkIns, fetchMembers });
+  const fetchAllRef = useRef({ fetchRevenueAndWalkIns, fetchMembers });
   useEffect(() => {
-    fetchAllRef.current = { fetchRevenue, fetchWalkIns, fetchMembers };
-  }, [fetchRevenue, fetchWalkIns, fetchMembers]);
+    fetchAllRef.current = { fetchRevenueAndWalkIns, fetchMembers };
+  }, [fetchRevenueAndWalkIns, fetchMembers]);
 
   useEffect(() => {
-    fetchAllRef.current.fetchRevenue();
-    fetchAllRef.current.fetchWalkIns();
+    fetchAllRef.current.fetchRevenueAndWalkIns();
     fetchAllRef.current.fetchMembers();
   }, [range.from, range.to]);
+
+  // ── Computed — single source of truth ───────────────────────────────────────
+  const totalMembers = activeCount + inactiveCount + expiredCount;
+  const combinedRevenue = totalRevenue + walkInRevenue;
+  const loyalMembers = members
+    .filter((m) => getMemberDurationMonths(m.createdAt) >= 3)
+    .sort(
+      (a, b) =>
+        getMemberDurationMonths(b.createdAt) -
+        getMemberDurationMonths(a.createdAt),
+    );
+  const membersWithBalance = members.filter((m) => m.balance > 0);
+  const cashPct =
+    totalRevenue > 0 ? Math.round((cashRevenue / totalRevenue) * 100) : 0;
+  const rFrom2 = new Date(range.from);
+  const rTo2 = new Date(range.to);
+  rTo2.setHours(23, 59, 59, 999);
+  // FIX: computed once, used everywhere (export + render)
+  const newMembersList = members.filter((m) => {
+    const c = new Date(m.createdAt);
+    return c >= rFrom2 && c <= rTo2;
+  });
+  const walkInsByType = {
+    regular: regularCount,
+    student: studentCount,
+    couple: coupleCount,
+  };
+  const anyLoading =
+    revenueLoading || walkInLoading || memberLoading || staffLoading;
 
   const handleExport = () => {
     setExporting(true);
     setTimeout(() => {
       const onlinePct = 100 - cashPct;
-      const totalMembers2 = activeCount + inactiveCount + expiredCount;
 
-      // Build bar chart SVG — revenue trend
-      const revDates = rangeDates.slice(-14); // last 14 days max
+      const revDates = rangeDates.slice(-14);
       const maxRev = Math.max(...revDates.map((d) => revenueByDate[d] ?? 0), 1);
       const revBars = revDates
         .map((d, i) => {
@@ -767,7 +782,6 @@ export default function ReportsPage() {
         })
         .join("");
 
-      // Member growth SVG
       const growthMonths = Array.from({ length: 6 }, (_, i) => {
         const d = new Date();
         d.setMonth(d.getMonth() - (5 - i));
@@ -790,8 +804,7 @@ export default function ReportsPage() {
           return `
           <rect x="${x}" y="${80 - h}" width="70" height="${h}" fill="${m.count === 0 ? "#eee" : "#22c55e"}" rx="2"/>
           ${m.count > 0 ? `<text x="${x + 35}" y="${80 - h - 3}" text-anchor="middle" font-size="9" fill="#22c55e" font-weight="bold">${m.count}</text>` : ""}
-          <text x="${x + 35}" y="94" text-anchor="middle" font-size="8" fill="#999">${m.label}</text>
-        `;
+          <text x="${x + 35}" y="94" text-anchor="middle" font-size="8" fill="#999">${m.label}</text>`;
         })
         .join("");
 
@@ -813,26 +826,19 @@ export default function ReportsPage() {
     .hero-value { font-size: 28px; font-weight: 800; color: #FF6B1A; font-variant-numeric: tabular-nums; }
     .hero-sub { font-size: 10px; color: #888; margin-top: 4px; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
-    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
     .section { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; page-break-inside: avoid; }
     .pill { background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px; text-align: center; }
     .pill-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.07em; color: #aaa; font-weight: 600; margin-bottom: 4px; }
     .pill-value { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .pill.orange { border-top: 3px solid #FF6B1A; }
-    .pill.gold { border-top: 3px solid #FFB800; }
-    .pill.blue { border-top: 3px solid #60a5fa; }
-    .pill.green { border-top: 3px solid #22c55e; }
-    .pill.red { border-top: 3px solid #f87171; }
-    .pill.purple { border-top: 3px solid #c084fc; }
-    .pill.gray { border-top: 3px solid #ccc; }
+    .pill.orange { border-top: 3px solid #FF6B1A; } .pill.gold { border-top: 3px solid #FFB800; }
+    .pill.blue { border-top: 3px solid #60a5fa; } .pill.green { border-top: 3px solid #22c55e; }
+    .pill.red { border-top: 3px solid #f87171; } .pill.purple { border-top: 3px solid #c084fc; } .pill.gray { border-top: 3px solid #ccc; }
     .bar-track { background: #f0f0f0; border-radius: 100px; height: 6px; overflow: hidden; margin: 3px 0 6px; }
     .bar-fill { height: 100%; border-radius: 100px; }
     .split-track { background: #f0f0f0; border-radius: 100px; height: 8px; overflow: hidden; display: flex; margin: 4px 0 6px; }
     .row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f0f0f0; font-size: 10px; }
     .row:last-child { border-bottom: none; }
-    .row-label { color: #555; }
-    .row-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .row-label { color: #555; } .row-val { font-weight: 700; font-variant-numeric: tabular-nums; }
     .badge { display: inline-block; font-size: 8px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 100px; border: 1px solid; }
     .badge-active { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; }
     .badge-inactive { color: #d97706; border-color: #fde68a; background: #fffbeb; }
@@ -842,10 +848,8 @@ export default function ReportsPage() {
     .loyalty-name { flex: 1; font-size: 10px; font-weight: 600; color: #111; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .loyalty-dur { font-size: 9px; color: #FF6B1A; font-weight: 700; white-space: nowrap; }
     .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 6px; font-size: 9px; margin: 2px; }
-    .chip-name { font-weight: 600; color: #111; }
-    .chip-id { color: #aaa; font-family: monospace; }
+    .chip-name { font-weight: 600; color: #111; } .chip-id { color: #aaa; font-family: monospace; }
     .chip-plan { color: #16a34a; font-weight: 600; }
-    .chip-date { color: #bbb; }
     .staff-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 10px; }
     .staff-row:last-child { border-bottom: none; }
     .staff-total { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; padding: 8px 0 0; border-top: 2px solid #eee; font-size: 10px; font-weight: 700; }
@@ -856,29 +860,16 @@ export default function ReportsPage() {
   </style>
 </head>
 <body>
-
-  <!-- Header -->
   <div class="header">
     <h1>${gymName} — Business Report</h1>
     <div class="meta">Period: ${formatDate(range.from)} — ${formatDate(range.to)} &nbsp;·&nbsp; Generated: ${new Date().toLocaleString("en-PH")}</div>
   </div>
-
-  <!-- Hero: Combined Revenue -->
   <div class="hero">
     <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:#FF6B1A;font-weight:700;margin-bottom:4px;">Total Combined Revenue</div>
     <div class="hero-value">₱${combinedRevenue.toLocaleString()}</div>
-    <div class="hero-sub">
-      Membership: ₱${totalRevenue.toLocaleString()} &nbsp;·&nbsp;
-      Walk-ins: ₱${walkInRevenue.toLocaleString()} &nbsp;·&nbsp;
-      Cash: ₱${cashRevenue.toLocaleString()} &nbsp;·&nbsp;
-      Online: ₱${onlineRevenue.toLocaleString()}
-    </div>
+    <div class="hero-sub">Membership: ₱${totalRevenue.toLocaleString()} &nbsp;·&nbsp; Walk-ins: ₱${walkInRevenue.toLocaleString()} &nbsp;·&nbsp; Cash: ₱${cashRevenue.toLocaleString()} &nbsp;·&nbsp; Online: ₱${onlineRevenue.toLocaleString()}</div>
   </div>
-
-  <!-- Revenue + Member side by side -->
   <div class="grid2">
-
-    <!-- Revenue Report -->
     <div class="section">
       <h2>💰 Revenue Report</h2>
       <div class="grid2" style="margin-bottom:12px;">
@@ -887,29 +878,19 @@ export default function ReportsPage() {
         <div class="pill gold"><div class="pill-label">Cash</div><div class="pill-value" style="color:#FFB800;">₱${cashRevenue.toLocaleString()}</div></div>
         <div class="pill blue"><div class="pill-label">Online</div><div class="pill-value" style="color:#60a5fa;">₱${onlineRevenue.toLocaleString()}</div></div>
       </div>
-
       ${
         totalRevenue > 0
           ? `
       <h3>Cash vs Online Split</h3>
-      <div class="split-track">
-        <div class="bar-fill" style="width:${cashPct}%;background:#FFB800;"></div>
-        <div class="bar-fill" style="flex:1;background:#60a5fa;"></div>
-      </div>
+      <div class="split-track"><div class="bar-fill" style="width:${cashPct}%;background:#FFB800;"></div><div class="bar-fill" style="flex:1;background:#60a5fa;"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:12px;">
         <span style="color:#FFB800;font-weight:700;">${cashPct}% Cash</span>
         <span style="color:#60a5fa;font-weight:700;">${onlinePct}% Online</span>
-      </div>
-      `
+      </div>`
           : ""
       }
-
       <h3>Revenue Trend — Last ${Math.min(14, rangeDates.length)} Days</h3>
-      <svg viewBox="0 0 568 110" width="100%" style="margin-bottom:12px;">
-        ${revBars}
-        ${revLabels}
-      </svg>
-
+      <svg viewBox="0 0 568 110" width="100%" style="margin-bottom:12px;">${revBars}${revLabels}</svg>
       <hr class="divider"/>
       <h3>By Payment Type</h3>
       ${(["new_member", "renewal", "manual", "balance_settlement"] as const)
@@ -925,35 +906,20 @@ export default function ReportsPage() {
           if (tp.length === 0) return "";
           const pct =
             totalRevenue > 0 ? Math.round((tt / totalRevenue) * 100) : 0;
-          return `
-          <div class="row">
-            <span class="row-label">${labels[type]}</span>
-            <div style="display:flex;align-items:center;gap:12px;">
-              <span style="color:#aaa;font-size:9px;">${tp.length} payments · ${pct}%</span>
-              <span class="row-val" style="color:#FFB800;">₱${tt.toLocaleString()}</span>
-            </div>
-          </div>
-          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:#FF6B1A;"></div></div>
-        `;
+          return `<div class="row"><span class="row-label">${labels[type]}</span><div style="display:flex;align-items:center;gap:12px;"><span style="color:#aaa;font-size:9px;">${tp.length} payments · ${pct}%</span><span class="row-val" style="color:#FFB800;">₱${tt.toLocaleString()}</span></div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:#FF6B1A;"></div></div>`;
         })
         .join("")}
     </div>
-
-    <!-- Member Report -->
     <div class="section">
       <h2>👥 Member Report</h2>
       <div class="grid2" style="margin-bottom:12px;">
-        <div class="pill gray"><div class="pill-label">Total Members</div><div class="pill-value">${totalMembers2}</div></div>
+        <div class="pill gray"><div class="pill-label">Total Members</div><div class="pill-value">${totalMembers}</div></div>
         <div class="pill blue"><div class="pill-label">New in Period</div><div class="pill-value" style="color:#60a5fa;">${newInRange}</div></div>
         <div class="pill green"><div class="pill-label">Active</div><div class="pill-value" style="color:#22c55e;">${activeCount}</div></div>
         <div class="pill red"><div class="pill-label">Inactive / Expired</div><div class="pill-value" style="color:#f87171;">${inactiveCount} / ${expiredCount}</div></div>
       </div>
-
       <h3>Member Growth — Last 6 Months</h3>
-      <svg viewBox="0 0 560 100" width="100%" style="margin-bottom:12px;">
-        ${growthBars}
-      </svg>
-
+      <svg viewBox="0 0 560 100" width="100%" style="margin-bottom:12px;">${growthBars}</svg>
       ${
         membersWithBalance.length > 0
           ? `
@@ -962,18 +928,12 @@ export default function ReportsPage() {
       ${membersWithBalance
         .slice(0, 5)
         .map(
-          (m) => `
-        <div class="row">
-          <span class="row-label">${m.name} <span style="color:#aaa;font-size:9px;font-family:monospace;">${m.gymId}</span></span>
-          <span class="row-val" style="color:#d97706;">₱${m.balance.toLocaleString()} owed</span>
-        </div>
-      `,
+          (m) =>
+            `<div class="row"><span class="row-label">${m.name} <span style="color:#aaa;font-size:9px;font-family:monospace;">${m.gymId}</span></span><span class="row-val" style="color:#d97706;">₱${m.balance.toLocaleString()} owed</span></div>`,
         )
-        .join("")}
-      `
+        .join("")}`
           : ""
       }
-
       <hr class="divider"/>
       <h3>Member Loyalty — Top by Duration</h3>
       ${loyalMembers
@@ -987,51 +947,22 @@ export default function ReportsPage() {
             .join("")
             .slice(0, 2)
             .toUpperCase();
-          return `
-          <div class="loyalty-row">
-            <span style="color:#ccc;font-size:9px;width:14px;text-align:right;">${i + 1}</span>
-            <div class="loyalty-avatar">${initials}</div>
-            <div style="flex:1;min-width:0;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                <span class="loyalty-name">${m.name}</span>
-                <span class="loyalty-dur">${getMemberDuration(m.createdAt)}</span>
-              </div>
-              <div class="bar-track" style="margin:0;"><div class="bar-fill" style="width:${pct2}%;background:#FF6B1A;"></div></div>
-            </div>
-            <span class="badge ${m.status === "active" ? "badge-active" : m.status === "inactive" ? "badge-inactive" : "badge-expired"}">${m.status.toUpperCase()}</span>
-          </div>
-        `;
+          return `<div class="loyalty-row"><span style="color:#ccc;font-size:9px;width:14px;text-align:right;">${i + 1}</span><div class="loyalty-avatar">${initials}</div><div style="flex:1;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;"><span class="loyalty-name">${m.name}</span><span class="loyalty-dur">${getMemberDuration(m.createdAt)}</span></div><div class="bar-track" style="margin:0;"><div class="bar-fill" style="width:${pct2}%;background:#FF6B1A;"></div></div></div><span class="badge ${m.status === "active" ? "badge-active" : m.status === "inactive" ? "badge-inactive" : "badge-expired"}">${m.status.toUpperCase()}</span></div>`;
         })
         .join("")}
-
       ${
         newMembersList.length > 0
           ? `
       <hr class="divider"/>
       <h3>New Members in Period</h3>
       <div style="display:flex;flex-wrap:wrap;gap:4px;">
-        ${newMembersList
-          .map(
-            (m) => `
-          <div class="chip">
-            <span class="chip-name">${m.name.split(" ")[0]}</span>
-            <span class="chip-id">${m.gymId}</span>
-            <span class="chip-plan">${m.plan}</span>
-          </div>
-        `,
-          )
-          .join("")}
-      </div>
-      `
+        ${newMembersList.map((m) => `<div class="chip"><span class="chip-name">${m.name.split(" ")[0]}</span><span class="chip-id">${m.gymId}</span><span class="chip-plan">${m.plan}</span></div>`).join("")}
+      </div>`
           : ""
       }
     </div>
   </div>
-
-  <!-- Walk-in + Staff side by side -->
   <div class="grid2">
-
-    <!-- Walk-in Report -->
     <div class="section">
       <h2>🎫 Walk-in Report</h2>
       <div class="grid2" style="margin-bottom:12px;">
@@ -1040,98 +971,26 @@ export default function ReportsPage() {
         <div class="pill orange"><div class="pill-label">Regular</div><div class="pill-value" style="color:#FF6B1A;">${regularCount}</div></div>
         <div class="pill blue"><div class="pill-label">Student</div><div class="pill-value" style="color:#60a5fa;">${studentCount}</div></div>
       </div>
-      ${
-        walkInTotal > 0
-          ? `
-        <h3>Pass Type Breakdown</h3>
-        ${[
-          {
-            label: "Regular",
-            count: regularCount,
-            price: wiRegular,
-            color: "#FF6B1A",
-          },
-          {
-            label: "Student",
-            count: studentCount,
-            price: wiStudent,
-            color: "#60a5fa",
-          },
-          {
-            label: "Couple",
-            count: coupleCount,
-            price: wiCouple,
-            color: "#c084fc",
-          },
-        ]
-          .map(({ label, count, price, color }) => {
-            const pct3 =
-              walkInTotal > 0 ? Math.round((count / walkInTotal) * 100) : 0;
-            return `
-            <div class="row">
-              <span style="color:${color};font-weight:700;">${label}</span>
-              <div style="display:flex;align-items:center;gap:12px;">
-                <span style="color:#aaa;font-size:9px;">${count} visits · ₱${price}/pass</span>
-                <span class="row-val" style="color:${color};">₱${(count * price).toLocaleString()}</span>
-              </div>
-            </div>
-            <div class="bar-track"><div class="bar-fill" style="width:${pct3}%;background:${color};"></div></div>
-            <div style="font-size:8px;color:#bbb;margin-bottom:6px;">${pct3}% of total walk-ins</div>
-          `;
-          })
-          .join("")}
-      `
-          : `<div style="text-align:center;padding:20px;color:#bbb;font-size:11px;">No walk-ins in this period</div>`
-      }
     </div>
-
-    <!-- Staff Performance -->
     <div class="section">
       <h2>👷 Staff Performance</h2>
       ${
         staffStats.length === 0
-          ? `
-        <div style="text-align:center;padding:20px;color:#bbb;font-size:11px;">No staff activity in this period</div>
-      `
+          ? `<div style="text-align:center;padding:20px;color:#bbb;font-size:11px;">No staff activity in this period</div>`
           : `
-        <div class="tbl-head">
-          <span>Staff Member</span><span>Payments</span><span>Revenue</span><span>Walk-ins</span>
-        </div>
-        ${staffStats
-          .map((s, i) => {
-            const topAmt = staffStats[0]?.amount ?? 1;
-            const barPct4 = Math.round((s.amount / topAmt) * 100);
-            return `
-            <div class="staff-row">
-              <div style="display:flex;align-items:center;gap:6px;">
-                <div style="width:18px;height:18px;border-radius:50%;background:#fff0e8;border:1px solid #ffd0b8;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#FF6B1A;flex-shrink:0;">${i + 1}</div>
-                <span style="font-weight:600;color:#111;">${s.name}</span>
-              </div>
-              <span style="color:#555;">${s.payments}</span>
-              <span style="color:#FFB800;font-weight:700;font-variant-numeric:tabular-nums;">₱${s.amount.toLocaleString()}</span>
-              <span style="color:#555;">${s.walkIns}</span>
-            </div>
-            <div style="padding-left:24px;margin-bottom:4px;">
-              <div class="bar-track" style="margin:0;"><div class="bar-fill" style="width:${barPct4}%;background:#FF6B1A;"></div></div>
-            </div>
-          `;
-          })
-          .join("")}
-        <div class="staff-total">
-          <span style="color:#888;text-transform:uppercase;letter-spacing:0.05em;font-size:9px;">Total</span>
-          <span>${staffStats.reduce((s, x) => s + x.payments, 0)} payments</span>
-          <span style="color:#FF6B1A;">₱${staffStats.reduce((s, x) => s + x.amount, 0).toLocaleString()}</span>
-          <span>${staffStats.reduce((s, x) => s + x.walkIns, 0)} walk-ins</span>
-        </div>
-      `
+      <div class="tbl-head"><span>Staff Member</span><span>Payments</span><span>Revenue</span><span>Walk-ins</span></div>
+      ${staffStats
+        .map((s, i) => {
+          const topAmt = staffStats[0]?.amount ?? 1;
+          const barPct4 = Math.round((s.amount / topAmt) * 100);
+          return `<div class="staff-row"><div style="display:flex;align-items:center;gap:6px;"><div style="width:18px;height:18px;border-radius:50%;background:#fff0e8;border:1px solid #ffd0b8;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#FF6B1A;flex-shrink:0;">${i + 1}</div><span style="font-weight:600;color:#111;">${s.name}</span></div><span style="color:#555;">${s.payments}</span><span style="color:#FFB800;font-weight:700;font-variant-numeric:tabular-nums;">₱${s.amount.toLocaleString()}</span><span style="color:#555;">${s.walkIns}</span></div><div style="padding-left:24px;margin-bottom:4px;"><div class="bar-track" style="margin:0;"><div class="bar-fill" style="width:${barPct4}%;background:#FF6B1A;"></div></div></div>`;
+        })
+        .join("")}
+      <div class="staff-total"><span style="color:#888;text-transform:uppercase;letter-spacing:0.05em;font-size:9px;">Total</span><span>${staffStats.reduce((s, x) => s + x.payments, 0)} payments</span><span style="color:#FF6B1A;">₱${staffStats.reduce((s, x) => s + x.amount, 0).toLocaleString()}</span><span>${staffStats.reduce((s, x) => s + x.walkIns, 0)} walk-ins</span></div>`
       }
     </div>
   </div>
-
-  <div class="footer">
-    ${gymName} &nbsp;·&nbsp; ${formatDate(range.from)} — ${formatDate(range.to)} &nbsp;·&nbsp; Generated ${new Date().toLocaleString("en-PH")}
-  </div>
-
+  <div class="footer">${gymName} &nbsp;·&nbsp; ${formatDate(range.from)} — ${formatDate(range.to)} &nbsp;·&nbsp; Generated ${new Date().toLocaleString("en-PH")}</div>
   <script>window.onload = function() { window.print(); }</script>
 </body>
 </html>`;
@@ -1145,47 +1004,15 @@ export default function ReportsPage() {
     }, 300);
   };
 
-  // ── Computed ────────────────────────────────────────────────────────────────
-  const totalMembers = activeCount + inactiveCount + expiredCount;
-  const combinedRevenue = totalRevenue + walkInRevenue;
-  const loyalMembers = members
-    .filter((m) => getMemberDurationMonths(m.createdAt) >= 3)
-    .sort(
-      (a, b) =>
-        getMemberDurationMonths(b.createdAt) -
-        getMemberDurationMonths(a.createdAt),
-    );
-  const membersWithBalance = members.filter((m) => m.balance > 0);
-  const cashPct =
-    totalRevenue > 0 ? Math.round((cashRevenue / totalRevenue) * 100) : 0;
-  const rFrom2 = new Date(range.from);
-  const rTo2 = new Date(range.to);
-  rTo2.setHours(23, 59, 59, 999);
-  const newMembersList = members.filter((m) => {
-    const c = new Date(m.createdAt);
-    return c >= rFrom2 && c <= rTo2;
-  });
-  const walkInsByType = {
-    regular: regularCount,
-    student: studentCount,
-    couple: coupleCount,
-  };
-  const anyLoading =
-    revenueLoading || walkInLoading || memberLoading || staffLoading;
-
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
-
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
       <div
         className="max-w-7xl mx-auto pb-24 lg:pb-6 space-y-5"
         style={{ animation: "fadeIn 0.2s ease" }}
       >
         {/* ── Page Header ── */}
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 no-print">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-white">Reports</h2>
             <p className="text-xs text-white/30 mt-0.5">
@@ -1220,8 +1047,20 @@ export default function ReportsPage() {
           </button>
         </div>
 
+        {/* ── Truncation warning ── */}
+        {dataTruncated && (
+          <div className="flex items-center gap-2.5 px-4 py-3 bg-amber-400/10 border border-amber-400/20 rounded-xl">
+            <span className="text-amber-400 text-sm shrink-0">⚠</span>
+            <p className="text-amber-400 text-xs">
+              This period has more than {FETCH_LIMIT.toLocaleString()} records.
+              Report data may be incomplete. Consider using a shorter date range
+              for accuracy.
+            </p>
+          </div>
+        )}
+
         {/* ── Date Range Filter ── */}
-        <div className="bg-[#212121] border border-white/10 rounded-xl p-4 no-print">
+        <div className="bg-[#212121] border border-white/10 rounded-xl p-4">
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">
               Period:
@@ -1237,11 +1076,7 @@ export default function ReportsPage() {
               <button
                 key={key}
                 onClick={() => setPreset(key)}
-                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                  preset === key
-                    ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
-                    : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"
-                }`}
+                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${preset === key ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30" : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"}`}
               >
                 {label}
               </button>
@@ -1311,9 +1146,8 @@ export default function ReportsPage() {
           )}
         </div>
 
-        {/* ── Two-column layout on desktop ── */}
+        {/* ── Revenue + Member ── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          {/* ══ 1. REVENUE REPORT ══ */}
           <Section
             title="Revenue Report"
             icon="💰"
@@ -1321,7 +1155,6 @@ export default function ReportsPage() {
             error={revenueError}
           >
             <div className="space-y-5">
-              {/* Stats */}
               {revenueLoading ? (
                 <StatPillSkeleton count={4} />
               ) : (
@@ -1356,10 +1189,7 @@ export default function ReportsPage() {
                   />
                 </div>
               )}
-
               <ChartDivider />
-
-              {/* Cash vs Online split */}
               {!revenueLoading && totalRevenue > 0 && (
                 <>
                   <div>
@@ -1384,8 +1214,6 @@ export default function ReportsPage() {
                   <ChartDivider />
                 </>
               )}
-
-              {/* Dual trend chart */}
               <div>
                 <ChartLabel>
                   Revenue & Walk-in Trend — {rangeDates.length} day
@@ -1397,10 +1225,7 @@ export default function ReportsPage() {
                   walkInData={walkInsByDate}
                 />
               </div>
-
               <ChartDivider />
-
-              {/* Revenue source chart */}
               <div>
                 <ChartLabel>Revenue Source — Last 6 Weeks</ChartLabel>
                 <RevenueSourceChart
@@ -1410,10 +1235,7 @@ export default function ReportsPage() {
                   totalWalkIns={walkInTotal}
                 />
               </div>
-
               <ChartDivider />
-
-              {/* By payment type */}
               {!revenueLoading && (
                 <div>
                   <ChartLabel>By Payment Type</ChartLabel>
@@ -1479,7 +1301,6 @@ export default function ReportsPage() {
             </div>
           </Section>
 
-          {/* ══ 2. MEMBER REPORT ══ */}
           <Section
             title="Member Report"
             icon="👥"
@@ -1487,7 +1308,6 @@ export default function ReportsPage() {
             error={memberError}
           >
             <div className="space-y-5">
-              {/* Stats — now includes Inactive */}
               {memberLoading ? (
                 <StatPillSkeleton count={4} />
               ) : (
@@ -1521,10 +1341,7 @@ export default function ReportsPage() {
                   />
                 </div>
               )}
-
               <ChartDivider />
-
-              {/* Member growth */}
               {!memberLoading && (
                 <>
                   <div>
@@ -1534,8 +1351,6 @@ export default function ReportsPage() {
                   <ChartDivider />
                 </>
               )}
-
-              {/* Outstanding balances */}
               {!memberLoading && membersWithBalance.length > 0 && (
                 <>
                   <div>
@@ -1582,8 +1397,6 @@ export default function ReportsPage() {
                   <ChartDivider />
                 </>
               )}
-
-              {/* Member Loyalty */}
               {!memberLoading && (
                 <div>
                   <ChartLabel>Member Loyalty — Longest Active</ChartLabel>
@@ -1637,8 +1450,6 @@ export default function ReportsPage() {
                   </div>
                 </div>
               )}
-
-              {/* New members in period */}
               {!memberLoading && newMembersList.length > 0 && (
                 <>
                   <ChartDivider />
@@ -1675,9 +1486,8 @@ export default function ReportsPage() {
           </Section>
         </div>
 
-        {/* ── Bottom row: Walk-in + Staff side by side on desktop ── */}
+        {/* ── Walk-in + Staff ── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          {/* ══ 3. WALK-IN REPORT ══ */}
           <Section
             title="Walk-in Report"
             icon="🎫"
@@ -1719,7 +1529,6 @@ export default function ReportsPage() {
                   />
                 </div>
               )}
-
               {!walkInLoading && (
                 <>
                   <ChartDivider />
@@ -1806,7 +1615,6 @@ export default function ReportsPage() {
             </div>
           </Section>
 
-          {/* ══ 4. STAFF PERFORMANCE ══ */}
           <Section title="Staff Performance" icon="👷" loading={staffLoading}>
             <div className="space-y-4">
               {!staffLoading && staffStats.length === 0 && (
@@ -1822,7 +1630,6 @@ export default function ReportsPage() {
               )}
               {!staffLoading && staffStats.length > 0 && (
                 <>
-                  {/* Table header */}
                   <div className="grid grid-cols-4 gap-3 pb-2 border-b border-white/[0.07]">
                     {["Staff Member", "Payments", "Revenue", "Walk-ins"].map(
                       (h) => (
@@ -1835,8 +1642,6 @@ export default function ReportsPage() {
                       ),
                     )}
                   </div>
-
-                  {/* Rows */}
                   {staffStats.map((s, i) => {
                     const topAmount = staffStats[0]?.amount ?? 1;
                     const barPct = Math.round((s.amount / topAmount) * 100);
@@ -1861,7 +1666,6 @@ export default function ReportsPage() {
                             {s.walkIns} registered
                           </span>
                         </div>
-                        {/* Mini revenue bar per staff */}
                         <div className="ml-7 h-0.5 bg-white/[0.05] rounded-full overflow-hidden">
                           <div
                             className="h-full bg-[#FF6B1A] rounded-full"
@@ -1871,10 +1675,7 @@ export default function ReportsPage() {
                       </div>
                     );
                   })}
-
                   <ChartDivider />
-
-                  {/* Totals */}
                   <div className="grid grid-cols-4 gap-3">
                     <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
                       Total

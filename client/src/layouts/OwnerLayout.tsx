@@ -37,10 +37,14 @@ const navItems = [
     label: "Reports",
     icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
   },
+  {
+    id: "action-log",
+    label: "Action Log",
+    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+  },
 ];
 
 // ─── Logout Confirm Modal ─────────────────────────────────────────────────────
-
 function LogoutModal({
   onConfirm,
   onCancel,
@@ -120,7 +124,6 @@ function LogoutModal({
 }
 
 // ─── Owner Layout ─────────────────────────────────────────────────────────────
-
 interface OwnerLayoutProps {
   children: React.ReactNode;
   activePage: string;
@@ -139,17 +142,14 @@ export default function OwnerLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  // Desktop top-right avatar dropdown
   const [showAvatarDropdown, setShowAvatarDropdown] = useState(false);
   const avatarDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Mobile sidebar profile chip dropdown
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
   const sidebarDropdownRef = useRef<HTMLDivElement>(null);
 
   const { showToast } = useToastStore();
 
-  // Close avatar dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -164,7 +164,6 @@ export default function OwnerLayout({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showAvatarDropdown]);
 
-  // Close sidebar dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -203,8 +202,12 @@ export default function OwnerLayout({
     .slice(0, 2)
     .toUpperCase();
 
-  const gymName = settings?.gymName || "IronCore";
+  const gymName = settings?.gymName || "GMS";
   const logoUrl = settings?.logoUrl || null;
+
+  // Overview = first 4, Manage = last 3 (Staff, Reports, Action Log)
+  const overviewItems = navItems.slice(0, 4);
+  const manageItems = navItems.slice(4);
 
   return (
     <div className="min-h-screen bg-[#1a1a1a] flex">
@@ -219,11 +222,11 @@ export default function OwnerLayout({
       {/* ── SIDEBAR ── */}
       <aside
         className={`
-        fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7
-        flex flex-col z-50 transition-transform duration-250
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0 lg:sticky lg:z-auto
-      `}
+          fixed top-0 left-0 h-screen w-55 bg-[#212121] border-r border-white/7
+          flex flex-col z-50 transition-transform duration-250
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          lg:translate-x-0 lg:sticky lg:z-auto
+        `}
       >
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/7">
@@ -251,7 +254,7 @@ export default function OwnerLayout({
           <div className="px-5 py-2 text-[10px] font-semibold tracking-widest text-white/30 uppercase">
             Overview
           </div>
-          {navItems.slice(0, 4).map((item) => (
+          {overviewItems.map((item) => (
             <button
               key={item.id}
               onClick={() => handleNav(item.id)}
@@ -272,7 +275,7 @@ export default function OwnerLayout({
           <div className="px-5 py-2 mt-2 text-[10px] font-semibold tracking-widest text-white/30 uppercase">
             Manage
           </div>
-          {navItems.slice(4).map((item) => (
+          {manageItems.map((item) => (
             <button
               key={item.id}
               onClick={() => handleNav(item.id)}
@@ -296,7 +299,6 @@ export default function OwnerLayout({
           className="px-4 py-4 border-t border-white/7 relative"
           ref={sidebarDropdownRef}
         >
-          {/* Mobile dropdown */}
           {showSidebarDropdown && (
             <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#2a2a2a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-10 lg:hidden">
               <button
@@ -321,7 +323,6 @@ export default function OwnerLayout({
             </div>
           )}
 
-          {/* Profile chip — clickable on mobile, display only on desktop */}
           <div
             onClick={() => {
               if (window.innerWidth < 1024)
@@ -351,7 +352,6 @@ export default function OwnerLayout({
       <div className="flex-1 flex flex-col min-h-screen">
         {/* ── TOPBAR ── */}
         <header className="sticky top-0 z-30 bg-[#1a1a1a]/90 backdrop-blur-md border-b border-white/7 px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          {/* Left — Hamburger + Date + Badge */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}

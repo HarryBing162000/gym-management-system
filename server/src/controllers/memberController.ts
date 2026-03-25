@@ -1,20 +1,13 @@
-/**
- * memberController.ts
- * IronCore GMS — Member Management Route Handlers
- *
- * Queries the Member collection — separate from User (owner/staff auth).
- */
-
 import { Response } from "express";
 import { AuthRequest } from "../middleware/authMiddleware";
 import Member from "../models/Member";
+import { logAction } from "../utils/logAction";
 import { autoLogPayment } from "./paymentController";
 import {
   CreateMemberInput,
   UpdateMemberInput,
 } from "../middleware/authSchemas";
 
-// ─── Safe projection — strip internal _id, return gymId as identifier ─────────
 const MEMBER_SAFE_FIELDS = {
   _id: 0,
   gymId: 1,
@@ -32,7 +25,6 @@ const MEMBER_SAFE_FIELDS = {
   createdAt: 1,
 };
 
-// ─── Helper — generate next GYM-XXXX ID ──────────────────────────────────────
 const generateGymId = async (): Promise<string> => {
   const lastMember = await Member.findOne({})
     .sort({ createdAt: -1 })
@@ -42,7 +34,6 @@ const generateGymId = async (): Promise<string> => {
   return `GYM-${String(lastNum + 1).padStart(4, "0")}`;
 };
 
-// ─── Helper — auto-expire members whose expiresAt has passed ─────────────────
 const autoExpireMembers = async (): Promise<void> => {
   await Member.updateMany(
     { status: "active", expiresAt: { $lt: new Date() } },
@@ -53,7 +44,6 @@ const autoExpireMembers = async (): Promise<void> => {
 // ─── GET /api/members ─────────────────────────────────────────────────────────
 export const getMembers = async (req: AuthRequest, res: Response) => {
   try {
-    // Auto-expire any members whose plan has lapsed
     await autoExpireMembers();
 
     const {
@@ -71,27 +61,17 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
 
     const filter: Record<string, unknown> = { isActive: true };
 
-    if (status && ["active", "inactive", "expired"].includes(status)) {
+    if (status && ["active", "inactive", "expired"].includes(status))
       filter.status = status;
-    }
-    if (plan && plan.trim().length > 0) {
-      filter.plan = plan;
-    }
-    if (checkedIn === "true") {
-      filter.checkedIn = true;
-    }
+    if (plan && plan.trim().length > 0) filter.plan = plan;
+    if (checkedIn === "true") filter.checkedIn = true;
     if (search) {
-      // Strip regex metacharacters but preserve hyphen — needed for GYM-XXXX
       const safeSearch = String(search)
         .replace(/[.*+?^${}()|[\]\\]/g, "")
         .trim();
       if (safeSearch.length >= 1) {
-        // Detect GYM-ID intent: starts with "GYM" (with or without hyphen/digits)
-        // Supports partial typing: "GYM", "GYM-", "GYM-10", "GYM-1001"
         if (/^GYM/i.test(safeSearch)) {
-          filter.gymId = {
-            $regex: `^${safeSearch.toUpperCase()}`, // starts-with match
-          };
+          filter.gymId = { $regex: `^${safeSearch.toUpperCase()}` };
         } else {
           filter.$or = [
             { name: { $regex: safeSearch, $options: "i" } },
@@ -123,11 +103,10 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ─── GET /api/members/stats ──────────────────────────────────────────────────
+// ─── GET /api/members/stats ───────────────────────────────────────────────────
 export const getMemberStats = async (_req: AuthRequest, res: Response) => {
   try {
     await autoExpireMembers();
-
     const now = new Date();
     const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -142,28 +121,22 @@ export const getMemberStats = async (_req: AuthRequest, res: Response) => {
       Member.countDocuments({ isActive: true, balance: { $gt: 0 } }),
     ]);
 
-    return res.status(200).json({
-      success: true,
-      total,
-      checkedIn,
-      expiringSoon,
-      withBalance,
-    });
+    return res
+      .status(200)
+      .json({ success: true, total, checkedIn, expiringSoon, withBalance });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
   }
 };
 
-// ─── GET /api/members/at-risk ───────────────────────────────────────────────
+// ─── GET /api/members/at-risk ─────────────────────────────────────────────────
 export const getAtRiskMembers = async (_req: AuthRequest, res: Response) => {
   try {
     await autoExpireMembers();
-
     const now = new Date();
     const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    // Members expiring within 7 days
     const expiring = await Member.find({
       isActive: true,
       status: "active",
@@ -173,11 +146,7 @@ export const getAtRiskMembers = async (_req: AuthRequest, res: Response) => {
       .sort({ expiresAt: 1 })
       .limit(10);
 
-    // Recently expired members (overdue)
-    const overdue = await Member.find({
-      isActive: true,
-      status: "expired",
-    })
+    const overdue = await Member.find({ isActive: true, status: "expired" })
       .select(MEMBER_SAFE_FIELDS)
       .sort({ expiresAt: -1 })
       .limit(5);
@@ -219,13 +188,10 @@ export const getMemberByGymId = async (req: AuthRequest, res: Response) => {
     const member = await Member.findOne({
       gymId: String(gymId).toUpperCase(),
     }).select(MEMBER_SAFE_FIELDS);
-
-    if (!member) {
-      return res.status(404).json({
-        success: false,
-        message: `Member ${gymId} not found.`,
-      });
-    }
+    if (!member)
+      return res
+        .status(404)
+        .json({ success: false, message: `Member ${gymId} not found.` });
     return res.status(200).json({ success: true, member });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
@@ -239,12 +205,10 @@ export const createMember = async (req: AuthRequest, res: Response) => {
     const { name, email, phone, plan, status, expiresAt }: CreateMemberInput =
       req.body;
 
-    // ── 1. Duplicate name — hard block ────────────────────────────────────────
     const escapedName = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const nameExists = await Member.findOne({
       name: { $regex: `^${escapedName}$`, $options: "i" },
     }).select("gymId name");
-
     if (nameExists) {
       return res.status(409).json({
         success: false,
@@ -252,19 +216,18 @@ export const createMember = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // ── 2. Duplicate email — hard block (only if provided) ───────────────────
     if (email) {
       const emailExists = await Member.findOne({ email }).select("gymId name");
-      if (emailExists) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "This email is already registered. Please use a different email.",
-        });
-      }
+      if (emailExists)
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message:
+              "This email is already registered. Please use a different email.",
+          });
     }
 
-    // ── 3. Duplicate phone — hard block (only if provided) ───────────────────
     if (phone) {
       const normalizedPhone = phone.replace(/\s/g, "");
       const phoneExists = await Member.findOne({
@@ -272,16 +235,15 @@ export const createMember = async (req: AuthRequest, res: Response) => {
           $regex: normalizedPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
         },
       }).select("gymId name");
-
-      if (phoneExists) {
-        return res.status(409).json({
-          success: false,
-          message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
-        });
-      }
+      if (phoneExists)
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
+          });
     }
 
-    // ── 4. Generate GYM-ID with collision retry ───────────────────────────────
     let gymId = "";
     let attempts = 0;
     while (true) {
@@ -289,15 +251,15 @@ export const createMember = async (req: AuthRequest, res: Response) => {
       const collision = await Member.findOne({ gymId });
       if (!collision) break;
       attempts++;
-      if (attempts > 5) {
-        return res.status(500).json({
-          success: false,
-          message: "Failed to generate unique GYM-ID. Please try again.",
-        });
-      }
+      if (attempts > 5)
+        return res
+          .status(500)
+          .json({
+            success: false,
+            message: "Failed to generate unique GYM-ID. Please try again.",
+          });
     }
 
-    // ── 5. Create member ──────────────────────────────────────────────────────
     const createPayload: Record<string, unknown> = {
       gymId,
       name,
@@ -307,13 +269,23 @@ export const createMember = async (req: AuthRequest, res: Response) => {
       isActive: true,
       checkedIn: false,
     };
-
     if (email) createPayload.email = email;
     if (phone) createPayload.phone = phone;
 
     const member = await Member.create(createPayload);
 
-    // Auto-log payment with method and optional partial amount
+    await logAction({
+      action: "member_created",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: member.gymId,
+      targetName: member.name,
+      detail: `${req.user!.name} registered new member ${member.name} (${member.gymId}) — plan: ${member.plan}`,
+    });
+
     try {
       await autoLogPayment({
         gymId: member.gymId,
@@ -326,7 +298,7 @@ export const createMember = async (req: AuthRequest, res: Response) => {
           req.body.amountPaid != null ? Number(req.body.amountPaid) : undefined,
       });
     } catch {
-      /* non-critical — member is saved, payment log failure shouldn't block */
+      /* non-critical */
     }
 
     return res.status(201).json({
@@ -352,10 +324,12 @@ export const createMember = async (req: AuthRequest, res: Response) => {
       "code" in err &&
       (err as { code: number }).code === 11000
     ) {
-      return res.status(409).json({
-        success: false,
-        message: "A member with this information already exists.",
-      });
+      return res
+        .status(409)
+        .json({
+          success: false,
+          message: "A member with this information already exists.",
+        });
     }
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -370,17 +344,17 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
 
     const blocked = ["gymId", "_id"] as const;
     for (const field of blocked) {
-      if (field in updates) {
-        return res.status(400).json({
-          success: false,
-          message: `Field "${field}" cannot be updated.`,
-        });
-      }
+      if (field in updates)
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: `Field "${field}" cannot be updated.`,
+          });
     }
 
     const currentGymId = String(gymId).toUpperCase();
 
-    // ── Duplicate checks excluding self ───────────────────────────────────────
     if (updates.name) {
       const escapedName = updates.name
         .trim()
@@ -389,13 +363,13 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         name: { $regex: `^${escapedName}$`, $options: "i" },
         gymId: { $ne: currentGymId },
       }).select("gymId name");
-
-      if (nameExists) {
-        return res.status(409).json({
-          success: false,
-          message: `A member named "${nameExists.name}" already exists (${nameExists.gymId}).`,
-        });
-      }
+      if (nameExists)
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message: `A member named "${nameExists.name}" already exists (${nameExists.gymId}).`,
+          });
     }
 
     if (updates.email) {
@@ -403,13 +377,13 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         email: updates.email,
         gymId: { $ne: currentGymId },
       }).select("gymId name");
-
-      if (emailExists) {
-        return res.status(409).json({
-          success: false,
-          message: "This email is already registered to another member.",
-        });
-      }
+      if (emailExists)
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message: "This email is already registered to another member.",
+          });
     }
 
     if (updates.phone) {
@@ -420,16 +394,15 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         },
         gymId: { $ne: currentGymId },
       }).select("gymId name");
-
-      if (phoneExists) {
-        return res.status(409).json({
-          success: false,
-          message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
-        });
-      }
+      if (phoneExists)
+        return res
+          .status(409)
+          .json({
+            success: false,
+            message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
+          });
     }
 
-    // ── Build update payload ──────────────────────────────────────────────────
     const setPayload: Record<string, unknown> = {};
     const allowedFields: (keyof UpdateMemberInput)[] = [
       "name",
@@ -441,19 +414,18 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       "photoUrl",
     ];
     for (const field of allowedFields) {
-      if (field in updates && updates[field] !== undefined) {
+      if (field in updates && updates[field] !== undefined)
         setPayload[field] = updates[field];
-      }
     }
 
-    if (Object.keys(setPayload).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No valid fields provided for update.",
-      });
-    }
+    if (Object.keys(setPayload).length === 0)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "No valid fields provided for update.",
+        });
 
-    // ── Snapshot old expiresAt BEFORE update — needed for renewal detection ──
     const oldMember = await Member.findOne({ gymId: currentGymId }).select(
       "expiresAt",
     );
@@ -465,18 +437,29 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       { returnDocument: "after", runValidators: true },
     ).select(MEMBER_SAFE_FIELDS);
 
-    if (!member) {
-      return res.status(404).json({
-        success: false,
-        message: `Member ${gymId} not found.`,
-      });
-    }
+    if (!member)
+      return res
+        .status(404)
+        .json({ success: false, message: `Member ${gymId} not found.` });
 
-    // Auto-log renewal payment only if expiresAt is being pushed forward
     const isRenewal =
       setPayload.expiresAt &&
       oldExpiresAt &&
       new Date(setPayload.expiresAt as Date) > new Date(oldExpiresAt);
+
+    await logAction({
+      action: isRenewal ? "member_updated" : "member_updated",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: member.gymId,
+      targetName: member.name,
+      detail: isRenewal
+        ? `${req.user!.name} renewed ${member.name} (${member.gymId}) — plan: ${member.plan}`
+        : `${req.user!.name} updated ${member.name} (${member.gymId})`,
+    });
 
     if (isRenewal) {
       try {
@@ -501,11 +484,9 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Member updated successfully.",
-      member,
-    });
+    return res
+      .status(200)
+      .json({ success: true, message: "Member updated successfully.", member });
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -513,10 +494,12 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       "code" in err &&
       (err as { code: number }).code === 11000
     ) {
-      return res.status(409).json({
-        success: false,
-        message: "This information is already in use by another member.",
-      });
+      return res
+        .status(409)
+        .json({
+          success: false,
+          message: "This information is already in use by another member.",
+        });
     }
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -533,16 +516,30 @@ export const deactivateMember = async (req: AuthRequest, res: Response) => {
       { returnDocument: "after" },
     ).select(MEMBER_SAFE_FIELDS);
 
-    if (!member) {
+    if (!member)
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
-    }
-    return res.status(200).json({
-      success: true,
-      message: `Member ${gymId} has been deactivated.`,
-      member,
+
+    await logAction({
+      action: "member_updated",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: member.gymId,
+      targetName: member.name,
+      detail: `${req.user!.name} deactivated member ${member.name} (${member.gymId})`,
     });
+
+    return res
+      .status(200)
+      .json({
+        success: true,
+        message: `Member ${gymId} has been deactivated.`,
+        member,
+      });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -555,15 +552,12 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
     const { gymId } = req.params;
     const upperGymId = String(gymId).toUpperCase();
 
-    // First fetch the member to check expiry
     const existing = await Member.findOne({ gymId: upperGymId });
-    if (!existing) {
+    if (!existing)
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
-    }
 
-    // If their membership has expired, set status to "expired" not "active"
     const isExpired = new Date(existing.expiresAt) < new Date();
     const newStatus = isExpired ? "expired" : "active";
 
@@ -573,15 +567,23 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
       { returnDocument: "after" },
     ).select(MEMBER_SAFE_FIELDS);
 
+    await logAction({
+      action: "member_updated",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: upperGymId,
+      targetName: existing.name,
+      detail: `${req.user!.name} reactivated member ${existing.name} (${upperGymId})`,
+    });
+
     const message = isExpired
-      ? `Member ${gymId} has been reactivated but their membership is expired. Please renew their plan.`
+      ? `Member ${gymId} reactivated but membership is expired. Please renew their plan.`
       : `Member ${gymId} has been reactivated.`;
 
-    return res.status(200).json({
-      success: true,
-      message,
-      member,
-    });
+    return res.status(200).json({ success: true, message, member });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -589,39 +591,52 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── PATCH /api/members/:gymId/checkin ───────────────────────────────────────
-// Staff or owner checks a member in at the desk.
 export const checkInMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
 
     const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
-    if (!member) {
+    if (!member)
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
-    }
-    if (!member.isActive || member.status === "inactive") {
-      return res.status(403).json({
-        success: false,
-        message: `${member.name}'s membership is inactive.`,
-      });
-    }
-    if (member.status === "expired") {
-      return res.status(403).json({
-        success: false,
-        message: `${member.name}'s membership has expired.`,
-      });
-    }
-    if (member.checkedIn) {
-      return res.status(400).json({
-        success: false,
-        message: `${member.name} is already checked in.`,
-      });
-    }
+    if (!member.isActive || member.status === "inactive")
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: `${member.name}'s membership is inactive.`,
+        });
+    if (member.status === "expired")
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: `${member.name}'s membership has expired.`,
+        });
+    if (member.checkedIn)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: `${member.name} is already checked in.`,
+        });
 
     member.checkedIn = true;
     member.lastCheckIn = new Date();
     await member.save();
+
+    await logAction({
+      action: "check_in",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: member.gymId,
+      targetName: member.name,
+      detail: `${req.user!.name} checked in ${member.name} (${member.gymId})`,
+    });
 
     return res.status(200).json({
       success: true,
@@ -635,26 +650,37 @@ export const checkInMember = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── PATCH /api/members/:gymId/checkout ──────────────────────────────────────
-// Staff or owner checks a member out at the desk.
 export const checkOutMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
 
     const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
-    if (!member) {
+    if (!member)
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
-    }
-    if (!member.checkedIn) {
-      return res.status(400).json({
-        success: false,
-        message: `${member.name} is not currently checked in.`,
-      });
-    }
+    if (!member.checkedIn)
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: `${member.name} is not currently checked in.`,
+        });
 
     member.checkedIn = false;
     await member.save();
+
+    await logAction({
+      action: "check_out",
+      performedBy: {
+        userId: req.user!.id,
+        name: req.user!.name,
+        role: req.user!.role,
+      },
+      targetId: member.gymId,
+      targetName: member.name,
+      detail: `${req.user!.name} checked out ${member.name} (${member.gymId})`,
+    });
 
     return res.status(200).json({
       success: true,
