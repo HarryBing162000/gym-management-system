@@ -1,8 +1,12 @@
 /**
  * PaymentsPage.tsx
  *
- * Modal fix: search results render inline (not absolutely positioned)
- * so they push content down naturally without breaking layout.
+ * Fixes applied:
+ *   1. getNewExpiry() now extends from member's expiresAt, not today
+ *   2. Payment type selector added (New Member / Renewal / Manual)
+ *   3. Settle Balance shortcut shown when member has outstanding balance
+ *   4. Member search filters active-only members
+ *   5. triggerMemberRefresh() called after renewal so MembersPage updates
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -51,6 +55,14 @@ const METHOD_COLORS: Record<string, string> = {
   cash: "text-[#FFB800] bg-[#FFB800]/10 border-[#FFB800]/20",
   online: "text-blue-400 bg-blue-400/10 border-blue-400/20",
 };
+
+// Payment types available in the modal (excludes balance_settlement — that has its own button)
+const PAYMENT_TYPE_OPTIONS = [
+  { value: "new_member", label: "New Member" },
+  { value: "renewal", label: "Renewal" },
+  { value: "manual", label: "Manual" },
+] as const;
+type ModalPaymentType = "new_member" | "renewal" | "manual";
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
@@ -178,15 +190,23 @@ interface LogPaymentModalProps {
 
 function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
   const { showToast } = useToastStore();
-  const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
+  const {
+    getActivePlans,
+    getPlanPrice,
+    getPlanDuration,
+    triggerMemberRefresh,
+  } = useGymStore();
   const activePlans = getActivePlans();
+
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Member[]>([]);
   const [selected, setSelected] = useState<Member | null>(null);
   const [method, setMethod] = useState<"cash" | "online">("cash");
+  const [paymentType, setPaymentType] = useState<ModalPaymentType>("manual");
   const [notes, setNotes] = useState("");
   const [amountPaidInput, setAmountPaidInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [settlingBalance, setSettlingBalance] = useState(false);
   const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<string>("");
@@ -198,10 +218,15 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     setSearch("");
     setResults([]);
     setAmountPaidInput("");
+    setErrorMsg("");
     const daysLeft = Math.ceil(
       (new Date(m.expiresAt).getTime() - Date.now()) / 86400000,
     );
-    setRenewExpiry(m.status === "expired" || daysLeft <= 7);
+    const shouldRenew = m.status === "expired" || daysLeft <= 7;
+    setRenewExpiry(shouldRenew);
+    // Auto-set payment type based on member status
+    if (shouldRenew) setPaymentType("renewal");
+    else setPaymentType("manual");
   };
 
   const handlePlanChange = (plan: string) => {
@@ -209,13 +234,29 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     setAmountPaidInput("");
   };
 
+  // FIX: Extend from member's current expiry if still active, from today if expired
   const getNewExpiry = (plan: string): string => {
+    if (!selected) return "";
     const months = getPlanDuration(plan);
-    const d = new Date();
-    d.setMonth(d.getMonth() + months);
-    return d.toISOString().split("T")[0];
+    const now = new Date();
+    const currentExpiry = selected.expiresAt
+      ? new Date(selected.expiresAt)
+      : now;
+    const baseDate =
+      currentExpiry > now ? new Date(currentExpiry) : new Date(now);
+    baseDate.setMonth(baseDate.getMonth() + months);
+    return baseDate.toISOString().split("T")[0];
   };
 
+  // Toggle renewExpiry and sync payment type
+  const handleRenewToggle = () => {
+    const next = !renewExpiry;
+    setRenewExpiry(next);
+    if (next) setPaymentType("renewal");
+    else setPaymentType("manual");
+  };
+
+  // FIX: Only show active members in search
   useEffect(() => {
     if (!search.trim()) {
       setResults([]);
@@ -227,6 +268,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
         const res = await memberService.getAll({
           search: search.trim(),
           limit: 5,
+          status: "active", // FIX: exclude inactive/expired members
         });
         setResults(res.members);
       } catch {
@@ -237,6 +279,25 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     }, 300);
     return () => clearTimeout(id);
   }, [search]);
+
+  // Settle balance shortcut — calls settleBalance endpoint directly
+  const handleSettleBalance = async () => {
+    if (!selected || !selected.balance) return;
+    setErrorMsg("");
+    setSettlingBalance(true);
+    try {
+      const res = await paymentService.settle(selected.gymId, method);
+      showToast(res.message, "success");
+      triggerMemberRefresh(); // signal MembersPage to refetch
+      onLogged();
+      onClose();
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setErrorMsg(err.response?.data?.message || "Failed to settle balance.");
+    } finally {
+      setSettlingBalance(false);
+    }
+  };
 
   const handleSubmit = async () => {
     setErrorMsg("");
@@ -258,14 +319,16 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
       const res = await paymentService.create({
         gymId: selected.gymId,
         method,
-        type: "manual",
+        type: paymentType,
         amountPaid: amountPaidInput ? Number(amountPaidInput) : undefined,
         totalAmount: planPrice,
         notes: notes.trim() || undefined,
         plan: isPlanChange || renewExpiry ? selectedPlan : undefined,
-        renewExpiry: renewExpiry || undefined,
+        renewExpiry: renewExpiry ? true : undefined,
       });
       showToast(res.message, "success");
+      // FIX: Signal MembersPage to refetch so updated expiresAt shows immediately
+      if (renewExpiry) triggerMemberRefresh();
       onLogged();
       onClose();
     } catch (e) {
@@ -296,7 +359,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
           style={{ animation: "payFadeIn 0.2s ease", maxHeight: "90vh" }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header — fixed */}
+          {/* Header */}
           <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between shrink-0">
             <div>
               <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
@@ -321,7 +384,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                 Member <span className="text-[#FF6B1A]">*</span>
               </label>
-
               {selected ? (
                 <div className="px-4 py-3 bg-[#FF6B1A]/5 border border-[#FF6B1A]/20 rounded-lg">
                   <div className="flex items-center gap-3">
@@ -339,6 +401,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                         setSelectedPlan("");
                         setSearch("");
                         setRenewExpiry(false);
+                        setPaymentType("manual");
                       }}
                       className="text-white/30 hover:text-white text-xs cursor-pointer"
                     >
@@ -392,8 +455,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   </div>
                 </div>
               ) : (
-                // FIX: search input + results are in normal document flow
-                // Results render as an inline block below the input — no absolute positioning
                 <div>
                   <div className="relative">
                     <input
@@ -408,8 +469,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
                     )}
                   </div>
-
-                  {/* Inline results — part of normal flow, no absolute positioning */}
                   {results.length > 0 && (
                     <div className="mt-1 bg-[#2a2a2a] border border-white/10 rounded-lg overflow-hidden">
                       {results.map((m) => {
@@ -457,16 +516,40 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       })}
                     </div>
                   )}
-
-                  {/* No results state */}
                   {!searching && search.trim() && results.length === 0 && (
                     <div className="mt-1 px-4 py-3 bg-[#2a2a2a] border border-white/10 rounded-lg text-xs text-white/30 text-center">
-                      No member found for "{search}"
+                      No active member found for "{search}"
                     </div>
                   )}
                 </div>
               )}
             </div>
+
+            {/* FIX: Settle Balance shortcut — shown when member has outstanding balance */}
+            {selected && selected.balance > 0 && (
+              <div className="px-4 py-3 bg-amber-400/5 border border-amber-400/20 rounded-lg">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400">
+                      Outstanding Balance
+                    </div>
+                    <div className="text-[10px] text-white/40 mt-0.5">
+                      ₱{selected.balance.toLocaleString()} owed — settle this
+                      separately
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSettleBalance}
+                    disabled={settlingBalance}
+                    className="px-3 py-1.5 text-xs font-bold bg-amber-400/15 text-amber-400 border border-amber-400/30 rounded-lg hover:bg-amber-400/25 transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    {settlingBalance
+                      ? "Settling..."
+                      : "Settle ₱" + selected.balance.toLocaleString()}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Plan selector */}
             {selected && activePlans.length > 0 && (
@@ -503,10 +586,39 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
               </div>
             )}
 
+            {/* FIX: Payment type selector */}
+            {selected && (
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                  Payment Type
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {PAYMENT_TYPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => {
+                        setPaymentType(opt.value);
+                        // Auto-toggle renewExpiry when switching to/from renewal
+                        if (opt.value === "renewal") setRenewExpiry(true);
+                        else setRenewExpiry(false);
+                      }}
+                      className={`py-2 rounded-lg border text-center text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer ${
+                        paymentType === opt.value
+                          ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
+                          : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Extend expiry toggle */}
             {selected && (
               <div
-                onClick={() => setRenewExpiry(!renewExpiry)}
+                onClick={handleRenewToggle}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-all ${renewExpiry ? "bg-emerald-400/5 border-emerald-400/30" : "bg-white/[0.02] border-white/10 hover:border-white/20"}`}
               >
                 <div
@@ -632,7 +744,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
             )}
           </div>
 
-          {/* Footer — fixed */}
+          {/* Footer */}
           <div className="px-6 py-4 border-t border-white/10 flex gap-2 shrink-0">
             <button
               onClick={onClose}
@@ -671,6 +783,7 @@ export default function PaymentsPage({
   forceStaffView = false,
 }: PaymentsPageProps = {}) {
   const { showToast } = useToastStore();
+  const { triggerMemberRefresh } = useGymStore();
   const isStaff = forceStaffView;
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
@@ -763,6 +876,7 @@ export default function PaymentsPage({
   const handleLogged = () => {
     fetchSummary();
     fetchPayments();
+    triggerMemberRefresh(); // always signal — safe even if renewal wasn't toggled
   };
 
   const hasFilters = isStaff

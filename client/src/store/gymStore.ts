@@ -1,10 +1,13 @@
 /**
  * gymStore.ts
- * IronCore GMS — Global Gym Settings Store
+ * GMS — Global Gym Settings Store
  *
  * Fetches and caches gym info + plans once on app load.
  * Plans are the SINGLE SOURCE OF TRUTH for pricing across the entire frontend.
  * No auth required — gym-info is a public endpoint.
+ *
+ * Added: lastMemberUpdate + triggerMemberRefresh
+ * Used to signal MembersPage to refetch after a payment renewal updates expiresAt.
  */
 
 import { create } from "zustand";
@@ -37,6 +40,10 @@ interface GymStore {
   isLoading: boolean;
   hasFetched: boolean;
 
+  // Member refresh signal — incremented whenever a payment renewal updates a member
+  lastMemberUpdate: number;
+  triggerMemberRefresh: () => void;
+
   // Actions
   fetchGymInfo: () => Promise<void>;
   updateSettings: (settings: Partial<GymSettings>) => void;
@@ -62,15 +69,16 @@ export const useGymStore = create<GymStore>((set, get) => ({
   isLoading: false,
   hasFetched: false,
 
-  fetchGymInfo: async () => {
-    // Don't fetch again if already fetched
-    if (get().hasFetched) return;
+  // Starts at 0 — MembersPage watches this and refetches when it changes
+  lastMemberUpdate: 0,
+  triggerMemberRefresh: () => set({ lastMemberUpdate: Date.now() }),
 
+  fetchGymInfo: async () => {
+    if (get().hasFetched) return;
     set({ isLoading: true });
     try {
       const res = await fetch(`${API_BASE}/auth/gym-info`);
       const data = await res.json();
-
       if (data.success) {
         set({
           settings: {
@@ -88,35 +96,30 @@ export const useGymStore = create<GymStore>((set, get) => ({
         });
       }
     } catch {
-      // Fail silently — fallback to default text in components
       set({ hasFetched: true });
     } finally {
       set({ isLoading: false });
     }
   },
 
-  // Called after owner updates gym name/address in settings modal
   updateSettings: (newSettings) => {
     set((state) => ({
       settings: state.settings ? { ...state.settings, ...newSettings } : null,
     }));
   },
 
-  // Called after owner uploads or deletes logo
   setLogoUrl: (logoUrl) => {
     set((state) => ({
       settings: state.settings ? { ...state.settings, logoUrl } : null,
     }));
   },
 
-  // Called after owner adds/updates/deletes plans in settings
   setPlans: (plans) => {
     set((state) => ({
       settings: state.settings ? { ...state.settings, plans } : null,
     }));
   },
 
-  // ── Plan helpers — used across all pages ────────────────────────────────────
   getActivePlans: () => {
     return get().settings?.plans?.filter((p) => p.isActive) ?? [];
   },
@@ -135,7 +138,6 @@ export const useGymStore = create<GymStore>((set, get) => ({
     return plan?.durationMonths ?? 1;
   },
 
-  // Called after owner updates walk-in prices in settings
   setWalkInPrices: (prices) => {
     set((state) => ({
       settings: state.settings
@@ -144,7 +146,6 @@ export const useGymStore = create<GymStore>((set, get) => ({
     }));
   },
 
-  // ── Walk-in price helper ────────────────────────────────────────────────────
   getWalkInPrice: (passType) => {
     const prices = get().settings?.walkInPrices;
     return (

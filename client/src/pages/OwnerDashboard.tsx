@@ -606,7 +606,7 @@ function DashboardContent({
         {/* ── MEMBERS INSIDE NOW ── */}
         <div
           className="lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col"
-          style={{ minHeight: 280, maxHeight: 480 }}
+          style={{ minHeight: 200, maxHeight: 480 }}
         >
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
@@ -633,7 +633,7 @@ function DashboardContent({
             </div>
           ) : (
             <div
-              className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto flex-1 pr-1"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto  pr-1"
               style={{
                 scrollbarWidth: "thin",
                 scrollbarColor: "rgba(255,107,26,0.2) transparent",
@@ -666,7 +666,7 @@ function DashboardContent({
           )}
 
           {recentCheckins.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between shrink-0">
+            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between  shrink-0">
               <span className="text-[11px] text-white/25">
                 {memberStats.checkedIn} member
                 {memberStats.checkedIn !== 1 ? "s" : ""} currently inside

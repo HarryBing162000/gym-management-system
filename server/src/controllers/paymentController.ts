@@ -25,7 +25,6 @@ const FALLBACK_DURATIONS: Record<string, number> = {
   Student: 1,
 };
 
-// Cache settings per-request to avoid multiple DB hits
 const getPlanPrice = async (
   planName: string,
   settingsCache?: any,
@@ -272,7 +271,7 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
           message: `${member.name} is deactivated. Reactivate the member first.`,
         });
 
-    // Extended to 10 seconds to catch slow-connection double-taps
+    // 10-second duplicate guard
     const recentPayment = await Payment.findOne({
       gymId: member.gymId,
       type,
@@ -310,8 +309,14 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
 
     if (renewExpiry) {
       const months = await getPlanDuration(effectivePlan, settingsCache);
-      const baseDate = new Date();
+
+      // FIX: Extend from the member's current expiry date if still active,
+      // or from today if already expired — never blindly from today.
+      const now = new Date();
+      const currentExpiry = member.expiresAt ? new Date(member.expiresAt) : now;
+      const baseDate = currentExpiry > now ? currentExpiry : now;
       baseDate.setMonth(baseDate.getMonth() + months);
+
       member.expiresAt = baseDate;
       member.status = "active";
     }
@@ -327,6 +332,7 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       balance,
       isPartial,
       method,
+      // Use the provided type, but override to renewal if renewExpiry is set
       type: renewExpiry ? "renewal" : type,
       plan: effectivePlan,
       notes,
@@ -338,7 +344,7 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       "name username role",
     );
 
-    // Build detailed log — include plan change if it happened
+    // Build audit detail — include plan change if it happened
     const planChangedNote =
       newPlan && newPlan !== previousPlan
         ? ` (plan changed: ${previousPlan} → ${newPlan})`
@@ -409,6 +415,7 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
           message: `${member.name} has no outstanding balance.`,
         });
 
+    // 10-second duplicate guard
     const recentSettle = await Payment.findOne({
       gymId: member.gymId,
       type: "balance_settlement",
@@ -440,14 +447,13 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
       );
     }
 
-    // FIX: totalAmount should be the outstanding balance being settled,
-    // not the plan price — this is a settlement not a new purchase
+    // FIX: totalAmount is the outstanding balance being settled, not the plan price
     const payment = await Payment.create({
       gymId: member.gymId,
       memberName: member.name,
       amount: amountPaid,
       amountPaid,
-      totalAmount: outstandingBalance, // correct: the balance being settled
+      totalAmount: outstandingBalance,
       balance: remainingBalance,
       isPartial: !isFullySettled,
       method,
@@ -541,7 +547,6 @@ export const autoLogPayment = async ({
       await member.save();
     }
   } catch (err) {
-    // Log but never crash the calling operation
     console.error("[autoLogPayment] Failed:", err);
   }
 };

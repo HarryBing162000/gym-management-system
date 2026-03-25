@@ -2,15 +2,9 @@
  * MembersPage.tsx
  * IronCore GMS — Member Management
  *
- * UX Improvements:
- *   - Page number buttons in pagination
- *   - Zebra striping + hover highlight on rows
- *   - Unified filter card (search + status + plan in one row)
- *   - Table header has subtle background
- *   - Fixed "In Gym" column alignment
- *   - Filter result count shown when filters active
- *   - Actions column consistent alignment
- *   - Cleaner overall spacing
+ * Fix added:
+ *   - lastMemberUpdate watcher: refetches when PaymentsPage triggers a renewal
+ *     so updated expiresAt shows immediately without manual refresh
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -28,8 +22,6 @@ import type {
 } from "../types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-// Plans now come from gymStore — no hardcoded list
 
 const STATUS_STYLES: Record<MemberStatus, string> = {
   active: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
@@ -84,14 +76,12 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "online">("cash");
   const [amountPaid, setAmountPaid] = useState<string>("");
 
-  // Read plans from gymStore — single source of truth
   const { getActivePlans, getPlanPrice, getPlanDuration } = useGymStore();
   const activePlans = getActivePlans();
   const defaultPlan = member?.plan ?? activePlans[0]?.name ?? "Monthly";
   const [plan, setPlan] = useState(defaultPlan);
   const planPrice = getPlanPrice(plan);
 
-  // Auto-calculate expiry when plan changes (add mode only)
   useEffect(() => {
     if (mode === "add" && plan) {
       const months = getPlanDuration(plan);
@@ -171,18 +161,15 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
         }
       `}</style>
 
-      {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Drawer */}
       <div
         className="fixed top-0 right-0 h-full w-full max-w-md bg-[#1e1e1e] border-l border-white/10 z-50 flex flex-col shadow-2xl"
         style={{ animation: "slideInRight 0.25s ease" }}
       >
-        {/* Header */}
         <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="text-xs font-semibold uppercase tracking-widest text-[#FF6B1A] mb-0.5">
@@ -200,9 +187,7 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
           </button>
         </div>
 
-        {/* Form */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* Name */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
               Full Name <span className="text-[#FF6B1A]">*</span>
@@ -216,7 +201,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             />
           </div>
 
-          {/* Email */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
               Email <span className="text-white/20">(optional)</span>
@@ -230,7 +214,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             />
           </div>
 
-          {/* Phone */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
               Phone <span className="text-white/20">(optional)</span>
@@ -257,7 +240,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             )}
           </div>
 
-          {/* Plan */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
               Membership Plan <span className="text-[#FF6B1A]">*</span>
@@ -284,7 +266,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             </div>
           </div>
 
-          {/* Status */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
               Status <span className="text-[#FF6B1A]">*</span>
@@ -313,7 +294,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             </div>
           </div>
 
-          {/* Expiry Date */}
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
               Expiry Date <span className="text-[#FF6B1A]">*</span>
@@ -327,7 +307,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             />
           </div>
 
-          {/* Payment Method — add only */}
           {mode === "add" && (
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
@@ -353,7 +332,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             </div>
           )}
 
-          {/* Partial payment — add only */}
           {mode === "add" && (
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
@@ -391,7 +369,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
             </div>
           )}
 
-          {/* Error */}
           {errorMsg && (
             <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
               <p className="text-red-400 text-xs">{errorMsg}</p>
@@ -399,7 +376,6 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="px-6 py-4 border-t border-white/10 flex gap-3">
           <button
             onClick={onClose}
@@ -504,7 +480,7 @@ export default function MembersPage({
 }: MembersPageProps = {}) {
   const { user } = useAuthStore();
   const isOwner = forceStaffView ? false : user?.role === "owner";
-  const { getActivePlans } = useGymStore();
+  const { getActivePlans, lastMemberUpdate } = useGymStore();
   const activePlans = getActivePlans();
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -566,6 +542,11 @@ export default function MembersPage({
   useEffect(() => {
     setPage(1);
   }, [search, filterStatus, filterPlan]);
+
+  // FIX: Refetch when PaymentsPage triggers a renewal — lastMemberUpdate changes
+  useEffect(() => {
+    if (lastMemberUpdate > 0) fetchMembers();
+  }, [lastMemberUpdate]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleSaved = (savedMode: "add" | "edit") => {
@@ -679,10 +660,9 @@ export default function MembersPage({
           </button>
         </div>
 
-        {/* ── Filters — unified card ── */}
+        {/* ── Filters ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-3">
           <div className="flex flex-col sm:flex-row gap-2">
-            {/* Search */}
             <div className="relative flex-1">
               <svg
                 className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
@@ -721,8 +701,6 @@ export default function MembersPage({
                 </button>
               )}
             </div>
-
-            {/* Status filter */}
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -734,8 +712,6 @@ export default function MembersPage({
               <option value="inactive">Inactive</option>
               <option value="expired">Expired</option>
             </select>
-
-            {/* Plan filter */}
             <select
               value={filterPlan}
               onChange={(e) => setFilterPlan(e.target.value)}
@@ -749,8 +725,6 @@ export default function MembersPage({
                 </option>
               ))}
             </select>
-
-            {/* Clear all */}
             {hasFilters && (
               <button
                 onClick={() => {
@@ -768,7 +742,6 @@ export default function MembersPage({
 
         {/* ── Table ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
-          {/* Table header — with background */}
           <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_100px] gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
             {["Member", "Plan", "Status", "Expires", "In Gym", "Actions"].map(
               (h) => (
@@ -782,7 +755,6 @@ export default function MembersPage({
             )}
           </div>
 
-          {/* Loading */}
           {loading && (
             <div>
               {Array.from({ length: 6 }).map((_, i) => (
@@ -795,17 +767,11 @@ export default function MembersPage({
                     <div className="h-3 w-32 bg-white/5 rounded animate-pulse" />
                     <div className="h-2.5 w-20 bg-white/5 rounded animate-pulse" />
                   </div>
-                  <div className="hidden md:flex gap-6">
-                    <div className="h-3 w-16 bg-white/5 rounded animate-pulse" />
-                    <div className="h-5 w-14 bg-white/5 rounded-full animate-pulse" />
-                    <div className="h-3 w-20 bg-white/5 rounded animate-pulse" />
-                  </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Error */}
           {!loading && fetchError && (
             <div className="px-5 py-12 text-center">
               <div className="text-red-400 text-sm mb-3">{fetchError}</div>
@@ -818,7 +784,6 @@ export default function MembersPage({
             </div>
           )}
 
-          {/* Empty */}
           {!loading && !fetchError && members.length === 0 && (
             <div className="px-5 py-16 text-center">
               <div className="text-4xl mb-3 opacity-20">◉</div>
@@ -833,19 +798,16 @@ export default function MembersPage({
             </div>
           )}
 
-          {/* Member rows — zebra striping via CSS */}
           {!loading &&
             !fetchError &&
             members.map((m) => {
               const days = daysUntilExpiry(m.expiresAt);
               const expiringSoon = days > 0 && days <= 7;
-
               return (
                 <div
                   key={m.gymId}
                   className="member-row grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_100px] gap-2 lg:gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
                 >
-                  {/* Member info */}
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
                       {getInitials(m.name)}
@@ -875,7 +837,6 @@ export default function MembersPage({
                     </div>
                   </div>
 
-                  {/* Plan */}
                   <div className="flex lg:items-center">
                     <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       Plan
@@ -885,7 +846,6 @@ export default function MembersPage({
                     </span>
                   </div>
 
-                  {/* Status */}
                   <div className="flex lg:items-center">
                     <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       Status
@@ -897,7 +857,6 @@ export default function MembersPage({
                     </span>
                   </div>
 
-                  {/* Expiry */}
                   <div className="flex lg:items-center">
                     <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       Expires
@@ -921,7 +880,6 @@ export default function MembersPage({
                     </div>
                   </div>
 
-                  {/* In Gym — fixed alignment */}
                   <div className="flex lg:items-center">
                     <span className="text-xs text-white/40 lg:hidden mr-2 w-14 shrink-0">
                       In gym
@@ -933,9 +891,7 @@ export default function MembersPage({
                     </span>
                   </div>
 
-                  {/* Actions — consistent alignment */}
                   <div className="flex items-center gap-1.5">
-                    {/* Edit */}
                     <button
                       onClick={() => {
                         setEditTarget(m);
@@ -958,8 +914,6 @@ export default function MembersPage({
                         <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                       </svg>
                     </button>
-
-                    {/* Deactivate / Reactivate — owner only */}
                     {isOwner &&
                       (m.isActive ? (
                         <button
@@ -1016,7 +970,6 @@ export default function MembersPage({
               );
             })}
 
-          {/* Table footer — record count */}
           {!loading && !fetchError && members.length > 0 && (
             <div className="px-5 py-3 border-t border-white/10 bg-white/[0.02] flex items-center justify-between">
               <span className="text-xs text-white/30">
@@ -1033,14 +986,13 @@ export default function MembersPage({
           )}
         </div>
 
-        {/* ── Pagination with page numbers ── */}
+        {/* ── Pagination ── */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between">
             <span className="text-xs text-white/30">
               Page {page} of {totalPages} · {total} total
             </span>
             <div className="flex gap-1">
-              {/* Prev */}
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
@@ -1048,8 +1000,6 @@ export default function MembersPage({
               >
                 ← Prev
               </button>
-
-              {/* Page numbers */}
               {Array.from({ length: totalPages }, (_, i) => i + 1)
                 .filter(
                   (n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1,
@@ -1072,18 +1022,12 @@ export default function MembersPage({
                     <button
                       key={n}
                       onClick={() => setPage(n as number)}
-                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
-                        page === n
-                          ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30"
-                          : "border-white/10 text-white/40 hover:text-white hover:border-white/20"
-                      }`}
+                      className={`px-3 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${page === n ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30" : "border-white/10 text-white/40 hover:text-white hover:border-white/20"}`}
                     >
                       {n}
                     </button>
                   ),
                 )}
-
-              {/* Next */}
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
@@ -1096,7 +1040,6 @@ export default function MembersPage({
         )}
       </div>
 
-      {/* ── Drawer ── */}
       {drawerMode && (
         <MemberDrawer
           mode={drawerMode}
@@ -1109,7 +1052,6 @@ export default function MembersPage({
         />
       )}
 
-      {/* ── Settle Balance Modal ── */}
       {settleTarget &&
         createPortal(
           <div
@@ -1136,8 +1078,6 @@ export default function MembersPage({
                   ₱{settleTarget.balance.toLocaleString()}
                 </span>
               </div>
-
-              {/* Method */}
               <div className="mb-4">
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                   Payment Method
@@ -1147,21 +1087,13 @@ export default function MembersPage({
                     <button
                       key={m}
                       onClick={() => setSettleMethod(m)}
-                      className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${
-                        settleMethod === m
-                          ? m === "cash"
-                            ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]"
-                            : "border-blue-400 bg-blue-400/10 text-blue-400"
-                          : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"
-                      }`}
+                      className={`py-2 rounded-lg border text-xs font-bold uppercase transition-all cursor-pointer ${settleMethod === m ? (m === "cash" ? "border-[#FFB800] bg-[#FFB800]/10 text-[#FFB800]" : "border-blue-400 bg-blue-400/10 text-blue-400") : "border-white/10 bg-[#2a2a2a] text-white/30 hover:border-white/20"}`}
                     >
                       {m === "cash" ? "💵 Cash" : "🏦 Online"}
                     </button>
                   ))}
                 </div>
               </div>
-
-              {/* Amount */}
               <div className="mb-4">
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
                   Amount to Pay{" "}
@@ -1201,7 +1133,6 @@ export default function MembersPage({
                   </div>
                 )}
               </div>
-
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -1225,7 +1156,6 @@ export default function MembersPage({
           document.body,
         )}
 
-      {/* ── Confirm dialog ── */}
       {confirmState && (
         <ConfirmDialog
           title={
