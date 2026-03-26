@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.gymIdParamSchema = exports.updateMemberSchema = exports.createMemberSchema = exports.walkInCheckOutSchema = exports.walkInSchema = exports.loginStaffSchema = exports.loginOwnerSchema = exports.registerMemberSchema = exports.registerStaffSchema = exports.registerOwnerSchema = void 0;
+exports.updateGymSchema = exports.updateEmailSchema = exports.updatePasswordSchema = exports.gymIdParamSchema = exports.updateMemberSchema = exports.createMemberSchema = exports.walkInCheckOutSchema = exports.walkInSchema = exports.loginStaffSchema = exports.loginOwnerSchema = exports.registerMemberSchema = exports.registerStaffSchema = exports.registerOwnerSchema = void 0;
 const zod_1 = require("zod");
 // ============================================================
 // OWNER — registers with email + password
@@ -77,9 +77,7 @@ exports.createMemberSchema = zod_1.z.object({
         .string()
         .regex(/^[0-9+\-\s()]*$/, "Invalid phone number")
         .optional(),
-    plan: zod_1.z.enum(["Monthly", "Quarterly", "Annual", "Student"], {
-        error: "Plan must be Monthly, Quarterly, Annual, or Student",
-    }),
+    plan: zod_1.z.string().min(1, "Plan is required").max(30, "Plan name too long"),
     status: zod_1.z.enum(["active", "inactive"], {
         error: "Status must be active or inactive",
     }),
@@ -107,7 +105,7 @@ exports.updateMemberSchema = zod_1.z.object({
         .string()
         .regex(/^[0-9+\-\s()]*$/, "Invalid phone number")
         .optional(),
-    plan: zod_1.z.enum(["Monthly", "Quarterly", "Annual", "Student"]).optional(),
+    plan: zod_1.z.string().min(1).max(30).optional(),
     status: zod_1.z.enum(["active", "inactive", "expired"]).optional(),
     expiresAt: zod_1.z
         .string()
@@ -115,6 +113,10 @@ exports.updateMemberSchema = zod_1.z.object({
         .transform((val) => new Date(val))
         .optional(),
     photoUrl: zod_1.z.string().url("Invalid photo URL").optional(),
+    // Payment fields — passed through to autoLogPayment on renewal, not stored on Member
+    paymentMethod: zod_1.z.enum(["cash", "online"]).optional(),
+    amountPaid: zod_1.z.number().positive().optional(),
+    totalAmount: zod_1.z.number().positive().optional(),
 });
 // ============================================================
 // MEMBER GYM-ID PARAM — validates :gymId route param
@@ -123,4 +125,36 @@ exports.gymIdParamSchema = zod_1.z.object({
     gymId: zod_1.z
         .string()
         .regex(/^GYM-\d+$/, "Invalid GYM-ID format. Expected GYM-XXXX"),
+});
+// ============================================================
+// UPDATE PASSWORD — owner changes their own password
+// ============================================================
+exports.updatePasswordSchema = zod_1.z.object({
+    currentPassword: zod_1.z.string().min(1, "Current password is required"),
+    newPassword: zod_1.z
+        .string()
+        .min(6, "New password must be at least 6 characters")
+        .max(100, "Password too long"),
+});
+// ============================================================
+// UPDATE EMAIL — owner changes their own email
+// ============================================================
+exports.updateEmailSchema = zod_1.z.object({
+    newEmail: zod_1.z.string().email("Invalid email address").toLowerCase(),
+    password: zod_1.z.string().min(1, "Password is required to confirm identity"),
+});
+// ============================================================
+// UPDATE GYM INFO — owner updates gym name and address
+// ============================================================
+exports.updateGymSchema = zod_1.z.object({
+    gymName: zod_1.z
+        .string()
+        .min(2, "Gym name must be at least 2 characters")
+        .max(100, "Gym name too long")
+        .trim(),
+    gymAddress: zod_1.z
+        .string()
+        .min(2, "Address must be at least 2 characters")
+        .max(200, "Address too long")
+        .trim(),
 });

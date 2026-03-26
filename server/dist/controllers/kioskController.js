@@ -48,9 +48,7 @@ const kioskSearch = async (req, res) => {
         }
         const q = sanitizeSearchQuery(raw);
         if (q.length < 2) {
-            return res
-                .status(400)
-                .json({
+            return res.status(400).json({
                 success: false,
                 message: "Search query must be at least 2 characters.",
             });
@@ -83,9 +81,7 @@ const kioskSearch = async (req, res) => {
             ]);
         }
         if (!members.length && !walkIns.length) {
-            return res
-                .status(404)
-                .json({
+            return res.status(404).json({
                 success: false,
                 message: "No results found. Please check your name or ID.",
             });
@@ -288,7 +284,7 @@ const kioskWalkInCheckOut = async (req, res) => {
         const duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
         return res.status(200).json({
             success: true,
-            message: `Goodbye ${walkIn.name}! You spent ${duration} at IronCore. See you again! 💪`,
+            message: `Goodbye ${walkIn.name}! You spent ${duration} at the gym. See you again! 💪`,
             walkIn: {
                 walkId: walkIn.walkId,
                 name: walkIn.name,

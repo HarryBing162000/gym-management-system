@@ -74,8 +74,8 @@ const PaymentSchema = new mongoose_1.Schema({
     },
     plan: {
         type: String,
-        enum: ["Monthly", "Quarterly", "Annual", "Student"],
         required: true,
+        trim: true,
     },
     amountPaid: {
         type: Number,

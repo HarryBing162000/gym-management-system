@@ -73,8 +73,8 @@ const MemberSchema = new mongoose_1.Schema({
     },
     plan: {
         type: String,
-        enum: ["Monthly", "Quarterly", "Annual", "Student"],
         required: [true, "Plan is required"],
+        trim: true,
     },
     status: {
         type: String,

@@ -1,10 +1,4 @@
 "use strict";
-/**
- * paymentController.ts
- * IronCore GMS — Payment Route Handlers
- *
- * Supports partial payments — member gets access but balance is tracked.
- */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -12,23 +6,39 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.autoLogPayment = exports.settleBalance = exports.createPayment = exports.getPaymentSummary = exports.getPayments = void 0;
 const Payment_1 = __importDefault(require("../models/Payment"));
 const Member_1 = __importDefault(require("../models/Member"));
-const PLAN_PRICES = {
+const Settings_1 = __importDefault(require("../models/Settings"));
+const logAction_1 = require("../utils/logAction");
+const FALLBACK_PRICES = {
     Monthly: 800,
     Quarterly: 2100,
     Annual: 7500,
     Student: 500,
+};
+const FALLBACK_DURATIONS = {
+    Monthly: 1,
+    Quarterly: 3,
+    Annual: 12,
+    Student: 1,
+};
+const getPlanPrice = async (planName, settingsCache) => {
+    const settings = settingsCache ?? (await Settings_1.default.findOne({}).select("plans").lean());
+    const plan = settings?.plans?.find((p) => p.name === planName && p.isActive);
+    return plan?.price ?? FALLBACK_PRICES[planName] ?? 0;
+};
+const getPlanDuration = async (planName, settingsCache) => {
+    const settings = settingsCache ?? (await Settings_1.default.findOne({}).select("plans").lean());
+    const plan = settings?.plans?.find((p) => p.name === planName && p.isActive);
+    return plan?.durationMonths ?? FALLBACK_DURATIONS[planName] ?? 1;
 };
 const getDateRange = (range) => {
     const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" });
     const now = new Date();
     const manilaToday = fmt.format(now);
     const [y, m, d] = manilaToday.split("-").map(Number);
-    // Manila midnight = UTC 16:00 previous day (UTC+8 means midnight Manila = 16:00 UTC)
     const manilaStartOfDay = new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
     const manilaEndOfDay = new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
-    if (range === "today") {
+    if (range === "today")
         return { from: manilaStartOfDay, to: manilaEndOfDay };
-    }
     if (range === "week") {
         const dow = now.toLocaleDateString("en-PH", {
             timeZone: "Asia/Manila",
@@ -46,7 +56,6 @@ const getDateRange = (range) => {
     return { from, to: manilaEndOfDay };
 };
 const buildSummary = (payments) => {
-    // Fall back to amount for older records that predate amountPaid field
     const paid = (p) => p.amountPaid ?? p.amount ?? 0;
     return {
         total: payments.length,
@@ -103,19 +112,30 @@ const getPayments = async (req, res) => {
                 dateFilter.$lte = toManilaEnd(to);
             filter.createdAt = dateFilter;
         }
-        const [payments, total] = await Promise.all([
+        const [payments, total, grandTotalResult] = await Promise.all([
             Payment_1.default.find(filter)
                 .populate("processedBy", "name username role")
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limitNum),
             Payment_1.default.countDocuments(filter),
+            Payment_1.default.aggregate([
+                { $match: filter },
+                {
+                    $group: {
+                        _id: null,
+                        grandTotal: { $sum: { $ifNull: ["$amountPaid", "$amount"] } },
+                    },
+                },
+            ]),
         ]);
+        const grandTotal = grandTotalResult[0]?.grandTotal ?? 0;
         return res.status(200).json({
             success: true,
             total,
             page: pageNum,
             totalPages: Math.ceil(total / limitNum),
+            grandTotal,
             payments,
         });
     }
@@ -139,7 +159,6 @@ const getPaymentSummary = async (req, res) => {
             buildPeriod(...Object.values(getDateRange("week"))),
             buildPeriod(...Object.values(getDateRange("month"))),
         ]);
-        // Members with outstanding balance
         const withBalance = await Member_1.default.countDocuments({ balance: { $gt: 0 } });
         return res
             .status(200)
@@ -152,34 +171,87 @@ const getPaymentSummary = async (req, res) => {
 };
 exports.getPaymentSummary = getPaymentSummary;
 // ─── POST /api/payments ───────────────────────────────────────────────────────
-// Manually log a payment — supports partial amount
 const createPayment = async (req, res) => {
     try {
-        const { gymId, method, type = "manual", amountPaid: rawAmount, notes, } = req.body;
-        if (!gymId || !method) {
+        const { gymId, method, type = "manual", amountPaid: rawAmount, totalAmount: clientTotal, notes, plan: newPlan, renewExpiry, } = req.body;
+        if (!gymId || !method)
             return res
                 .status(400)
                 .json({ success: false, message: "gymId and method are required." });
-        }
-        if (!["cash", "online"].includes(method)) {
+        if (!["cash", "online"].includes(method))
             return res
                 .status(400)
                 .json({ success: false, message: "Method must be cash or online." });
+        if (rawAmount != null && Number(rawAmount) <= 0)
+            return res
+                .status(400)
+                .json({ success: false, message: "Amount must be greater than zero." });
+        // Cache settings once for this request
+        const settingsCache = await Settings_1.default.findOne({}).select("plans").lean();
+        if (newPlan) {
+            const validPlan = settingsCache?.plans?.some((p) => p.name === newPlan && p.isActive);
+            if (!validPlan)
+                return res
+                    .status(400)
+                    .json({
+                    success: false,
+                    message: `Plan "${newPlan}" is not available.`,
+                });
         }
         const member = await Member_1.default.findOne({ gymId: String(gymId).toUpperCase() });
-        if (!member) {
+        if (!member)
             return res
                 .status(404)
                 .json({ success: false, message: `Member ${gymId} not found.` });
-        }
-        const totalAmount = PLAN_PRICES[member.plan] ?? 0;
+        if (!member.isActive)
+            return res
+                .status(400)
+                .json({
+                success: false,
+                message: `${member.name} is deactivated. Reactivate the member first.`,
+            });
+        // 10-second duplicate guard
+        const recentPayment = await Payment_1.default.findOne({
+            gymId: member.gymId,
+            type,
+            createdAt: { $gte: new Date(Date.now() - 10000) },
+        });
+        if (recentPayment)
+            return res
+                .status(409)
+                .json({
+                success: false,
+                message: "Payment already processed. Please wait a moment.",
+            });
+        const previousPlan = member.plan;
+        const effectivePlan = newPlan || member.plan;
+        if (newPlan && newPlan !== member.plan)
+            member.plan = newPlan;
+        const totalAmount = clientTotal != null && clientTotal > 0
+            ? clientTotal
+            : await getPlanPrice(effectivePlan, settingsCache);
         const amountPaid = rawAmount != null
             ? Math.min(Number(rawAmount), totalAmount)
             : totalAmount;
         const balance = Math.max(0, totalAmount - amountPaid);
         const isPartial = balance > 0;
-        // Update member's outstanding balance
-        member.balance = balance;
+        if (type === "manual") {
+            member.balance = (member.balance ?? 0) + balance;
+        }
+        else {
+            member.balance = balance;
+        }
+        if (renewExpiry) {
+            const months = await getPlanDuration(effectivePlan, settingsCache);
+            // FIX: Extend from the member's current expiry date if still active,
+            // or from today if already expired — never blindly from today.
+            const now = new Date();
+            const currentExpiry = member.expiresAt ? new Date(member.expiresAt) : now;
+            const baseDate = currentExpiry > now ? currentExpiry : now;
+            baseDate.setMonth(baseDate.getMonth() + months);
+            member.expiresAt = baseDate;
+            member.status = "active";
+        }
         await member.save();
         const payment = await Payment_1.default.create({
             gymId: member.gymId,
@@ -190,18 +262,46 @@ const createPayment = async (req, res) => {
             balance,
             isPartial,
             method,
-            type,
-            plan: member.plan,
+            // Use the provided type, but override to renewal if renewExpiry is set
+            type: renewExpiry ? "renewal" : type,
+            plan: effectivePlan,
             notes,
             processedBy: req.user.id,
         });
         const populated = await payment.populate("processedBy", "name username role");
+        // Build audit detail — include plan change if it happened
+        const planChangedNote = newPlan && newPlan !== previousPlan
+            ? ` (plan changed: ${previousPlan} → ${newPlan})`
+            : "";
+        await (0, logAction_1.logAction)({
+            action: "payment_created",
+            performedBy: {
+                userId: req.user.id,
+                name: req.user.name,
+                role: req.user.role,
+            },
+            targetId: member.gymId,
+            targetName: member.name,
+            detail: isPartial
+                ? `${req.user.name} logged partial payment ₱${amountPaid} for ${member.name} (${member.gymId}) — balance: ₱${balance}${planChangedNote}`
+                : `${req.user.name} logged full payment ₱${amountPaid} for ${member.name} (${member.gymId})${planChangedNote}`,
+        });
+        let msg = isPartial
+            ? `Partial payment of ₱${amountPaid} logged. Remaining balance: ₱${balance}.`
+            : `Full payment of ₱${amountPaid} logged for ${member.name}.`;
+        if (renewExpiry)
+            msg += ` Membership extended to ${member.expiresAt.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}.`;
         return res.status(201).json({
             success: true,
-            message: isPartial
-                ? `Partial payment of ₱${amountPaid} logged. Remaining balance: ₱${balance}.`
-                : `Full payment of ₱${amountPaid} logged for ${member.name}.`,
+            message: msg,
             payment: populated,
+            member: {
+                gymId: member.gymId,
+                plan: member.plan,
+                status: member.status,
+                expiresAt: member.expiresAt,
+                balance: member.balance,
+            },
         });
     }
     catch (err) {
@@ -211,59 +311,57 @@ const createPayment = async (req, res) => {
 };
 exports.createPayment = createPayment;
 // ─── POST /api/payments/:gymId/settle ────────────────────────────────────────
-// Settle the outstanding balance for a member
 const settleBalance = async (req, res) => {
     try {
         const { gymId } = req.params;
         const { method, amountPaid: rawAmount } = req.body;
-        if (!["cash", "online"].includes(method)) {
+        if (!["cash", "online"].includes(method))
             return res
                 .status(400)
                 .json({ success: false, message: "Method must be cash or online." });
-        }
         const member = await Member_1.default.findOne({ gymId: String(gymId).toUpperCase() });
-        if (!member) {
+        if (!member)
             return res
                 .status(404)
                 .json({ success: false, message: `Member ${gymId} not found.` });
-        }
-        if (member.balance <= 0) {
-            return res.status(400).json({
+        if (member.balance <= 0)
+            return res
+                .status(400)
+                .json({
                 success: false,
                 message: `${member.name} has no outstanding balance.`,
             });
-        }
-        // Guard against duplicate submissions within 3 seconds
+        // 10-second duplicate guard
         const recentSettle = await Payment_1.default.findOne({
             gymId: member.gymId,
             type: "balance_settlement",
-            createdAt: { $gte: new Date(Date.now() - 3000) },
+            createdAt: { $gte: new Date(Date.now() - 10000) },
         });
-        if (recentSettle) {
-            return res.status(409).json({
+        if (recentSettle)
+            return res
+                .status(409)
+                .json({
                 success: false,
                 message: "Settlement already processed. Please wait a moment.",
             });
-        }
-        // Support partial settle — cap at outstanding balance
+        const outstandingBalance = member.balance;
         const amountPaid = rawAmount && rawAmount > 0
-            ? Math.min(rawAmount, member.balance)
-            : member.balance;
-        const totalAmount = PLAN_PRICES[member.plan] ?? 0;
-        const remainingBalance = Math.max(0, member.balance - amountPaid);
+            ? Math.min(rawAmount, outstandingBalance)
+            : outstandingBalance;
+        const remainingBalance = Math.max(0, outstandingBalance - amountPaid);
         const isFullySettled = remainingBalance === 0;
         member.balance = remainingBalance;
         await member.save();
-        // Mark ALL partial payments for this member as settled when fully paid
         if (isFullySettled) {
             await Payment_1.default.updateMany({ gymId: member.gymId, isPartial: true }, { $set: { isPartial: false, balance: 0 } });
         }
+        // FIX: totalAmount is the outstanding balance being settled, not the plan price
         const payment = await Payment_1.default.create({
             gymId: member.gymId,
             memberName: member.name,
             amount: amountPaid,
             amountPaid,
-            totalAmount,
+            totalAmount: outstandingBalance,
             balance: remainingBalance,
             isPartial: !isFullySettled,
             method,
@@ -275,6 +373,19 @@ const settleBalance = async (req, res) => {
             processedBy: req.user.id,
         });
         const populated = await payment.populate("processedBy", "name username role");
+        await (0, logAction_1.logAction)({
+            action: "payment_created",
+            performedBy: {
+                userId: req.user.id,
+                name: req.user.name,
+                role: req.user.role,
+            },
+            targetId: member.gymId,
+            targetName: member.name,
+            detail: isFullySettled
+                ? `${req.user.name} fully settled balance of ₱${amountPaid} for ${member.name} (${member.gymId})`
+                : `${req.user.name} partially settled ₱${amountPaid} for ${member.name} (${member.gymId}) — ₱${remainingBalance} remaining`,
+        });
         return res.status(200).json({
             success: true,
             message: isFullySettled
@@ -290,26 +401,35 @@ const settleBalance = async (req, res) => {
 };
 exports.settleBalance = settleBalance;
 // ─── Internal — auto-log payment on register/renewal ─────────────────────────
-const autoLogPayment = async ({ gymId, memberName, plan, method, type, processedBy, amountPaid, }) => {
-    const totalAmount = PLAN_PRICES[plan] ?? 0;
-    const paid = amountPaid != null ? Math.min(amountPaid, totalAmount) : totalAmount;
-    const balance = Math.max(0, totalAmount - paid);
-    await Payment_1.default.create({
-        gymId,
-        memberName,
-        amount: paid,
-        amountPaid: paid,
-        totalAmount,
-        balance,
-        isPartial: balance > 0,
-        method,
-        type,
-        plan,
-        processedBy,
-    });
-    // Update member balance
-    if (balance > 0) {
-        await Member_1.default.updateOne({ gymId }, { balance });
+const autoLogPayment = async ({ gymId, memberName, plan, method, type, processedBy, amountPaid, totalAmountOverride, }) => {
+    try {
+        const settingsCache = await Settings_1.default.findOne({}).select("plans").lean();
+        const totalAmount = totalAmountOverride != null && totalAmountOverride > 0
+            ? totalAmountOverride
+            : await getPlanPrice(plan, settingsCache);
+        const paid = amountPaid != null ? Math.min(amountPaid, totalAmount) : totalAmount;
+        const balance = Math.max(0, totalAmount - paid);
+        await Payment_1.default.create({
+            gymId,
+            memberName,
+            amount: paid,
+            amountPaid: paid,
+            totalAmount,
+            balance,
+            isPartial: balance > 0,
+            method,
+            type,
+            plan,
+            processedBy,
+        });
+        const member = await Member_1.default.findOne({ gymId });
+        if (member) {
+            member.balance = (member.balance ?? 0) + balance;
+            await member.save();
+        }
+    }
+    catch (err) {
+        console.error("[autoLogPayment] Failed:", err);
     }
 };
 exports.autoLogPayment = autoLogPayment;

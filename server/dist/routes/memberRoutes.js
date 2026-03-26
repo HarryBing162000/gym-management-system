@@ -21,6 +21,10 @@ router.use(authMiddleware_1.protect);
 // ── Owner + Staff ─────────────────────────────────────────────────────────────
 // GET /api/members?status=active&plan=Monthly&search=juan&page=1&limit=20
 router.get("/", (0, authMiddleware_1.requireRole)("owner", "staff"), memberController_1.getMembers);
+// GET /api/members/stats — dashboard summary (owner + staff)
+router.get("/stats", (0, authMiddleware_1.requireRole)("owner", "staff"), memberController_1.getMemberStats);
+// GET /api/members/at-risk — expiring/overdue members (owner + staff)
+router.get("/at-risk", (0, authMiddleware_1.requireRole)("owner", "staff"), memberController_1.getAtRiskMembers);
 // GET /api/members/:gymId
 router.get("/:gymId", (0, authMiddleware_1.requireRole)("owner", "staff"), (0, validate_1.validateParams)(authSchemas_1.gymIdParamSchema), memberController_1.getMemberByGymId);
 // POST /api/members

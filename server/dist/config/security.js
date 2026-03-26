@@ -16,8 +16,9 @@ exports.SECURITY_CONFIG = {
     BCRYPT_SALT_ROUNDS: 12, // increased from 10 for stronger hashing
     // Allowed origins (update for production)
     ALLOWED_ORIGINS: [
-        "http://localhost:5173", // Vite dev server
-        "http://localhost:3000",
-        "https://ironcore.gym", // your production domain later
+        "http://localhost:5173",
+        "http://localhost:4173",
+        "https://ironcore-gms.onrender.com",
+        "https://ironcore-gms-server.onrender.com",
     ],
 };
