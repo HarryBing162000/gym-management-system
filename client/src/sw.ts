@@ -9,7 +9,9 @@
  *   GET /api/auth/gym-info  -> Cache First (rarely changes)
  *   All other requests      -> Network only
  *
- * POST/PATCH are NOT intercepted -- offlineQueue.ts handles those.
+ * IMPORTANT: Routes use url.href.includes() not url.pathname.
+ * API calls go to a different origin (ironcore-gms-server.onrender.com).
+ * Workbox only intercepts cross-origin requests when matched via full href.
  */
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
@@ -18,8 +20,6 @@ import { NetworkFirst, CacheFirst, NetworkOnly } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 import { CacheableResponsePlugin } from "workbox-cacheable-response";
 
-// TypedSW -- minimal interface for the SW methods we use.
-// Avoids needing lib.webworker.d.ts which conflicts with the DOM lib in tsconfig.
 interface TypedSW {
   addEventListener(type: string, listener: (event: Event) => void): void;
   skipWaiting(): Promise<void>;
@@ -28,25 +28,22 @@ interface TypedSW {
 
 const sw = self as unknown as TypedSW;
 
-// IMPORTANT: Workbox scans compiled output for the literal "self.__WB_MANIFEST"
-// to inject the precache manifest. Must use (self as any) so TypeScript
-// doesn't rename it -- using sw.__WB_MANIFEST would compile to _sw.__WB_MANIFEST
-// which Workbox cannot find.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 precacheAndRoute((self as any).__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// Cache names
 const MEMBERS_CACHE = "gms-members-v1";
 const WALKINS_CACHE = "gms-walkins-v1";
 const GYM_INFO_CACHE = "gms-gym-info-v1";
 
-// Members list -- Network First
+// Members list -- Network First (cross-origin safe via href)
 registerRoute(
   ({ url }) =>
-    url.pathname.startsWith("/api/members") &&
-    !url.pathname.includes("/checkin") &&
-    !url.pathname.includes("/checkout"),
+    url.href.includes("/api/members") &&
+    !url.href.includes("/checkin") &&
+    !url.href.includes("/checkout") &&
+    !url.href.includes("/stats") &&
+    !url.href.includes("/at-risk"),
   new NetworkFirst({
     cacheName: MEMBERS_CACHE,
     networkTimeoutSeconds: 10,
@@ -58,11 +55,11 @@ registerRoute(
   "GET",
 );
 
-// Walk-ins today -- Network First
+// Walk-ins today -- Network First (cross-origin safe via href)
 registerRoute(
   ({ url }) =>
-    url.pathname.includes("/api/walkin") &&
-    (url.pathname.includes("/today") || url.searchParams.get("date") !== null),
+    url.href.includes("/api/walkin") &&
+    (url.href.includes("/today") || url.searchParams.get("date") !== null),
   new NetworkFirst({
     cacheName: WALKINS_CACHE,
     networkTimeoutSeconds: 8,
@@ -74,9 +71,9 @@ registerRoute(
   "GET",
 );
 
-// Gym info -- Cache First
+// Gym info -- Cache First (cross-origin safe via href)
 registerRoute(
-  ({ url }) => url.pathname.includes("/api/auth/gym-info"),
+  ({ url }) => url.href.includes("/api/auth/gym-info"),
   new CacheFirst({
     cacheName: GYM_INFO_CACHE,
     plugins: [
@@ -87,11 +84,10 @@ registerRoute(
   "GET",
 );
 
-// Auth + payments -- Network Only, never cache
+// Auth + payments -- Network Only
 registerRoute(
   ({ url }) =>
-    url.pathname.startsWith("/api/auth/login") ||
-    url.pathname.startsWith("/api/payments"),
+    url.href.includes("/api/auth/login") || url.href.includes("/api/payments"),
   new NetworkOnly(),
 );
 

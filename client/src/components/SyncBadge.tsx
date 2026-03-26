@@ -191,11 +191,23 @@ export default function SyncBadge() {
       );
     };
 
+    const onDuplicate = (e: Event) => {
+      const { label } = (e as CustomEvent<{ label: string }>).detail;
+      // Extract the name from the label e.g. "New member: Juan Dela Cruz" -> "Juan Dela Cruz"
+      const name = label.replace(/^New member:\s*/i, "").trim();
+      showToast(
+        `${name} is already in the system — no duplicate was created.`,
+        "warning",
+      );
+    };
+
     window.addEventListener("gms:sync-complete", onComplete);
     window.addEventListener("gms:sync-failed", onFailed);
+    window.addEventListener("gms:sync-duplicate", onDuplicate);
     return () => {
       window.removeEventListener("gms:sync-complete", onComplete);
       window.removeEventListener("gms:sync-failed", onFailed);
+      window.removeEventListener("gms:sync-duplicate", onDuplicate);
     };
   }, [showToast]);
 

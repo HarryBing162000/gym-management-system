@@ -13,6 +13,7 @@ import { useAuthStore } from "../store/authStore";
 import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
 import { memberService } from "../services/memberService";
+import { syncManager } from "../lib/syncManager";
 import { paymentService } from "../services/paymentService";
 import type {
   Member,
@@ -58,7 +59,7 @@ interface DrawerProps {
   mode: "add" | "edit";
   member?: Member;
   onClose: () => void;
-  onSaved: (mode: "add" | "edit") => void;
+  onSaved: (mode: "add" | "edit", offlineMsg?: string) => void;
 }
 
 function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
@@ -123,8 +124,23 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
           paymentMethod,
           amountPaid: amountPaid ? Number(amountPaid) : undefined,
         };
-        await memberService.create(payload);
-        onSaved(mode);
+        if (!navigator.onLine) {
+          // Queue for sync when internet restores
+          await syncManager.enqueue({
+            url: "/members",
+            method: "POST",
+            body: payload as unknown as Record<string, unknown>,
+            label: `New member: ${name.trim()}`,
+            token: useAuthStore.getState().token ?? "",
+          });
+          onSaved(
+            mode,
+            `${name.trim().split(" ")[0]} queued — will be added when internet restores.`,
+          );
+        } else {
+          await memberService.create(payload);
+          onSaved(mode);
+        }
       } else {
         const payload: UpdateMemberPayload = {
           name: name.trim(),
@@ -139,6 +155,31 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
       }
     } catch (axiosError) {
       const err = axiosError as { response?: { data?: { message?: string } } };
+      // If offline and network error, queue it
+      if (!navigator.onLine) {
+        const payload: CreateMemberPayload = {
+          name: name.trim(),
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
+          plan,
+          status,
+          expiresAt,
+          paymentMethod,
+          amountPaid: amountPaid ? Number(amountPaid) : undefined,
+        };
+        await syncManager.enqueue({
+          url: "/members",
+          method: "POST",
+          body: payload as unknown as Record<string, unknown>,
+          label: `New member: ${name.trim()}`,
+          token: useAuthStore.getState().token ?? "",
+        });
+        onSaved(
+          mode,
+          `${name.trim().split(" ")[0]} queued — will be added when internet restores.`,
+        );
+        return;
+      }
       setErrorMsg(
         err.response?.data?.message ||
           "Something went wrong. Please try again.",
@@ -394,7 +435,11 @@ function MemberDrawer({ mode, member, onClose, onSaved }: DrawerProps) {
                 Saving...
               </span>
             ) : mode === "add" ? (
-              "Register Member"
+              navigator.onLine ? (
+                "Register Member"
+              ) : (
+                "Queue Member (Offline)"
+              )
             ) : (
               "Save Changes"
             )}
@@ -549,14 +594,16 @@ export default function MembersPage({
   }, [lastMemberUpdate]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  const handleSaved = (savedMode: "add" | "edit") => {
+  const handleSaved = (savedMode: "add" | "edit", offlineMsg?: string) => {
     setDrawerMode(null);
     setEditTarget(undefined);
     fetchMembers();
     showToast(
-      savedMode === "add"
-        ? "Member registered successfully."
-        : "Member updated successfully.",
+      offlineMsg ??
+        (savedMode === "add"
+          ? "Member registered successfully."
+          : "Member updated successfully."),
+      offlineMsg ? "success" : "success",
     );
   };
 
@@ -1048,7 +1095,9 @@ export default function MembersPage({
             setDrawerMode(null);
             setEditTarget(undefined);
           }}
-          onSaved={(savedMode) => handleSaved(savedMode)}
+          onSaved={(savedMode, offlineMsg) =>
+            handleSaved(savedMode, offlineMsg)
+          }
         />
       )}
 

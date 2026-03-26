@@ -612,13 +612,6 @@ function DashboardContent({
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
               Members Inside Now
             </h3>
-            <span className="text-xs text-[#FF6B1A] bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1.5">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-[#FF6B1A] opacity-75 animate-ping" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#FF6B1A]" />
-              </span>
-              Live
-            </span>
           </div>
 
           {recentCheckins.length === 0 ? (

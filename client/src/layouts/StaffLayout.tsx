@@ -2,10 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useToastStore } from "../store/toastStore";
 import { useNavigate } from "react-router-dom";
-import SyncBadge from "../components/SyncBadge";
 import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import api from "../services/api";
+import SyncBadge from "../components/SyncBadge";
 
 const navItems = [
   {
@@ -246,6 +246,18 @@ export default function StaffLayout({
   const { user, logout } = useAuthStore();
   const { settings } = useGymStore();
   const navigate = useNavigate();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -451,9 +463,18 @@ export default function StaffLayout({
             <span className="text-xs bg-blue-400/10 text-blue-400 border border-blue-400/20 px-2.5 py-1 rounded-full font-semibold">
               Staff
             </span>
+            {!isOnline && (
+              <span className="flex items-center gap-1.5 text-xs bg-amber-400/10 text-amber-400 border border-amber-400/20 px-2.5 py-1 rounded-full font-semibold">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+                </span>
+                Offline
+              </span>
+            )}
           </div>
 
-          {/* Sync badge -- shows pending/failed offline actions */}
+          {/* Sync badge -- offline/pending indicator */}
           <SyncBadge />
 
           <div className="hidden lg:block relative" ref={avatarDropdownRef}>
@@ -491,6 +512,17 @@ export default function StaffLayout({
             </button>
           </div>
         </header>
+
+        {/* Offline banner */}
+        {!isOnline && (
+          <div className="sticky top-[73px] z-20 bg-amber-400/10 border-b border-amber-400/20 px-4 sm:px-6 py-2 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+            <span className="text-xs font-semibold text-amber-400">
+              You're offline — check-ins and walk-ins are queued. Payments
+              require internet.
+            </span>
+          </div>
+        )}
 
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">{children}</main>
       </div>

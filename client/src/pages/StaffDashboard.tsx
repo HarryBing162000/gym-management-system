@@ -10,8 +10,6 @@ import PaymentsPage from "./PaymentsPage";
 import MyActivityPage from "./MyActivityPage";
 import { walkInService } from "../services/walkInService";
 import {
-  offlineCheckIn,
-  offlineCheckOut,
   offlineWalkInRegister,
   offlineWalkInCheckOut,
 } from "../lib/offlineService";
@@ -388,11 +386,8 @@ function CheckInDesk() {
   const handleCheckIn = async (member: Member) => {
     setActionLoading(true);
     try {
-      const ciRes = await offlineCheckIn(member.gymId, member.name);
-      const ciMsg = ciRes.queued
-        ? `${member.name.split(" ")[0]} queued offline — will sync when internet restores.`
-        : `Welcome back, ${member.name.split(" ")[0]}! ✓`;
-      showToast(ciMsg, "success");
+      await memberService.checkIn(member.gymId);
+      showToast(`Welcome back, ${member.name.split(" ")[0]}! ✓`, "success");
       setTodayLog((prev) => [
         {
           gymId: member.gymId,
@@ -424,11 +419,8 @@ function CheckInDesk() {
   const handleCheckOut = async (member: Member) => {
     setActionLoading(true);
     try {
-      const coRes = await offlineCheckOut(member.gymId, member.name);
-      const coMsg = coRes.queued
-        ? `${member.name.split(" ")[0]} checkout queued offline.`
-        : `${member.name.split(" ")[0]} checked out.`;
-      showToast(coMsg, "info");
+      await memberService.checkOut(member.gymId);
+      showToast(`${member.name.split(" ")[0]} checked out.`, "info");
       setTodayLog((prev) => [
         {
           gymId: member.gymId,
@@ -986,10 +978,9 @@ function WalkInDesk() {
       const regRes = await offlineWalkInRegister({
         name: name.trim(),
         passType,
-        amount: 0, // resolved server-side from Settings.walkInPrices
+        amount: 0,
       });
       if (!regRes.queued) {
-        // Online -- fetch the actual walkIn object for the success screen
         const response = await walkInService.register({
           name: name.trim(),
           phone: phone.trim() || undefined,
@@ -1001,6 +992,7 @@ function WalkInDesk() {
           walkId: "QUEUED",
           name: name.trim(),
           passType,
+          amount: 0,
           checkIn: new Date().toISOString(),
           isCheckedOut: false,
         } as any);

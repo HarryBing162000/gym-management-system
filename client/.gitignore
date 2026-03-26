@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Environment files
+.env
+.env.*
+!.env.example
+
+# HTTP test files
+**/*.http
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,5 +30,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-server/test.http
