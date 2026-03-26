@@ -4,6 +4,7 @@ import { useToastStore } from "../store/toastStore";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
+import SyncBadge from "../components/SyncBadge";
 
 // Nav items with inline SVG icons
 const navItems = [
@@ -374,6 +375,9 @@ export default function OwnerLayout({
               Live
             </span>
           </div>
+
+          {/* Sync badge — shows pending/failed offline actions */}
+          <SyncBadge />
 
           {/* Right — Avatar dropdown (desktop only) */}
           <div className="hidden lg:block relative" ref={avatarDropdownRef}>

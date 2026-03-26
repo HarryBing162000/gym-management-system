@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useToastStore } from "../store/toastStore";
 import { useNavigate } from "react-router-dom";
+import SyncBadge from "../components/SyncBadge";
 import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import api from "../services/api";
@@ -451,6 +452,9 @@ export default function StaffLayout({
               Staff
             </span>
           </div>
+
+          {/* Sync badge -- shows pending/failed offline actions */}
+          <SyncBadge />
 
           <div className="hidden lg:block relative" ref={avatarDropdownRef}>
             {showAvatarDropdown && (

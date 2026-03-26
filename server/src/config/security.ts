@@ -18,7 +18,7 @@ export const SECURITY_CONFIG = {
   // Allowed origins (update for production)
   ALLOWED_ORIGINS: [
     "http://localhost:5173", // Vite dev server
-    "https://ironcore-gms.netlify.app",
+    "http://localhost:4173",
     "https://ironcore-gms.onrender.com",
     "https://ironcore-gms-server.onrender.com",
   ],

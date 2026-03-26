@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "./store/authStore";
 import { useGymStore } from "./store/gymStore";
+import { syncManager } from "./lib/syncManager";
 import ToastContainer from "./components/ToastContainer";
 
 import LoginPage from "./pages/LoginPage";
@@ -30,7 +31,6 @@ function ProtectedRoute({
   const { isAuthenticated, user, _hasHydrated } = useAuthStore();
 
   // Wait for Zustand to rehydrate from localStorage before deciding to redirect.
-  // Without this, a logged-in user gets briefly flashed to /login on refresh.
   if (!_hasHydrated) return null;
 
   if (!isAuthenticated) {
@@ -52,7 +52,12 @@ function App() {
     fetchGymInfo();
   }, [fetchGymInfo]);
 
-  // Bug fix: was "Gym Management Syste," — fixed typo + removed leading space
+  // Initialize offline sync manager — sets up online/offline listeners
+  // and attempts to drain any queued actions from previous sessions
+  useEffect(() => {
+    syncManager.init();
+  }, []);
+
   useEffect(() => {
     if (settings?.gymName) {
       document.title = `${settings.gymName} — GMS`;
@@ -69,7 +74,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/kiosk" element={<KioskPage />} />
 
-          {/* Owner only — all sub-pages use ?page= query param */}
+          {/* Owner only */}
           <Route
             path="/dashboard"
             element={
@@ -92,7 +97,7 @@ function App() {
           {/* Root → login */}
           <Route path="/" element={<Navigate to="/login" replace />} />
 
-          {/* Catch-all — redirect unknown URLs to login */}
+          {/* Catch-all */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>

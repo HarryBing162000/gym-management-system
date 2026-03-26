@@ -9,6 +9,12 @@ import MembersPage from "./MembersPage";
 import PaymentsPage from "./PaymentsPage";
 import MyActivityPage from "./MyActivityPage";
 import { walkInService } from "../services/walkInService";
+import {
+  offlineCheckIn,
+  offlineCheckOut,
+  offlineWalkInRegister,
+  offlineWalkInCheckOut,
+} from "../lib/offlineService";
 import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
 import type { Member, WalkIn, WalkInRegisterResponse } from "../types";
@@ -382,8 +388,11 @@ function CheckInDesk() {
   const handleCheckIn = async (member: Member) => {
     setActionLoading(true);
     try {
-      await memberService.checkIn(member.gymId);
-      showToast(`Welcome back, ${member.name.split(" ")[0]}! ✓`, "success");
+      const ciRes = await offlineCheckIn(member.gymId, member.name);
+      const ciMsg = ciRes.queued
+        ? `${member.name.split(" ")[0]} queued offline — will sync when internet restores.`
+        : `Welcome back, ${member.name.split(" ")[0]}! ✓`;
+      showToast(ciMsg, "success");
       setTodayLog((prev) => [
         {
           gymId: member.gymId,
@@ -415,8 +424,11 @@ function CheckInDesk() {
   const handleCheckOut = async (member: Member) => {
     setActionLoading(true);
     try {
-      await memberService.checkOut(member.gymId);
-      showToast(`${member.name.split(" ")[0]} checked out.`, "info");
+      const coRes = await offlineCheckOut(member.gymId, member.name);
+      const coMsg = coRes.queued
+        ? `${member.name.split(" ")[0]} checkout queued offline.`
+        : `${member.name.split(" ")[0]} checked out.`;
+      showToast(coMsg, "info");
       setTodayLog((prev) => [
         {
           gymId: member.gymId,
@@ -971,13 +983,34 @@ function WalkInDesk() {
     }
     setLoading(true);
     try {
-      const response = await walkInService.register({
+      const regRes = await offlineWalkInRegister({
         name: name.trim(),
-        phone: phone.trim() || undefined,
         passType,
+        amount: 0, // resolved server-side from Settings.walkInPrices
       });
-      setSuccess(response.walkIn);
-      showToast(`${name.split(" ")[0]} registered successfully.`, "success");
+      if (!regRes.queued) {
+        // Online -- fetch the actual walkIn object for the success screen
+        const response = await walkInService.register({
+          name: name.trim(),
+          phone: phone.trim() || undefined,
+          passType,
+        });
+        setSuccess(response.walkIn);
+      } else {
+        setSuccess({
+          walkId: "QUEUED",
+          name: name.trim(),
+          passType,
+          checkIn: new Date().toISOString(),
+          isCheckedOut: false,
+        } as any);
+      }
+      showToast(
+        regRes.queued
+          ? `${name.split(" ")[0]} queued offline — will sync when internet restores.`
+          : `${name.split(" ")[0]} registered successfully.`,
+        "success",
+      );
     } catch (e) {
       const err = e as { response?: { data?: { message?: string } } };
       setErrorMsg(
@@ -992,8 +1025,13 @@ function WalkInDesk() {
   const handleCheckOut = async (walkId: string, guestName: string) => {
     setCheckingOut(walkId);
     try {
-      await walkInService.checkOut(walkId);
-      showToast(`${guestName.split(" ")[0]} checked out.`, "info");
+      const wcoRes = await offlineWalkInCheckOut(walkId, guestName);
+      showToast(
+        wcoRes.queued
+          ? `${guestName.split(" ")[0]} checkout queued offline.`
+          : `${guestName.split(" ")[0]} checked out.`,
+        "info",
+      );
       setWalkIns((prev) =>
         prev.map((w) =>
           w.walkId === walkId ? { ...w, isCheckedOut: true } : w,
