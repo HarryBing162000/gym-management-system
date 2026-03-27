@@ -307,4 +307,4 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - PWA Service Worker only registers in production build (`npm run build && npm run preview`) — not in `npm run dev`
 - SW uses `(self as any).__WB_MANIFEST` — TypeScript would rename `sw.__WB_MANIFEST` during compilation
 - `syncManager` is a singleton module — call `syncManager.init()` once in `App.tsx`
-- Offline queue entries include JWT token captured at queue time — token may expire before sync
+- Offline queue entries include JWT token captured at queue time — token may expire before sync.
