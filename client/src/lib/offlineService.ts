@@ -99,9 +99,52 @@ export const offlineCheckOut = async (
 
 export interface WalkInRegisterPayload {
   name: string;
+  phone?: string;
   passType: "regular" | "student" | "couple";
-  amount: number;
+  amount?: number;
 }
+
+export interface OfflineDuplicateResult {
+  isDuplicate: boolean;
+  matchedLabel?: string; // e.g. "Juan Dela Cruz (regular)" — for the warning toast
+}
+
+/**
+ * Check the local IndexedDB queue for a walk-in with the same name or phone
+ * registered today. Runs entirely offline — no network call needed.
+ * Call this BEFORE offlineWalkInRegister when offline.
+ */
+export const checkWalkInDuplicate = async (
+  name: string,
+  phone?: string,
+): Promise<OfflineDuplicateResult> => {
+  const { offlineQueue } = await import("./offlineQueue");
+  const pending = await offlineQueue.getPending();
+  const today = new Date().toDateString();
+
+  const duplicate = pending.find((entry) => {
+    if (entry.url !== "/walkin/register") return false;
+    if (new Date(entry.timestamp).toDateString() !== today) return false;
+
+    const b = entry.body as { name?: string; phone?: string };
+    const sameName = b.name?.toLowerCase().trim() === name.toLowerCase().trim();
+    const samePhone =
+      phone &&
+      b.phone &&
+      b.phone.replace(/\D/g, "") === phone.replace(/\D/g, "");
+
+    return sameName || Boolean(samePhone);
+  });
+
+  if (duplicate) {
+    const b = duplicate.body as { name?: string; passType?: string };
+    return {
+      isDuplicate: true,
+      matchedLabel: `${b.name} (${b.passType}) — queued offline`,
+    };
+  }
+  return { isDuplicate: false };
+};
 
 export const offlineWalkInRegister = async (
   payload: WalkInRegisterPayload,
@@ -152,8 +195,8 @@ export const offlineWalkInCheckOut = async (
 
     await syncManager.enqueue({
       url: "/walkin/checkout",
-      method: "POST",
-      body: { walkId },
+      method: "PATCH", // must match backend: PATCH /walkin/checkout
+      body: { walkId }, // walkId in body — matches walkInService.checkOut
       label: `Walk-in checkout: ${name} (${walkId})`,
       token: getToken(),
     });

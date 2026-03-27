@@ -229,18 +229,45 @@ export const offlineQueue = {
   },
 
   /**
+   * Reset any entries stuck in "syncing" status back to "pending".
+   * Happens when the page refreshes mid-sync — those entries would be
+   * stuck forever since getPending() only fetches "pending" status.
+   * Call this once on app init before the first sync attempt.
+   */
+  resetStuckSyncing: async (): Promise<void> => {
+    const db = await openDB();
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const index = store.index("status");
+    const stuck = await promisify(
+      index.getAll(IDBKeyRange.only("syncing")) as IDBRequest<QueueEntry[]>,
+    );
+    if (stuck.length === 0) return;
+    console.warn(
+      `[offlineQueue] Resetting ${stuck.length} stuck syncing entries to pending`,
+    );
+    await Promise.all(
+      stuck.map((entry) => {
+        entry.status = "pending";
+        return promisify(store.put(entry));
+      }),
+    );
+  },
+
+  /**
    * Clear all failed entries — staff manually dismisses them.
+   * Uses a single transaction to avoid IDB readwrite race conditions.
    */
   clearFailed: async (): Promise<void> => {
     const db = await openDB();
-    const store = tx(db, "readwrite");
+    // Single transaction for both the read and all deletes — no race possible
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
     const index = store.index("status");
     const failed = await promisify(
       index.getAllKeys(IDBKeyRange.only("failed")) as IDBRequest<IDBValidKey[]>,
     );
-    await Promise.all(
-      failed.map((key) => promisify(tx(db, "readwrite").delete(key))),
-    );
+    await Promise.all(failed.map((key) => promisify(store.delete(key))));
   },
 
   /**

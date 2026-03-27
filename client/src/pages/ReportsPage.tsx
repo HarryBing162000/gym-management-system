@@ -98,15 +98,16 @@ function estimateWalkInRevenue(
   walkInsByType: { regular: number; student: number; couple: number },
   totalWalkIns: number,
   filterDates: Set<string>,
+  prices: { regular: number; student: number; couple: number },
 ): number {
   const filteredCount = Object.entries(walkInsByDate)
     .filter(([d]) => filterDates.has(d))
     .reduce((s, [, v]) => s + v, 0);
   if (totalWalkIns === 0) return 0;
   const avgPrice =
-    (walkInsByType.regular * 150 +
-      walkInsByType.student * 100 +
-      walkInsByType.couple * 250) /
+    (walkInsByType.regular * prices.regular +
+      walkInsByType.student * prices.student +
+      walkInsByType.couple * prices.couple) /
     totalWalkIns;
   return Math.round(filteredCount * avgPrice);
 }
@@ -255,11 +256,13 @@ function RevenueSourceChart({
   walkInsByDate,
   walkInsByType,
   totalWalkIns,
+  prices,
 }: {
   payments: Payment[];
   walkInsByDate: Record<string, number>;
   walkInsByType: { regular: number; student: number; couple: number };
   totalWalkIns: number;
+  prices: { regular: number; student: number; couple: number };
 }) {
   const weeks = Array.from({ length: 6 }, (_, i) => {
     const weekEnd = new Date();
@@ -281,6 +284,7 @@ function RevenueSourceChart({
       walkInsByType,
       totalWalkIns,
       weekDates,
+      prices,
     );
     return { label, memberRev, wiRev };
   }).reverse();
@@ -620,13 +624,21 @@ export default function ReportsPage() {
       // ── Payments ──
       const all = payRes.payments;
       setPayments(all);
-      const total = all.reduce((s, p) => s + (p.amountPaid ?? p.amount), 0);
-      const cash = all
-        .filter((p) => p.method === "cash")
-        .reduce((s, p) => s + (p.amountPaid ?? p.amount), 0);
+      // Use aggregate totals from backend -- accurate for ALL records, no limit
+      // Falls back to summing fetched records if backend not yet updated
+      const total =
+        payRes.grandTotal ??
+        all.reduce((s, p) => s + (p.amountPaid ?? p.amount), 0);
+      const cash =
+        payRes.cashTotal ??
+        all
+          .filter((p) => p.method === "cash")
+          .reduce((s, p) => s + (p.amountPaid ?? p.amount), 0);
+      const online = payRes.onlineTotal ?? total - cash;
       setTotalRevenue(total);
       setCashRevenue(cash);
-      setOnlineRevenue(total - cash);
+      setOnlineRevenue(online);
+      // revenueByDate uses fetched records for day-by-day chart breakdown
       const revMap: Record<string, number> = {};
       all.forEach((p) => {
         const d = p.createdAt?.split("T")[0] ?? "";
@@ -1233,6 +1245,11 @@ export default function ReportsPage() {
                   walkInsByDate={walkInsByDate}
                   walkInsByType={walkInsByType}
                   totalWalkIns={walkInTotal}
+                  prices={{
+                    regular: wiRegular,
+                    student: wiStudent,
+                    couple: wiCouple,
+                  }}
                 />
               </div>
               <ChartDivider />

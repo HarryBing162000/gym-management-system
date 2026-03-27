@@ -6,6 +6,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { walkInService } from "../services/walkInService";
+import {
+  offlineWalkInRegister,
+  offlineWalkInCheckOut,
+  checkWalkInDuplicate,
+} from "../lib/offlineService";
 import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
 import type { WalkIn, WalkInSummary } from "../types";
@@ -111,7 +116,8 @@ function RegisterModal({
     return d;
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (force = false) => {
+    if (loading) return; // prevent double-submit from rapid clicks or Enter+click
     setErrorMsg("");
     if (!name.trim() || name.trim().split(" ").length < 2) {
       setErrorMsg("Please enter a full name (first and last).");
@@ -119,19 +125,41 @@ function RegisterModal({
     }
     setLoading(true);
     try {
-      const res = await walkInService.register({
+      // When offline — check IndexedDB queue for duplicate name/phone first
+      if (!navigator.onLine && !force) {
+        const dupCheck = await checkWalkInDuplicate(
+          name.trim(),
+          phone.trim() || undefined,
+        );
+        if (dupCheck.isDuplicate) {
+          setLoading(false);
+          setErrorMsg(
+            `Possible duplicate: ${dupCheck.matchedLabel}. Click Register again to proceed anyway.`,
+          );
+          // Next submit call passes force=true to skip the check
+          return;
+        }
+      }
+
+      const res = await offlineWalkInRegister({
         name: name.trim(),
         phone: phone.trim() || undefined,
         passType,
       });
+
       showToast(
-        `${res.walkIn.name.split(" ")[0]} registered — ${res.walkIn.walkId}`,
+        res.queued
+          ? `${name.trim().split(" ")[0]} registered offline — will sync when internet restores.`
+          : `${name.trim().split(" ")[0]} registered — ${res.walkId ?? ""}`,
         "success",
       );
       onRegistered();
       onClose();
     } catch (e) {
-      const err = e as { response?: { data?: { message?: string } } };
+      const err = e as {
+        response?: { data?: { message?: string }; status?: number };
+      };
+      // 409 from server = online duplicate — show the server message directly
       setErrorMsg(
         err.response?.data?.message || "Registration failed. Please try again.",
       );
@@ -177,7 +205,9 @@ function RegisterModal({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && !loading && handleSubmit()
+                }
                 placeholder="e.g. Jose Rizal"
                 autoFocus
                 className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FFB800] transition-colors"
@@ -225,13 +255,17 @@ function RegisterModal({
                 Cancel
               </button>
               <button
-                onClick={handleSubmit}
+                onClick={() =>
+                  handleSubmit(errorMsg.startsWith("Possible duplicate"))
+                }
                 disabled={loading}
                 className="flex-1 py-2.5 bg-[#FFB800] text-black text-sm font-bold rounded-lg hover:bg-[#ffc933] transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
               >
                 {loading
                   ? "Registering..."
-                  : `Register — ₱${passConfig.find((p) => p.type === passType)?.price}`}
+                  : errorMsg.startsWith("Possible duplicate")
+                    ? "Register Anyway"
+                    : `Register — ₱${passConfig.find((p) => p.type === passType)?.price}`}
               </button>
             </div>
           </div>
@@ -661,9 +695,17 @@ export default function WalkInsPage() {
   }, [quickFilter, customFrom, customTo, historySearch]);
 
   const handleCheckOut = async (walkId: string) => {
+    // Find the walk-in name for the offline label
+    const walkIn = todayWalkIns.find((w) => w.walkId === walkId);
+    const name = walkIn?.name ?? walkId;
     try {
-      await walkInService.checkOut(walkId);
-      showToast(`${walkId} checked out.`, "success");
+      const res = await offlineWalkInCheckOut(walkId, name);
+      showToast(
+        res.queued
+          ? `${name.split(" ")[0]} checked out offline — will sync when internet restores.`
+          : `${walkId} checked out.`,
+        "success",
+      );
       fetchToday();
     } catch {
       showToast("Checkout failed. Please try again.", "error");

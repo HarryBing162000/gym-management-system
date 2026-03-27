@@ -19,6 +19,7 @@ The browser never talks to the database directly. It always goes through the ser
 - **Local dev** — browser at `localhost:5173`, server at `localhost:5000`, database on MongoDB Atlas
 - **Production** — browser at `ironcore-gms.onrender.com`, server at `ironcore-gms-server.onrender.com`, same Atlas database
 - **Kiosk** — browser at `/kiosk` route, same server, no login required
+- **PWA preview** — browser at `localhost:4173`, production build, SW active, tests offline behavior
 
 ---
 
@@ -30,21 +31,20 @@ Let's trace what happens when a staff member checks in a gym member. This single
 **File:** `client/src/pages/StaffDashboard.tsx`
 
 ```
-StaffDashboard → memberService.checkIn(gymId)
+StaffDashboard → offlineCheckIn(gymId, memberName)
 ```
 
-The component calls the service function. It doesn't know or care about HTTP — it just calls a function.
+The component now calls the offline-aware wrapper, not `memberService.checkIn` directly.
 
-### Step 2: Service function makes the HTTP call
-**File:** `client/src/services/memberService.ts`
+### Step 2: offlineService decides online or offline
+**File:** `client/src/lib/offlineService.ts`
 
 ```
-memberService.checkIn → api.patch('/members/GYM-1023/checkin')
+if online → memberService.checkIn(gymId) → normal API call
+if offline → syncManager.enqueue({ url, method, body, token }) → IndexedDB
 ```
 
-This calls `api.patch()` — the central Axios instance.
-
-### Step 3: Axios attaches the JWT token automatically
+### Step 3 (online path): Axios attaches the JWT token automatically
 **File:** `client/src/services/api.ts`
 
 ```javascript
@@ -55,16 +55,12 @@ api.interceptors.request.use((config) => {
 });
 ```
 
-Every single request going out gets the JWT token attached here. The staff member logged in earlier and their token was saved in `authStore`. This interceptor reads it and attaches it automatically — no manual work needed anywhere else.
-
 ### Step 4: Request hits the server router
 **File:** `server/src/routes/memberRoutes.ts`
 
 ```
 PATCH /api/members/:gymId/checkin → [protect middleware] → checkInMember controller
 ```
-
-The router is just a map. It says: "if this URL pattern comes in, run these functions in this order." First the `protect` middleware, then the controller.
 
 ### Step 5: Middleware verifies the JWT
 **File:** `server/src/middleware/authMiddleware.ts`
@@ -75,14 +71,11 @@ req.user = { id: decoded.id, role: decoded.role, name: decoded.name };
 next();
 ```
 
-The middleware extracts the token from the `Authorization` header, verifies its signature, and attaches the user to `req`. If the token is missing or invalid, it returns `401` immediately and the request never reaches the controller.
-
 ### Step 6: Controller does the actual work
 **File:** `server/src/controllers/memberController.ts`
 
 ```javascript
 const member = await Member.findOne({ gymId });
-// check: is member active? already checked in?
 member.checkedIn = true;
 member.lastCheckIn = new Date();
 await member.save();
@@ -90,15 +83,21 @@ await logAction({ action: 'check_in', ... });
 return res.status(200).json({ success: true, ... });
 ```
 
-This is where the real logic lives. It reads from MongoDB, validates business rules, writes back, logs the action, and sends the response.
+### Step 7 (offline path): syncManager drains the queue when online
+**File:** `client/src/lib/syncManager.ts`
 
-### Step 7: Response travels back
-The `200 OK` response travels back through Express → network → Axios → `memberService.checkIn()` → `StaffDashboard`.
+```
+navigator.onLine → true → drain IndexedDB queue in timestamp order
+→ fetch(API_BASE + entry.url, { headers: { Authorization: Bearer token } })
+→ success → remove from queue
+→ 409 Conflict → duplicate detected → fire gms:sync-duplicate event → remove
+→ fail 3x → mark as failed → show in red badge
+```
 
-### Step 8: UI updates
-StaffDashboard gets the success response, calls `fetchMembers()` to refresh the list, and shows a toast notification via `toastStore`.
+### Step 8: UI updates optimistically
+StaffDashboard flips `checkedIn: true` on the selected member **immediately** before the API call returns. This is the optimistic UI — staff don't wait for the network.
 
-**That's the full round trip.** Every feature in this system follows this same path.
+**That's the full round trip, both online and offline paths.**
 
 ---
 
@@ -119,301 +118,183 @@ LoginPage → authService.login(email, password)
          → token stored in localStorage via Zustand persist
 ```
 
-The JWT is a signed string. It contains `{ id, role, name }` but crucially it is **signed** with `JWT_SECRET`. Nobody can fake a JWT without knowing the secret.
-
-### What's inside the JWT
-
-```
-Header.Payload.Signature
-
-Payload: { id: "abc123", role: "staff", name: "John Doe", iat: 1234567890, exp: 1234567890 }
-```
-
-The server never needs to look up the database to verify identity on every request. It just checks the signature. If valid → user is who they claim to be.
+The JWT is a signed string containing `{ id, role, name }`. Nobody can fake a JWT without knowing the secret.
 
 ### Why name is in the JWT
 
-`logAction()` needs the performer's name to record it in the action log. If name wasn't in the JWT, every single logged action would need a `User.findById()` call to get the name. By including name in the JWT payload, we save a database round trip on every action.
+`logAction()` needs the performer's name. If name wasn't in the JWT, every logged action would need a `User.findById()` call. Including name in the JWT payload saves a database round trip on every action.
 
 ### How logout works
 
-This is a special case because logout needs to be logged BEFORE the token is cleared:
-
 ```javascript
-// authStore.ts
 logout: () => {
   const { user, token } = get();  // grab BEFORE clearing
-  
   if (user && token) {
     api.post('/action-logs/logout', {}, {
-      headers: { Authorization: `Bearer ${token}` }  // pass explicitly
+      headers: { Authorization: `Bearer ${token}` }
     }).catch(() => {});  // fire-and-forget
   }
-  
   set({ user: null, token: null, isAuthenticated: false });  // clear AFTER
 }
 ```
 
-If we cleared the token first, the logout log request would fail authentication (401). So we grab the token, fire the log request, then clear the state.
+If we cleared the token first, the logout log request would fail (401). So we grab the token, fire the log request, then clear state.
 
 ### Role-based access
 
-Three roles exist: `owner`, `staff`, `member`. Members don't have User accounts — they only use the kiosk. The `protect` middleware blocks unauthenticated users. The `requireRole()` middleware blocks wrong roles:
-
-```javascript
-// Only owner can access this route
-router.get('/staff', protect, requireRole('owner'), getStaffList);
-```
+Three roles: `owner`, `staff`, `member`. Members don't have User accounts — kiosk only. `protect` blocks unauthenticated. `requireRole()` blocks wrong roles.
 
 ---
 
-## Part 4 — The Database Models
+## Part 4 — The Offline-First PWA System
 
-Each Mongoose model defines what gets stored in MongoDB. Think of each model as a table (collection in MongoDB).
+This is the most complex part of the system. Five layers working together.
 
-### User
-Who can log in to the system.
+### Layer 1: Service Worker (`sw.ts`)
 
-```
-Fields: name, email (owner), username (staff), passwordHash, role
-```
+The Service Worker runs in a separate thread. It intercepts network requests and decides whether to serve from cache or go to the network.
 
-Owner logs in with email. Staff logs in with username. Both use bcrypt-hashed passwords. This model is ONLY for authentication — it does not represent gym clients.
+**Cache strategies:**
+- App shell (HTML/JS/CSS) → Cache First (precached by Workbox on deploy)
+- `GET /api/members` → Network First, 10s timeout, falls back to cache
+- `GET /api/walkin/today` → Network First, 8s timeout, falls back to cache
+- `GET /api/auth/gym-info` → Cache First, 24h expiry
+- Auth + payments → Network Only (never cache)
 
-### Member
-The gym's actual clients.
+**Critical detail:** Route matchers use `url.href.includes()` not `url.pathname`. The API is on a different origin (`ironcore-gms-server.onrender.com`) so `url.pathname` only sees the path without the domain — it would never match cross-origin requests.
 
-```
-Fields: gymId (GYM-XXXX), name, email, phone, plan, status, expiresAt, 
-        checkedIn, lastCheckIn, balance, photoUrl, isActive
-```
+**TypeScript issue:** `self.__WB_MANIFEST` must stay as a literal string in the compiled output so Workbox can inject the precache manifest. Using `(self as any).__WB_MANIFEST` prevents TypeScript from renaming it during compilation.
 
-Hard duplicate blocking on name + email + phone — if you try to register someone who already exists, the backend rejects it. `balance` tracks unpaid amounts. `isActive` is false for deactivated members (soft delete — they're never truly deleted).
+### Layer 2: offlineQueue (`offlineQueue.ts`)
 
-**Key: Member ≠ User.** A gym client is a Member. A staff employee or owner is a User. They are completely separate models with completely separate purposes.
-
-### Payment
-Every financial transaction.
-
-```
-Fields: gymId, memberName, method (cash/online), type (new_member/renewal/manual/balance_settlement),
-        amountPaid, totalAmount, balance, isPartial, processedBy (ref→User), plan, notes
-```
-
-`isPartial: true` means the member paid less than the full amount. `balance` is what they still owe. `processedBy` links to the User (staff or owner) who recorded the payment — this is accountability.
-
-### WalkIn
-Day pass visitors.
-
-```
-Fields: walkId (WALK-XXX), name, passType (regular/student/couple), amount, 
-        checkIn, checkOut, isCheckedOut, staffId, date
-```
-
-`walkId` resets every day — WALK-001 on Monday, WALK-001 again on Tuesday. The `date` field disambiguates them. This keeps IDs short and human-friendly for the kiosk.
-
-### ActionLog
-The complete audit trail of everything that happens.
-
-```
-Fields: action (enum), performedBy { userId, name, role }, 
-        targetId, targetName, detail, timestamp
-```
-
-Two MongoDB indexes are on this collection:
-- `{ timestamp: -1 }` — for fast "show me recent logs" queries
-- `{ 'performedBy.userId': 1, timestamp: -1 }` — for fast "show me this staff member's logs" queries
-
-Without these indexes, filtering 100,000 logs would scan every single document. With them, MongoDB jumps directly to the right records.
-
-### Settings
-The single source of truth for gym configuration.
-
-```
-Fields: gymName, gymAddress, logoUrl, plans[], walkInPrices
-```
-
-There is exactly ONE Settings document in the database. When the owner changes a plan price, all pages that use `gymStore.getPlanPrice()` will reflect it — because gymStore fetches from Settings on app load.
-
----
-
-## Part 5 — The Zustand Stores (Global State)
-
-Zustand is like a shared memory that all React components can read and write. When one component changes something in a store, every component watching that value re-renders automatically.
-
-### authStore
-
-```
-State: user, token, isAuthenticated, _hasHydrated
-Actions: setAuth(user, token), logout(), setHasHydrated(state)
-```
-
-`_hasHydrated` is critical. When the page loads, Zustand reads the stored auth from `localStorage`. But this is async. `_hasHydrated` starts as `false` and becomes `true` once the read completes. The `ProtectedRoute` component in `App.tsx` waits for `_hasHydrated` before deciding whether to redirect to login — otherwise a logged-in user would briefly flash to the login page on every refresh.
-
-### gymStore
-
-```
-State: settings (gymName, address, logoUrl, plans[], walkInPrices), 
-       isLoading, hasFetched, lastMemberUpdate
-
-Actions: fetchGymInfo(), updateSettings(), setPlans(), setWalkInPrices(),
-         triggerMemberRefresh()
-
-Helpers: getActivePlans(), getPlanPrice(name), getPlanDuration(name), getWalkInPrice(type)
-```
-
-`hasFetched` prevents double-fetching. The store fetches settings once on app load and never again unless explicitly refreshed.
-
-`lastMemberUpdate` + `triggerMemberRefresh()` is the cross-page refresh signal. When PaymentsPage logs a renewal that changes `expiresAt`, it calls `triggerMemberRefresh()`. MembersPage watches `lastMemberUpdate` with a `useEffect` and refetches when it changes. This is how two separate pages stay in sync without a global data fetching library.
-
-### toastStore
-
-```
-State: toasts[]
-Actions: showToast(message, type), removeToast(id)
-```
-
-`ToastContainer.tsx` is mounted in `App.tsx` via `createPortal` — it renders outside the normal React tree directly into `document.body`. This means toasts always appear on top of everything regardless of z-index stacking contexts.
-
----
-
-## Part 6 — The Kiosk System
-
-The kiosk is special because it's a public terminal with no login. It needs security without requiring a user account.
-
-### How kiosk auth works
-
-Instead of JWT (which requires login), the kiosk uses a shared secret:
-
-```
-Client sends:  X-Kiosk-Token: <VITE_KIOSK_SECRET>
-Server checks: kioskAuth middleware compares against KIOSK_SECRET
-```
-
-The comparison is timing-safe (using `crypto.timingSafeEqual` via SHA-256 hashes) — this prevents attackers from timing the response to guess the secret character by character.
-
-Both `KIOSK_SECRET` (server) and `VITE_KIOSK_SECRET` (client) must be the same value. They're set as environment variables — never hardcoded.
-
-### Kiosk security layers
-
-```
-Request → kioskRateLimiter (20/min per IP) → kioskAuth (token check) → controller
-```
-
-Rate limiting blocks someone from hammering the member search endpoint to scrape all member names. The token check blocks anyone who isn't the kiosk terminal.
-
-### Why kiosk uses raw fetch() not Axios
-
-The Axios `api.ts` instance is configured to attach JWT tokens. The kiosk doesn't have a JWT — it has a kiosk token. Using the same Axios instance would conflict. So `KioskPage.tsx` uses raw `fetch()` with custom headers, completely separate from the rest of the app.
-
----
-
-## Part 7 — The Action Log System
-
-The action log is one of the most architecturally interesting parts of the system.
-
-### The logAction() helper
+An IndexedDB wrapper that stores pending write actions. Actions survive tab closes, page refreshes, and app restarts.
 
 ```typescript
-// server/src/utils/logAction.ts
-export async function logAction(params: LogActionParams): Promise<void> {
-  try {
-    await ActionLog.create(params);
-  } catch (err) {
-    console.error('[logAction] Failed:', err);
-    // Never rethrows — a logging failure must NEVER crash the real operation
-  }
+interface QueueEntry {
+  id: string;
+  url: string;          // e.g. "/members/GYM-1023/checkin"
+  method: "POST" | "PATCH" | "PUT" | "DELETE";
+  body: Record<string, unknown>;
+  timestamp: number;    // for chronological ordering
+  retries: number;      // how many attempts made
+  status: "pending" | "syncing" | "failed";
+  label: string;        // human-readable: "Check-in: Juan Dela Cruz"
+  token: string;        // JWT at time of queuing
 }
 ```
 
-The `try/catch` that never rethrows is a deliberate design decision. If the database is slow and the log write fails, the check-in still succeeds. Logging is never more important than the real operation.
+Two indexes: `timestamp` (for ordered draining) and `status` (for fast pending/failed lookups).
 
-### Where logs are injected
+### Layer 3: syncManager (`syncManager.ts`)
 
-Every controller calls `logAction()` after the main operation succeeds:
+The brain of the offline system. Watches `navigator.onLine`. When internet restores:
 
-```
-authController    → login, logout
-memberController  → check_in, check_out, member_created, member_updated
-paymentController → payment_created
-walkInController  → walk_in_created, walk_in_checkout
-kioskController   → NOT logged (no authenticated user)
-```
+1. Waits 1 second for connection to stabilize
+2. Gets all pending entries ordered by timestamp
+3. For each entry: marks as syncing → sends raw fetch → handles result
+4. Result handling:
+   - `200 OK` → remove from queue, count as success
+   - `409 Conflict` → duplicate already exists → remove from queue, fire `gms:sync-duplicate` event (NOT counted as success, NOT shown as failure)
+   - Other 4xx → permanent failure, increment retries
+   - 5xx or network error → retry (max 3 times)
+   - After 3 retries → mark as failed, keep in queue for staff review
+5. After processing all: fire `gms:sync-complete` (if successes > 0) or `gms:sync-failed` (if failures > 0)
 
-The kiosk intentionally skips logging because there's no `req.user` — the kiosk is anonymous from the server's perspective.
+**Why 409 is special:** When a member is added offline, the first sync attempt creates it on the server. If the app retries (e.g. network dropped mid-response), the server returns 409 because the member already exists. This is not an error — it means the first attempt succeeded. Treating 409 as failure would confuse staff.
 
-### Server-side filtering
+### Layer 4: offlineService (`offlineService.ts`)
 
-All log filtering happens in MongoDB, not in JavaScript:
+Offline-aware wrappers for write actions. The UI calls these instead of `memberService` directly.
 
-```javascript
-// actionLogsRoutes.ts
-const filter = {};
-if (role === 'staff') filter['performedBy.userId'] = userId;  // staff isolation
-if (action) filter.action = action;
-if (from || to) filter.timestamp = { $gte: toManilaStart(from), $lte: toManilaEnd(to) };
-
-ActionLog.find(filter).sort({ timestamp: -1 }).skip(skip).limit(limit)
-```
-
-This works at 1,000 logs or 1,000,000 logs because MongoDB uses indexes. Client-side filtering would load all logs into memory — that would break at scale.
-
-### Manila timezone handling
-
-The server runs on UTC. The gym is in the Philippines (UTC+8). If a staff member filters "today", they mean Philippine midnight to Philippine midnight — not UTC midnight.
-
-```javascript
-const toManilaStart = (dateStr: string): Date => {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  // Manila midnight = 16:00 UTC previous day
-  return new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
-};
+```typescript
+// Example: offlineCheckIn
+try {
+  const res = await memberService.checkIn(gymId);  // try online
+  return { success: true, queued: false, message: res.message };
+} catch (err) {
+  if (!isNetworkError(err)) throw err;  // real errors (401, 403) still propagate
+  await syncManager.enqueue({ url, method, body, label, token });
+  return { success: true, queued: true, message: "Queued for sync..." };
+}
 ```
 
-UTC+8 means Manila is 8 hours ahead. Manila midnight (00:00 +08:00) = UTC 16:00 the previous day. The `-8` in `Date.UTC` handles this.
+The caller gets `{ queued: true }` or `{ queued: false }` and shows different toast messages.
+
+### Layer 5: SyncBadge (`SyncBadge.tsx`)
+
+The UI indicator in the topbar. Subscribes to `syncManager` state changes and native `window` online/offline events.
+
+**States:**
+- Hidden — online + queue empty
+- Amber "Offline" — offline, nothing queued yet
+- Orange "X pending" — actions waiting to sync
+- Spinning "Syncing" — sync in progress
+- Red "X failed" — permanent failures need staff attention
+
+**Custom events listened to:**
+- `gms:sync-complete` → green toast "X offline actions synced"
+- `gms:sync-failed` → red toast "X actions failed to sync"
+- `gms:sync-duplicate` → amber warning toast "Juan Dela Cruz is already in the system"
 
 ---
 
-## Part 8 — The Payment System
+## Part 5 — Walk-in System
 
-Payments are the most complex business logic in the system.
+Walk-ins are day visitors who pay per session instead of having a membership.
+
+### The daily reset problem
+
+Walk-in IDs are `WALK-001`, `WALK-002` etc. and reset every day. This means multiple days can have `WALK-001`. The `WalkIn` model uses a compound index `{ walkId: 1, date: 1 }` so queries always specify a date.
+
+The reset logic: when registering a new walk-in, the controller queries for the highest `walkId` on today's date and increments. If no walk-ins exist today yet, starts at `WALK-001`.
+
+### Pass types
+
+Three types with different pricing from `Settings.walkInPrices`:
+- Regular — single person
+- Student — discounted with ID
+- Couple — two people, single payment
+
+All pricing comes from `Settings.walkInPrices` — never hardcoded.
+
+### Dual checkout
+
+Walk-ins can be checked out two ways:
+1. Staff counter — through `WalkInDesk` in StaffDashboard
+2. Public kiosk — through `KioskPage` by entering their `WALK-XXX` ID
+
+Both call different routes but the same underlying logic.
+
+---
+
+## Part 6 — Payment System
 
 ### Payment types
 
-| Type                 | When used                                  | Updates expiresAt? |
-|----------------------|--------------------------------------------|--------------------|
-| `new_member`         | Auto-created when member registers         | Yes (initial)      |
-| `renewal`            | Member extends membership                  | Yes                |
-| `manual`             | Staff logs a payment without extending     | No                 |
-| `balance_settlement` | Member pays off outstanding balance        | No                 |
+| Type | When used |
+|------|-----------|
+| `new_member` | First payment when registering a member |
+| `renewal` | Extending an existing membership |
+| `manual` | Ad-hoc payment not tied to a specific period |
+| `balance_settlement` | Paying off a partial payment balance |
 
-### The expiry extension rule
+### The expiry extension logic (critical — appears in 3 places)
+
+When a payment renews a membership, the new expiry date is calculated:
 
 ```javascript
-// paymentController.ts
 const now = new Date();
 const currentExpiry = member.expiresAt ? new Date(member.expiresAt) : now;
-const baseDate = currentExpiry > now ? currentExpiry : now;
+const baseDate = currentExpiry > now ? new Date(currentExpiry) : new Date(now);
 baseDate.setMonth(baseDate.getMonth() + months);
-member.expiresAt = baseDate;
 ```
 
-If the member's current expiry is April 25 and they renew for 1 month, the new expiry is May 25 — not March 25 + 1 month. Active members don't lose their remaining days. Expired members start fresh from today.
+**This exact logic appears in three places and must stay in sync:**
+1. `paymentController.ts` — server-side, what actually saves to DB
+2. `PaymentsPage.tsx` `getNewExpiry()` — preview in payment modal
+3. `OwnerDashboard.tsx` `calcNewExpiry()` — preview in RenewModal
 
-This same logic runs in the frontend `getNewExpiry()` function so the preview shown to staff matches what the backend will actually save.
-
-### The duplicate payment guard
-
-```javascript
-const recentPayment = await Payment.findOne({
-  gymId: member.gymId,
-  type,
-  createdAt: { $gte: new Date(Date.now() - 10000) }
-});
-if (recentPayment) return res.status(409).json({ message: 'Payment already processed.' });
-```
-
-This 10-second window catches double-taps on slow connections. If the same member has the same payment type within 10 seconds, the second one is rejected.
+If a member's plan expires Dec 31 and they renew on Jan 15 with a monthly plan, the new expiry is Feb 28 (one month from Dec 31), not Feb 15. Members never lose their remaining days.
 
 ### Partial payments and balance tracking
 
@@ -423,7 +304,72 @@ If a member pays ₱500 for a ₱800 plan:
 - `balance: 300`
 - `isPartial: true`
 
-The ₱300 balance is stored on both the `Payment` record and on `member.balance`. When the member later settles, `paymentController.settleBalance()` uses `member.balance` as the `totalAmount` — not the plan price. A settlement is paying off a debt, not buying a new plan.
+The ₱300 balance is stored on both the `Payment` record and `member.balance`. When settling, `settleBalance()` uses `member.balance` as `totalAmount` — not the plan price.
+
+---
+
+## Part 7 — Action Log System
+
+Every staff/owner action gets logged to `ActionLog`. This creates a full audit trail.
+
+### What gets logged
+
+Every controller that mutates data calls `logAction()`:
+- Login / logout
+- Member created, updated, deactivated, reactivated
+- Member checked in / checked out
+- Walk-in registered / checked out
+- Payment created / balance settled
+- Settings updated
+
+### Why it never crashes anything
+
+```javascript
+// logAction.ts
+export async function logAction(params) {
+  try {
+    await ActionLog.create({ ... });
+  } catch (err) {
+    console.error('[logAction] Failed:', err);
+    // never rethrows — the main operation already succeeded
+  }
+}
+```
+
+Logging failure is not a business failure. If MongoDB is slow or the ActionLog schema has a bug, the actual check-in still succeeds. Logging is always secondary.
+
+### Role isolation
+
+The `GET /api/action-logs` endpoint enforces:
+- Owner → can see all logs, filter by any staff member
+- Staff → can only see their own logs (server adds `performedBy.userId` filter, cannot be overridden by client)
+
+---
+
+## Part 8 — The Settings System
+
+`Settings` is a single MongoDB document. There is only one. It is created on server startup if it doesn't exist, with default plans and walk-in prices.
+
+```javascript
+// index.ts — runs on startup
+const existing = await Settings.findOne();
+if (!existing) {
+  await Settings.create({
+    gymName: 'Gym Management System',
+    plans: [{ name: 'Monthly', price: 800, durationMonths: 1, isActive: true }],
+    walkInPrices: { regular: 150, student: 100, couple: 250 }
+  });
+}
+```
+
+### Why settings are cached per request
+
+`paymentController.ts` might need settings 3-4 times during one payment (to get plan price, walk-in price, gym name for the log). Instead of calling `Settings.findOne()` each time:
+
+```javascript
+const settings = await Settings.findOne();  // once at top of controller
+const price = getPlanPrice(plan, settings);  // pass settings to helpers
+```
 
 ---
 
@@ -431,58 +377,58 @@ The ₱300 balance is stored on both the `Payment` record and on `member.balance
 
 ### Owner navigation
 
-`OwnerDashboard.tsx` is not just the dashboard — it's the entire owner app. It uses `useSearchParams` to switch pages:
+`OwnerDashboard.tsx` uses `useSearchParams` to switch pages:
 
 ```
-/dashboard         → shows DashboardContent
+/dashboard               → shows DashboardContent
 /dashboard?page=members  → shows MembersPage
 /dashboard?page=payments → shows PaymentsPage
 ```
 
-One URL, one component, multiple "pages" via query params. This is why the browser back button works — each page visit adds to browser history.
+One URL, one component, multiple "pages" via query params. Browser back button works — each page visit adds to history.
 
 ### Staff navigation
 
-`StaffDashboard.tsx` works the same way. Staff see a subset of pages:
+`StaffDashboard.tsx` works the same way. Staff see:
 - Check-in desk, Walk-in desk, Members (read-only), Payments (today only), My Activity
 
-`forceStaffView={true}` is passed to `PaymentsPage` when rendered inside StaffDashboard. This prop restricts the date range to today only — same component, different behavior.
+`forceStaffView={true}` is passed to `PaymentsPage` — same component, restricted data scope.
 
 ### Public kiosk
 
-`KioskPage.tsx` is at `/kiosk` — a completely separate route that doesn't use `OwnerLayout` or `StaffLayout`. No sidebar, no login required, no auth check. Just the kiosk UI.
+`KioskPage.tsx` at `/kiosk` — completely separate route, no layout, no auth. Uses raw `fetch()` with `X-Kiosk-Token` header instead of Axios.
 
 ---
 
 ## Part 10 — Security Layers
 
-Every request to the backend passes through multiple security layers in order:
+Every request passes through multiple security layers in order:
 
 ```
 Request arrives
     ↓
-1. Helmet — sets secure HTTP headers (XSS protection, clickjacking prevention)
+1. Helmet — sets secure HTTP headers
     ↓
-2. CORS — blocks requests from non-whitelisted origins
+2. CORS — blocks non-whitelisted origins
     ↓
-3. Body size limit — rejects bodies larger than 10kb
+3. Body size limit — rejects bodies > 10kb
     ↓
-4. NoSQL sanitizer — strips $ and . from request bodies (injection prevention)
+4. NoSQL sanitizer — strips $ and . (injection prevention)
     ↓
-5. HPP — prevents HTTP parameter pollution (?role=staff&role=owner)
+5. HPP — prevents HTTP parameter pollution
     ↓
-6. Input sanitizer — strips script tags and event handlers from strings
+6. Input sanitizer — strips script tags from strings
     ↓
-7. General rate limiter — max 300 req per 15 min per IP (production)
+7. General rate limiter — 300 req per 15 min per IP
     ↓
-8. Security logger — logs auth attempts (never logs passwords)
+8. Security logger — logs auth attempts (never passwords)
     ↓
-9. Route-specific middleware — protect (JWT check) or kioskAuth (token check)
+9. Route-specific: protect (JWT) or kioskAuth (X-Kiosk-Token)
     ↓
 10. Controller — actual business logic
 ```
 
-These layers are ordered intentionally. Cheap rejections (CORS, body size) happen before expensive ones (JWT verification, DB queries).
+Cheap rejections (CORS, body size) happen before expensive ones (JWT, DB queries).
 
 ---
 
@@ -492,68 +438,78 @@ These layers are ordered intentionally. Cheap rejections (CORS, body size) happe
 
 | File | What it does | Key connections |
 |------|-------------|-----------------|
-| `App.tsx` | Root component. Defines all routes. Mounts `ToastContainer`. Fetches gym info on load. | Imports all pages, stores |
-| `api.ts` | Central Axios instance. Attaches JWT on every request. Handles 401 → logout. | Used by every service file |
+| `App.tsx` | Root component. Defines all routes. Mounts `ToastContainer`. Calls `syncManager.init()`. | Imports all pages, stores |
+| `api.ts` | Central Axios instance. Attaches JWT. Handles 401 → logout. | Used by every service file |
 | `authStore.ts` | Stores logged-in user + token. Persists to localStorage. `logout()` logs before clearing. | Used by every protected component |
-| `gymStore.ts` | Stores settings + plans. Plan price/duration helpers. Member refresh signal. | Used by PaymentsPage, MembersPage, KioskPage |
-| `toastStore.ts` | Toast notification queue. | Used by every page that needs feedback |
-| `memberService.ts` | All member API calls: getAll, create, update, checkIn, checkOut, renew, etc. | Uses api.ts |
-| `paymentService.ts` | All payment API calls: create, settle, getSummary, getAll. | Uses api.ts |
-| `walkInService.ts` | Walk-in API calls: register, checkout, getToday, getHistory. | Uses api.ts |
-| `actionLogService.ts` | getLogs() with server-side filter params. | Uses api.ts |
-| `kioskService.ts` | Not used — KioskPage uses raw fetch() directly. | N/A |
+| `gymStore.ts` | Stores settings + plans. Plan helpers. `triggerMemberRefresh()` signal. | Used by PaymentsPage, MembersPage, KioskPage |
+| `toastStore.ts` | Toast notification queue. | Used by every page |
+| `offlineQueue.ts` | IndexedDB wrapper. Stores pending actions with status tracking. | Used by syncManager |
+| `syncManager.ts` | Online/offline watcher. Queue drainer. 409 duplicate handler. Custom event emitter. | Used by App.tsx, offlineService, SyncBadge |
+| `offlineService.ts` | Offline-aware wrappers for check-in, checkout, walk-in, add member. | Used by StaffDashboard, MembersPage |
+| `SyncBadge.tsx` | Topbar badge. Subscribes to syncManager + native online/offline events. | Mounted in OwnerLayout, StaffLayout |
+| `sw.ts` | Service Worker. Workbox precache + NetworkFirst/CacheFirst strategies. Cross-origin route matching via url.href | Compiled separately by vite-plugin-pwa |
+| `memberService.ts` | All member API calls. | Uses api.ts |
+| `paymentService.ts` | All payment API calls. | Uses api.ts |
+| `walkInService.ts` | Walk-in API calls. | Uses api.ts |
+| `OwnerLayout.tsx` | Owner sidebar + topbar. Live/Offline badge. Offline banner. SyncBadge mount point. | Wraps all owner pages |
+| `StaffLayout.tsx` | Staff sidebar + topbar. Offline badge. Offline banner. SyncBadge mount point. | Wraps all staff pages |
 | `OwnerDashboard.tsx` | Full owner app. Switches pages via useSearchParams. Contains RenewModal. | Renders MembersPage, PaymentsPage, etc. |
-| `StaffDashboard.tsx` | Full staff app. Check-in keyboard shortcut. Walk-in desk. forceStaffView on payments. | Same structure as OwnerDashboard |
-| `MembersPage.tsx` | Member table. Add/edit drawer. Deactivate/reactivate. Settle balance modal. Watches lastMemberUpdate. | memberService, paymentService, gymStore |
-| `PaymentsPage.tsx` | Payment table. Log Payment modal (type selector, settle shortcut, active-only search). | paymentService, memberService, gymStore |
-| `KioskPage.tsx` | Public kiosk. Raw fetch() with X-Kiosk-Token. Auto-reset timer. Offline detection. | Direct fetch, no api.ts |
-| `ActionLogPage.tsx` | Owner audit log. Server-side filters. Pagination. | actionLogService |
-| `MyActivityPage.tsx` | Staff personal activity. Timeline grouped by day. Date presets. | actionLogService |
+| `StaffDashboard.tsx` | Full staff app. Optimistic check-in UI. offlineService wrappers. | Same structure as OwnerDashboard |
+| `MembersPage.tsx` | Member table. Add/edit drawer with offline queuing. Settle balance modal. | memberService, syncManager, gymStore |
+| `PaymentsPage.tsx` | Payment table. Log Payment modal. | paymentService, memberService, gymStore |
+| `KioskPage.tsx` | Public kiosk. Raw fetch() with X-Kiosk-Token. | Direct fetch, no api.ts |
+| `ActionLogPage.tsx` | Owner audit log. Server-side filters. | actionLogService |
+| `MyActivityPage.tsx` | Staff personal activity. Timeline grouped by day. | actionLogService |
 
 ### Backend files
 
 | File | What it does | Key connections |
 |------|-------------|-----------------|
-| `index.ts` | Server entry. Mounts all middleware and routes. Initializes DB. Creates default Settings. | Imports everything |
-| `db.ts` | Connects to MongoDB Atlas. Stops server if connection fails. | Called from index.ts |
-| `security.ts` | Exports helmetMiddleware, generalRateLimiter, authRateLimiter, kioskRateLimiter, corsOptions, sanitizers. | Used in index.ts |
-| `authMiddleware.ts` | `protect()` — verifies JWT, attaches req.user. `requireRole()` — blocks wrong roles. | Used in all protected routes |
-| `kioskAuth.ts` | Verifies X-Kiosk-Token with timing-safe comparison. Throws on startup if KIOSK_SECRET missing. | Used in kioskRoutes.ts |
-| `authController.ts` | login (owner + staff), register, gym-info (public), settings CRUD. logAction() on all mutations. | User model, Settings model, logAction |
-| `memberController.ts` | GYM-ID generation, getMembers, createMember, updateMember, checkIn, checkOut, deactivate, reactivate. | Member model, logAction, autoLogPayment |
-| `paymentController.ts` | createPayment (expiry extension logic), settleBalance, getPayments, getPaymentSummary, autoLogPayment. Settings cached per request. | Payment model, Member model, Settings model, logAction |
-| `walkInController.ts` | WALK-XXX daily reset, register walk-in, staff checkout, kiosk checkout. logAction on register + staff checkout. | WalkIn model, Settings model, logAction |
-| `kioskController.ts` | kioskSearch, kioskMemberCheckIn, kioskMemberCheckOut, kioskWalkInLookup, kioskWalkInCheckOut. No logAction (no req.user). | Member model, WalkIn model |
-| `logAction.ts` | Writes ActionLog document. try/catch that never rethrows. | ActionLog model |
-| `Member.ts` | Mongoose schema. Indexes on gymId, name, email, phone. | Used in memberController, kioskController |
-| `Payment.ts` | Mongoose schema. | Used in paymentController |
-| `WalkIn.ts` | Mongoose schema. Compound index on {walkId, date} for daily reset queries. | Used in walkInController |
-| `ActionLog.ts` | Mongoose schema. Two indexes for fast filtering. | Used in logAction, actionLogsRoutes |
-| `Settings.ts` | Mongoose schema. One document only. Default plans + walkInPrices on first startup. | Used in multiple controllers |
+| `index.ts` | Server entry. Mounts middleware and routes. Creates default Settings. | Imports everything |
+| `db.ts` | Connects to MongoDB Atlas. | Called from index.ts |
+| `security.ts` | helmetMiddleware, rate limiters, corsOptions, sanitizers. ALLOWED_ORIGINS list. | Used in index.ts |
+| `authMiddleware.ts` | `protect()` — verifies JWT. `requireRole()` — blocks wrong roles. | Used in all protected routes |
+| `kioskAuth.ts` | Verifies X-Kiosk-Token with timing-safe comparison. | Used in kioskRoutes.ts |
+| `authController.ts` | login, register, gym-info, settings CRUD. | User, Settings, logAction |
+| `memberController.ts` | GYM-ID generation, getMembers, createMember, updateMember, checkIn, checkOut. | Member, logAction |
+| `paymentController.ts` | createPayment (expiry logic), settleBalance, getPayments, getPaymentSummary. Settings cached per request. | Payment, Member, Settings, logAction |
+| `walkInController.ts` | WALK-XXX daily reset, register, staff checkout, kiosk checkout. | WalkIn, Settings, logAction |
+| `kioskController.ts` | kioskSearch, member check-in/out, walk-in lookup/checkout. No logAction (no req.user). | Member, WalkIn |
+| `logAction.ts` | Writes ActionLog document. Never rethrows. | ActionLog model |
 
 ---
 
 ## Part 12 — Common Patterns to Recognize
 
-Once you recognize these patterns, reading any file becomes much faster.
-
 ### The service + controller pattern
-Frontend calls a service function → service calls `api.get/post/patch` → Axios adds the token → Express route receives it → middleware validates → controller does work → response returns → service returns data → component updates UI.
+Frontend calls offlineService → tries memberService → api.ts adds token → Express route → middleware → controller → model → logAction → response → UI update.
+
+### The offline fallback pattern
+```
+try { online API call } catch (err) {
+  if (!isNetworkError(err)) throw err;  // real errors still propagate
+  await syncManager.enqueue(...);       // queue for later
+  return { queued: true };              // UI handles gracefully
+}
+```
 
 ### The fire-and-forget log
-Every controller ends with `await logAction(...)` but if that fails, it doesn't matter. The operation already succeeded. Logging is secondary.
+Every controller ends with `await logAction(...)` inside a try/catch. If logging fails, the operation already succeeded.
+
+### The optimistic UI pattern
+StaffDashboard flips `selected.checkedIn` immediately before the API call resolves. The UI responds instantly. If the API fails, the optimistic update is reverted.
+
+### The 409-as-success pattern
+When offline-queued actions sync and the server returns 409 (already exists), this means the first sync attempt succeeded but the client didn't get the confirmation. Treat 409 as success — remove from queue, fire `gms:sync-duplicate` event for user notification.
 
 ### The `forceStaffView` prop
-When the same component needs different behavior for different roles, a boolean prop controls it. No code duplication, just conditional logic inside one component.
+Same component, different scope. No code duplication.
 
 ### The settings cache pattern
-`paymentController.ts` calls `Settings.findOne()` once at the start of the request and passes it to helper functions. The helpers accept an optional `settingsCache` parameter so they don't re-query. This avoids 3-4 database round trips per payment.
+Call `Settings.findOne()` once per request, pass to all helpers. Avoids multiple DB round trips.
 
 ### The cross-page refresh signal
-When one page changes data that another page displays, use `gymStore.triggerMemberRefresh()` to set a timestamp, and `useEffect(() => { fetch(); }, [lastMemberUpdate])` in the receiving page. No prop drilling, no global query invalidation library needed.
-
-### The inline-flow modal
-Search results inside modals used to be `position: absolute` which breaks layout when the modal scrolls. The fix: render results as normal block elements below the input. They push content down instead of overlapping it.
+`gymStore.triggerMemberRefresh()` → sets `lastMemberUpdate: Date.now()` → `MembersPage` watches with `useEffect` → refetches.
 
 ---
 
@@ -561,16 +517,17 @@ Search results inside modals used to be `position: absolute` which breaks layout
 
 If you're new to this codebase, read files in this order:
 
-1. `shared/types.ts` — learn the data shapes first. Everything else refers to these.
-2. `client/src/services/api.ts` — understand how the frontend talks to the backend.
-3. `server/src/middleware/authMiddleware.ts` — understand how protection works.
-4. `server/src/controllers/memberController.ts` — the most complete example of controller patterns.
-5. `server/src/utils/logAction.ts` — small but important.
-6. `client/src/store/authStore.ts` + `gymStore.ts` — understand global state.
-7. `client/src/pages/OwnerDashboard.tsx` — see how all the pieces connect in a real page.
-8. `server/src/index.ts` — see how all middleware and routes are assembled.
+1. `shared/types.ts` — learn the data shapes first
+2. `client/src/services/api.ts` — how the frontend talks to the backend
+3. `server/src/middleware/authMiddleware.ts` — how protection works
+4. `server/src/controllers/memberController.ts` — most complete controller example
+5. `client/src/lib/syncManager.ts` — the offline sync brain
+6. `client/src/lib/offlineService.ts` — how online/offline is abstracted
+7. `client/src/store/authStore.ts` + `gymStore.ts` — global state
+8. `client/src/pages/StaffDashboard.tsx` — how everything connects in a real page
+9. `server/src/index.ts` — how middleware and routes are assembled
 
-Then pick any feature and trace it end-to-end: frontend button → service → api.ts → route → middleware → controller → model → logAction → response → UI update.
+Then pick any feature and trace it end-to-end: button click → offlineService → syncManager OR api.ts → route → middleware → controller → model → logAction → response → UI update.
 
 ---
 

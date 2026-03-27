@@ -18,6 +18,7 @@ Full-stack gym management system with role-based access for owners, staff, and m
 - Tailwind CSS v4 — use `style={{}}` inline for spacing, NOT utility classes like `p-4`
 - Zustand (global state)
 - TanStack Query (server state / API calls)
+- **PWA** — vite-plugin-pwa + Workbox (offline-first)
 
 ### Backend
 - Node.js + Express 5 + TypeScript
@@ -58,11 +59,11 @@ Full-stack gym management system with role-based access for owners, staff, and m
 - Walk-ins: `WALK-XXX` (daily-resetting, resets each day)
 
 ### Key Zustand Stores
-| Store       | Responsibility |
-|-------------|----------------|
-| `authStore` | Current user session, role, JWT token. `logout()` fires POST /api/action-logs/logout BEFORE clearing token |
-| `gymStore`  | Plans + walk-in price helpers. `lastMemberUpdate` + `triggerMemberRefresh()` for cross-page refresh signal |
-| `toastStore`| Global toast notifications |
+| Store        | Responsibility |
+|--------------|----------------|
+| `authStore`  | Current user session, role, JWT token. `logout()` fires POST /api/action-logs/logout BEFORE clearing token |
+| `gymStore`   | Plans + walk-in price helpers. `lastMemberUpdate` + `triggerMemberRefresh()` for cross-page refresh signal |
+| `toastStore` | Global toast notifications |
 
 ### Settings (Single Source of Truth)
 - `Settings.gymName`, `Settings.address`, `Settings.logoUrl` (Cloudinary)
@@ -99,6 +100,62 @@ Full-stack gym management system with role-based access for owners, staff, and m
 
 ---
 
+## PWA Offline-First System
+
+### Architecture (5 layers)
+```
+React UI → offlineQueue (IndexedDB) → syncManager → Service Worker → Render backend
+```
+
+### New files added
+| File | Location | Purpose |
+|------|----------|---------|
+| `offlineQueue.ts` | `client/src/lib/` | IndexedDB wrapper. Stores pending actions with status: pending/syncing/failed |
+| `syncManager.ts` | `client/src/lib/` | Watches navigator.onLine. Drains queue on reconnect. Retry 3x. Fires custom events |
+| `offlineService.ts` | `client/src/lib/` | Offline-aware wrappers for check-in, checkout, walk-in register/checkout, add member |
+| `SyncBadge.tsx` | `client/src/components/` | Topbar badge showing pending/failed sync state. Orange = pending, Red = failed, Amber = offline |
+| `sw.ts` | `client/src/` | Service Worker. Workbox precache + NetworkFirst for members/walkins, CacheFirst for gym-info |
+
+### What works offline
+- Member check-in / check-out → queued in IndexedDB
+- Walk-in register / checkout → queued in IndexedDB
+- Add new member → queued in IndexedDB
+- View members list → cached (1 hour)
+- View today's walk-ins → cached (30 min)
+- Gym info (name, logo, plans) → cached (24 hours)
+- App shell loads without internet
+
+### What requires internet
+- Log payment
+- Edit member
+- Reports
+- Settings changes
+- Login (first time)
+
+### Key technical decisions
+- `sw.ts` uses `(self as any).__WB_MANIFEST` — Workbox scans compiled JS for this literal string
+- Route matchers use `url.href.includes()` not `url.pathname` — API is cross-origin (Render backend)
+- `TypedSW` interface avoids `lib.webworker.d.ts` conflict with DOM lib in tsconfig
+- 409 Conflict on sync = duplicate = treated as success, fires `gms:sync-duplicate` event (not error)
+- `syncManager` fires custom events: `gms:sync-complete`, `gms:sync-failed`, `gms:sync-duplicate`
+- `SyncBadge` shows "Offline" amber badge even with empty queue via native `navigator.onLine` listener
+- `vite.config.ts` uses `injectManifest` block only (not `workbox` block) when `strategies: "injectManifest"`
+
+### Offline UI feedback
+- `OwnerLayout` + `StaffLayout`: Live badge → Offline badge (amber pulsing) when internet drops
+- Sticky amber banner below header: "You're offline — check-ins and walk-ins are queued..."
+- `SyncBadge` in topbar: orange count badge / amber "Offline" / red failed
+- Optimistic UI: check-in/checkout button flips immediately without waiting for network
+- Submit button shows "Queue Member (Offline)" when offline
+
+### npm packages required
+```bash
+cd client
+npm install -D vite-plugin-pwa workbox-precaching workbox-routing workbox-strategies workbox-expiration workbox-cacheable-response
+```
+
+---
+
 ## Completed Features
 - Role-based auth (owner / staff / member flows)
 - MembersPage — `lastMemberUpdate` watcher for auto-refresh after payment renewal
@@ -121,7 +178,7 @@ Full-stack gym management system with role-based access for owners, staff, and m
 - StaffDashboard (stats bar, at-risk + renew, keyboard check-in, walk-in auto-reset, payments)
 - ReportsPage (PDF export, race condition fixed, 1000 record limit with truncation warning)
 - SettingsPage (PlansManager + Walk-in Prices + Account)
-- **KioskPage — fully integrated**
+- KioskPage — fully integrated
   - Public self check-in by name or GYM-ID
   - Walk-in self checkout by WALK-XXX
   - Auto-suggest dropdown with members + today's walk-ins
@@ -135,7 +192,7 @@ Full-stack gym management system with role-based access for owners, staff, and m
 - Cloudinary logo upload
 - UptimeRobot ping every 5 min (keep Render awake)
 - Dynamic plans — Settings is single source of truth
-- **Action Log system (fully complete)**
+- Action Log system (fully complete)
   - `ActionLog` model + `logAction()` helper (try/catch — never crashes routes)
   - Injected into: login, logout, check-in, checkout, walk-in register/checkout, payment create/settle, member CRUD, settings changes
   - `GET /api/action-logs` — server-side filtering by action, role, staffId, date range, pagination
@@ -145,6 +202,15 @@ Full-stack gym management system with role-based access for owners, staff, and m
   - Recent Activity widget on OwnerDashboard (last 5 actions)
   - Staff name stripped from detail in MyActivityPage
   - Manila timezone-aware date filtering (`toManilaStart` / `toManilaEnd`)
+- **Offline-first PWA (complete)**
+  - Service Worker with Workbox precaching
+  - IndexedDB offline queue with retry logic
+  - Background sync manager with custom events
+  - SyncBadge topbar indicator
+  - Offline banner + Live/Offline status badge
+  - Optimistic UI for check-in/checkout
+  - Offline add member with duplicate detection
+  - 409 Conflict handled as duplicate (not failure)
 
 ---
 
@@ -166,25 +232,39 @@ Full-stack gym management system with role-based access for owners, staff, and m
 - Kiosk hardcoded `"at IronCore"` in checkout message removed
 - `VITE_API_URL` pointed to `localhost:5000` in production — fixed to Render backend URL
 - Action log returning 404 in production — caused by stale Render deploy
+- SW route matchers used `url.pathname` — fixed to `url.href.includes()` for cross-origin API caching
+- `SyncBadge` not showing offline state — fixed with native `navigator.onLine` listener
+- 409 Conflict on member sync was marking as failed — now treated as duplicate success
+- `self.__WB_MANIFEST` renamed by TypeScript compiler — fixed with `(self as any).__WB_MANIFEST`
+- `workbox` block + `injectManifest` block conflict in vite.config — removed workbox block
+- Mixed static/dynamic import of `toastStore` in SyncBadge — converted to static import
 
 ---
 
 ## Pending / Next Up
-1. **Offline-first PWA** — Service Worker + IndexedDB queue + background sync
-   - All actions including payments work offline (desktop + tablet)
-   - Handles unpredictable downtime
-   - Queue shows pending count, auto-syncs on restore
-2. **Super Admin Dashboard** — multi-tenancy for selling to multiple gyms
+1. **Super Admin Dashboard** — multi-tenancy for selling to multiple gyms
    - `GymClient` model, `SuperAdmin` model + separate auth
    - Impersonation with 15-min tokens logged to `SuperAuditLog`
+2. **Offline enhancements**
+   - At-risk members cache + renew offline
+   - Payments/reports read-only offline
+   - Walk-in duplicate name warning
 3. **Render upgrade** → Starter plan ($7/mo) for static IP before selling
+
+---
+
+## Git Rules (IMPORTANT)
+- **Never commit** `dist/`, `.env`, `*.env.*`, `*.http` files
+- Secrets go in Render environment variables ONLY — never in code or committed files
+- Server `dist/` is built by Render on deploy — never pre-built and committed
+- `.gitignore` entries: `dist`, `dist-ssr`, `.env`, `.env.*`, `!.env.example`, `**/*.http`
 
 ---
 
 ## Environment Variables
 
 ```env
-# server/.env
+# server/.env (never commit)
 PORT=5000
 MONGO_URI=your_mongodb_atlas_uri
 JWT_SECRET=your_jwt_secret
@@ -224,3 +304,7 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - `ALLOWED_ORIGINS` in `config/security.ts` must include both frontend and backend Render URLs
 - Use `.env.local` for local dev so `VITE_API_URL=localhost:5000` never gets committed to GitHub
 - Renaming a Render service changes the display name only — the original URL is permanent
+- PWA Service Worker only registers in production build (`npm run build && npm run preview`) — not in `npm run dev`
+- SW uses `(self as any).__WB_MANIFEST` — TypeScript would rename `sw.__WB_MANIFEST` during compilation
+- `syncManager` is a singleton module — call `syncManager.init()` once in `App.tsx`
+- Offline queue entries include JWT token captured at queue time — token may expire before sync
