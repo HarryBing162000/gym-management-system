@@ -61,5 +61,14 @@ const WalkInSchema = new Schema<IWalkIn>(
   { timestamps: true },
 );
 
+// Prevent duplicate walkIds (race condition guard at DB level)
+WalkInSchema.index({ walkId: 1 }, { unique: true });
+
+// Fast lookup for duplicate name check within same day
+WalkInSchema.index({ name: 1, date: 1 });
+
+// Fast lookup for today queries
+WalkInSchema.index({ date: 1, checkIn: -1 });
+
 export default (mongoose.models.WalkIn as mongoose.Model<IWalkIn>) ||
   mongoose.model<IWalkIn>("WalkIn", WalkInSchema);

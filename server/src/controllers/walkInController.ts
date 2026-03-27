@@ -30,13 +30,14 @@ const getPassAmount = async (
   return fallback[passType] ?? 150;
 };
 
-const generateWalkId = async (): Promise<string> => {
-  const today = getTodayDate();
+const generateWalkId = async (today: string): Promise<string> => {
+  // Sort by createdAt descending — more reliable than string sort on walkId
   const last = await WalkIn.findOne({ date: today })
-    .sort({ walkId: -1 })
-    .select("walkId");
+    .sort({ createdAt: -1 })
+    .select("walkId")
+    .lean();
   if (!last) return "WALK-001";
-  const lastNum = parseInt(last.walkId.replace("WALK-", ""));
+  const lastNum = parseInt(last.walkId.replace("WALK-", ""), 10) || 0;
   return `WALK-${String(lastNum + 1).padStart(3, "0")}`;
 };
 
@@ -61,21 +62,62 @@ const buildSummary = (walkIns: (typeof WalkIn.prototype)[]) => ({
 export const registerWalkIn = async (req: AuthRequest, res: Response) => {
   try {
     const { name, phone, passType }: WalkInInput = req.body;
-    const walkId = await generateWalkId();
     const today = getTodayDate();
+
+    // ── Duplicate check: same name registered today ──────────────────────────
+    const existing = await WalkIn.findOne({
+      date: today,
+      name: {
+        $regex: new RegExp(
+          `^${name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+          "i",
+        ),
+      },
+    }).lean();
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: `${name} is already registered today (${existing.walkId}). Check if this is a different person.`,
+      });
+    }
+
+    const walkId = await generateWalkId(today);
     const amount = await getPassAmount(passType);
 
-    const walkIn = await WalkIn.create({
-      walkId,
-      name,
-      phone,
-      passType,
-      amount,
-      date: today,
-      checkIn: new Date(),
-      staffId: req.user!.id,
-      isCheckedOut: false,
-    });
+    let walkIn;
+    try {
+      walkIn = await WalkIn.create({
+        walkId,
+        name,
+        phone,
+        passType,
+        amount,
+        date: today,
+        checkIn: new Date(),
+        staffId: req.user!.id,
+        isCheckedOut: false,
+      });
+    } catch (createErr: unknown) {
+      // MongoDB unique index violation on walkId — two requests raced
+      const mongoErr = createErr as { code?: number };
+      if (mongoErr.code === 11000) {
+        // Retry once with a fresh walkId
+        const retryWalkId = await generateWalkId(today);
+        walkIn = await WalkIn.create({
+          walkId: retryWalkId,
+          name,
+          phone,
+          passType,
+          amount,
+          date: today,
+          checkIn: new Date(),
+          staffId: req.user!.id,
+          isCheckedOut: false,
+        });
+      } else {
+        throw createErr;
+      }
+    }
 
     await logAction({
       action: "walk_in_created",
@@ -120,12 +162,10 @@ export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
         .status(404)
         .json({ success: false, message: `${walkId} not found for today.` });
     if (walkIn.isCheckedOut)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `${walkId} has already checked out.`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `${walkId} has already checked out.`,
+      });
 
     walkIn.checkOut = new Date();
     walkIn.isCheckedOut = true;
@@ -169,14 +209,12 @@ export const getTodayWalkIns = async (req: AuthRequest, res: Response) => {
     const walkIns = await WalkIn.find({ date: today })
       .populate("staffId", "name username")
       .sort({ checkIn: -1 });
-    return res
-      .status(200)
-      .json({
-        success: true,
-        date: today,
-        summary: buildSummary(walkIns),
-        walkIns,
-      });
+    return res.status(200).json({
+      success: true,
+      date: today,
+      summary: buildSummary(walkIns),
+      walkIns,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -275,19 +313,15 @@ export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
       date: today,
     });
     if (!walkIn)
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: `ID "${walkId}" not found for today. Please see the front desk.`,
-        });
+      return res.status(404).json({
+        success: false,
+        message: `ID "${walkId}" not found for today. Please see the front desk.`,
+      });
     if (walkIn.isCheckedOut)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "You have already checked out. Have a great day! 👋",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "You have already checked out. Have a great day! 👋",
+      });
 
     walkIn.checkOut = new Date();
     walkIn.isCheckedOut = true;

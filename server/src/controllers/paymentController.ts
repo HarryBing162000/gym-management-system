@@ -112,7 +112,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
     } = req.query as Record<string, string>;
 
     const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const limitNum = Math.min(1000, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
     const filter: Record<string, unknown> = {};
@@ -145,7 +145,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
       filter.createdAt = dateFilter;
     }
 
-    const [payments, total, grandTotalResult] = await Promise.all([
+    const [payments, total, aggregateResult] = await Promise.all([
       Payment.find(filter)
         .populate("processedBy", "name username role")
         .sort({ createdAt: -1 })
@@ -158,12 +158,32 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
           $group: {
             _id: null,
             grandTotal: { $sum: { $ifNull: ["$amountPaid", "$amount"] } },
+            cashTotal: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$method", "cash"] },
+                  { $ifNull: ["$amountPaid", "$amount"] },
+                  0,
+                ],
+              },
+            },
+            onlineTotal: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$method", "online"] },
+                  { $ifNull: ["$amountPaid", "$amount"] },
+                  0,
+                ],
+              },
+            },
           },
         },
       ]),
     ]);
 
-    const grandTotal = grandTotalResult[0]?.grandTotal ?? 0;
+    const grandTotal = aggregateResult[0]?.grandTotal ?? 0;
+    const cashTotal = aggregateResult[0]?.cashTotal ?? 0;
+    const onlineTotal = aggregateResult[0]?.onlineTotal ?? 0;
 
     return res.status(200).json({
       success: true,
@@ -171,6 +191,8 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
       page: pageNum,
       totalPages: Math.ceil(total / limitNum),
       grandTotal,
+      cashTotal,
+      onlineTotal,
       payments,
     });
   } catch (err: unknown) {
@@ -250,12 +272,10 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         (p: any) => p.name === newPlan && p.isActive,
       );
       if (!validPlan)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: `Plan "${newPlan}" is not available.`,
-          });
+        return res.status(400).json({
+          success: false,
+          message: `Plan "${newPlan}" is not available.`,
+        });
     }
 
     const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
@@ -264,12 +284,10 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
     if (!member.isActive)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `${member.name} is deactivated. Reactivate the member first.`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} is deactivated. Reactivate the member first.`,
+      });
 
     // 10-second duplicate guard
     const recentPayment = await Payment.findOne({
@@ -278,12 +296,10 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       createdAt: { $gte: new Date(Date.now() - 10000) },
     });
     if (recentPayment)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Payment already processed. Please wait a moment.",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "Payment already processed. Please wait a moment.",
+      });
 
     const previousPlan = member.plan;
     const effectivePlan = newPlan || member.plan;
@@ -408,12 +424,10 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
     if (member.balance <= 0)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `${member.name} has no outstanding balance.`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} has no outstanding balance.`,
+      });
 
     // 10-second duplicate guard
     const recentSettle = await Payment.findOne({
@@ -422,12 +436,10 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
       createdAt: { $gte: new Date(Date.now() - 10000) },
     });
     if (recentSettle)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Settlement already processed. Please wait a moment.",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "Settlement already processed. Please wait a moment.",
+      });
 
     const outstandingBalance = member.balance;
     const amountPaid =
