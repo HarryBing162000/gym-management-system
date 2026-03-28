@@ -968,6 +968,7 @@ function WalkInDesk() {
   }, [tab, showToast]);
 
   const handleRegister = async () => {
+    if (loading) return; // guard against rapid double-clicks or Enter+click
     setErrorMsg("");
     if (!name.trim() || name.trim().split(" ").length < 2) {
       setErrorMsg("Please enter a full name (first and last).");
@@ -975,36 +976,38 @@ function WalkInDesk() {
     }
     setLoading(true);
     try {
+      // offlineWalkInRegister handles BOTH paths internally:
+      //   - Online  → calls walkInService.register once and returns the result
+      //   - Offline → enqueues to IndexedDB and returns a queued result
+      // DO NOT call walkInService.register separately — that was the duplicate bug.
       const regRes = await offlineWalkInRegister({
         name: name.trim(),
+        phone: phone.trim() || undefined,
         passType,
-        amount: 0,
       });
-      if (!regRes.queued) {
-        const response = await walkInService.register({
-          name: name.trim(),
-          phone: phone.trim() || undefined,
-          passType,
-        });
-        setSuccess(response.walkIn);
-      } else {
-        setSuccess({
-          walkId: "QUEUED",
-          name: name.trim(),
-          passType,
-          amount: 0,
-          checkIn: new Date().toISOString(),
-          isCheckedOut: false,
-        } as any);
-      }
+
+      // Online path — walkId came back from the server via offlineWalkInRegister
+      setSuccess({
+        walkId: regRes.queued ? "QUEUED" : (regRes.walkId ?? "—"),
+        name: name.trim(),
+        passType,
+        amount: getWalkInPrice(passType), // ← use the live price from gymStore
+        checkIn: new Date().toISOString(),
+        isCheckedOut: false,
+      } as any);
+
       showToast(
         regRes.queued
-          ? `${name.split(" ")[0]} queued offline — will sync when internet restores.`
-          : `${name.split(" ")[0]} registered successfully.`,
+          ? `${name.trim().split(" ")[0]} queued offline — will sync when internet restores.`
+          : `${name.trim().split(" ")[0]} registered successfully.`,
         "success",
       );
     } catch (e) {
-      const err = e as { response?: { data?: { message?: string } } };
+      const err = e as {
+        response?: { status?: number; data?: { message?: string } };
+      };
+      // 409 = name already registered today — show server message directly
+      // (it already includes the WALK-XXX id so staff knows which entry to check)
       setErrorMsg(
         err.response?.data?.message ||
           "Failed to register walk-in. Please try again.",

@@ -1,6 +1,6 @@
 // ⚠️ MUST be first — loads .env before any other module reads process.env
 import "./config/env";
-
+import superAdminRoutes from "./routes/superAdminRoutes";
 import express from "express";
 import cors from "cors";
 import connectDB from "./config/db";
@@ -53,6 +53,7 @@ app.use(securityLogger);
 // ============================================================
 // ROUTES
 // ============================================================
+app.use("/api/superadmin", superAdminRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/walkin", walkInRoutes);
 app.use("/api/payments", paymentRoutes);

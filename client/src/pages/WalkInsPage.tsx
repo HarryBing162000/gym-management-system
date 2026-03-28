@@ -1,6 +1,6 @@
 /**
  * WalkInsPage.tsx
- * IronCore GMS — Walk-ins Management (Owner View)
+ *  GMS — Walk-ins Management (Owner View)
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -693,6 +693,29 @@ export default function WalkInsPage() {
   useEffect(() => {
     setHistoryPage(1);
   }, [quickFilter, customFrom, customTo, historySearch]);
+
+  // ── Offline sync-duplicate listener ────────────────────────────────────────
+  // When the syncManager drains the queue and hits a 409 for a walk-in
+  // (meaning it was already registered while back online), show a friendly
+  // warning toast instead of a silent failure. Mirrors the member duplicate
+  // pattern already in place.
+  useEffect(() => {
+    const handleSyncDuplicate = (e: Event) => {
+      const detail = (e as CustomEvent<{ label?: string; url?: string }>)
+        .detail;
+      if (detail?.url?.includes("/walkin/register")) {
+        showToast(
+          `Walk-in already registered on server — no duplicate created. (${detail.label ?? "queued entry"})`,
+          "info",
+        );
+        // Refresh today's list so the real server entry is shown
+        fetchToday();
+      }
+    };
+    window.addEventListener("gms:sync-duplicate", handleSyncDuplicate);
+    return () =>
+      window.removeEventListener("gms:sync-duplicate", handleSyncDuplicate);
+  }, [showToast, fetchToday]);
 
   const handleCheckOut = async (walkId: string) => {
     // Find the walk-in name for the offline label

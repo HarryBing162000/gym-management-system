@@ -1,3 +1,9 @@
+import {
+  // ... your existing imports ...
+  setPassword,
+  forgotPassword,
+  resetPassword,
+} from "../controllers/authController";
 import { Router } from "express";
 import {
   registerOwner,
@@ -67,6 +73,10 @@ router.post(
   validate(loginStaffSchema),
   loginStaff,
 );
+
+router.post("/set-password", setPassword);
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 // ── Protected ────────────────────────────────────────────
 router.get("/me", protect, getMe);

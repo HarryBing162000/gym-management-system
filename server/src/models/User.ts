@@ -1,6 +1,6 @@
 /**
  * User.ts
- * IronCore GMS — Authentication User Model
+ *  GMS — Authentication User Model
  *
  * Stores owner and staff accounts ONLY.
  * Gym members are stored in the Member model (separate collection).
@@ -23,6 +23,11 @@ export interface IUser extends Document {
 
   // Staff only
   username?: string;
+
+  // Email verification + password reset (owner only)
+  isVerified: boolean;
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
 
   // Methods
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -49,6 +54,20 @@ const UserSchema = new Schema<IUser>(
     isActive: {
       type: Boolean,
       default: true,
+    },
+
+    // Email verification + password reset (owner only)
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    passwordResetToken: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false,
     },
 
     // Owner

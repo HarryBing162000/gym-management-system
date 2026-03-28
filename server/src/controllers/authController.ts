@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import User from "../models/User";
 import Settings from "../models/Settings";
 import { cloudinary } from "../middleware/upload";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { logAction } from "../utils/logAction";
+import { sendResetPasswordEmail } from "../utils/emailService";
 import {
   RegisterOwnerInput,
   RegisterStaffInput,
@@ -64,12 +66,10 @@ export const registerStaff = async (req: Request, res: Response) => {
 
     const exists = await User.findOne({ username });
     if (exists) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Username already taken. Please choose another.",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "Username already taken. Please choose another.",
+      });
     }
 
     const user = await User.create({ name, username, password, role: "staff" });
@@ -113,12 +113,10 @@ export const loginOwner = async (req: Request, res: Response) => {
     }
 
     if (!user.isActive) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Account deactivated. Contact support.",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "Account deactivated. Contact support.",
+      });
     }
 
     const token = generateToken(user._id.toString(), user.role, user.name);
@@ -173,12 +171,10 @@ export const loginStaff = async (req: Request, res: Response) => {
     }
 
     if (!user.isActive) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Account deactivated. Contact the owner.",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "Account deactivated. Contact the owner.",
+      });
     }
 
     const token = generateToken(user._id.toString(), user.role, user.name);
@@ -299,12 +295,10 @@ export const updatePassword = async (req: AuthRequest, res: Response) => {
 
     const isSame = await user.comparePassword(newPassword);
     if (isSame)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "New password must be different from current password",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "New password must be different from current password",
+      });
 
     user.password = newPassword;
     await user.save();
@@ -349,20 +343,16 @@ export const updateEmail = async (req: AuthRequest, res: Response) => {
       _id: { $ne: req.user?.id },
     });
     if (emailExists)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Email is already in use by another account",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "Email is already in use by another account",
+      });
 
     if (user.email === newEmail)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "New email must be different from current email",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "New email must be different from current email",
+      });
 
     user.email = newEmail;
     await user.save();
@@ -377,13 +367,11 @@ export const updateEmail = async (req: AuthRequest, res: Response) => {
       detail: `${req.user!.name} updated their email`,
     });
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Email updated successfully",
-        email: user.email,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Email updated successfully",
+      email: user.email,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -461,12 +449,10 @@ export const getGymInfo = async (_req: Request, res: Response) => {
 export const uploadLogoController = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "No file uploaded. Please select an image.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded. Please select an image.",
+      });
 
     const file = req.file as Express.Multer.File & {
       path: string;
@@ -493,13 +479,11 @@ export const uploadLogoController = async (req: AuthRequest, res: Response) => {
       detail: `${req.user!.name} uploaded a new gym logo`,
     });
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Logo uploaded successfully",
-        logoUrl: settings.logoUrl,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Logo uploaded successfully",
+      logoUrl: settings.logoUrl,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -561,23 +545,19 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
     };
 
     if (!name || name.trim().length < 2)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Plan name must be at least 2 characters.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Plan name must be at least 2 characters.",
+      });
     if (price == null || price < 0)
       return res
         .status(400)
         .json({ success: false, message: "Price must be zero or positive." });
     if (!durationMonths || durationMonths < 1 || durationMonths > 24)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Duration must be between 1 and 24 months.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Duration must be between 1 and 24 months.",
+      });
 
     const settings = await Settings.findOne({});
     if (!settings)
@@ -589,12 +569,10 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
       (p) => p.name.toLowerCase() === name.trim().toLowerCase(),
     );
     if (exists)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: `A plan named "${name}" already exists.`,
-        });
+      return res.status(409).json({
+        success: false,
+        message: `A plan named "${name}" already exists.`,
+      });
 
     settings.plans.push({
       name: name.trim(),
@@ -615,13 +593,11 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
       detail: `Plan "${name.trim()}" added — ₱${price} / ${durationMonths} month(s)`,
     });
 
-    return res
-      .status(201)
-      .json({
-        success: true,
-        message: `Plan "${name}" added.`,
-        plans: settings.plans,
-      });
+    return res.status(201).json({
+      success: true,
+      message: `Plan "${name}" added.`,
+      plans: settings.plans,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -658,12 +634,10 @@ export const updatePlan = async (req: AuthRequest, res: Response) => {
           p.name.toLowerCase() === name.trim().toLowerCase(),
       );
       if (dup)
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message: `A plan named "${name}" already exists.`,
-          });
+        return res.status(409).json({
+          success: false,
+          message: `A plan named "${name}" already exists.`,
+        });
       if (!plan.isDefault) plan.name = name.trim();
     }
     if (price != null && price >= 0) plan.price = price;
@@ -683,13 +657,11 @@ export const updatePlan = async (req: AuthRequest, res: Response) => {
       detail: `Plan "${plan.name}" updated`,
     });
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: `Plan "${plan.name}" updated.`,
-        plans: settings.plans,
-      });
+    return res.status(200).json({
+      success: true,
+      message: `Plan "${plan.name}" updated.`,
+      plans: settings.plans,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -734,13 +706,11 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
       detail: `Plan "${plan.name}" deleted`,
     });
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: `Plan "${plan.name}" deleted.`,
-        plans: settings.plans,
-      });
+    return res.status(200).json({
+      success: true,
+      message: `Plan "${plan.name}" deleted.`,
+      plans: settings.plans,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -779,14 +749,159 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       detail: `Walk-in prices updated — regular: ₱${settings.walkInPrices.regular}, student: ₱${settings.walkInPrices.student}, couple: ₱${settings.walkInPrices.couple}`,
     });
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Walk-in prices updated.",
-        walkInPrices: settings.walkInPrices,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Walk-in prices updated.",
+      walkInPrices: settings.walkInPrices,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
+};
+
+// =================== SET PASSWORD (owner first-time, from invite email) ===================
+// Owner lands on /set-password?token=... after Super Admin creates their account.
+// Token was signed with JWT_SECRET + purpose: set_password (24h expiry).
+export const setPassword = async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body as { token: string; password: string };
+
+    if (!token || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Token and password are required." });
+    }
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Password must be at least 6 characters.",
+        });
+    }
+
+    let decoded: { id: string; purpose: string };
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET as string) as any;
+    } catch {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "This link has expired or is invalid. Ask your administrator to resend the invite.",
+        });
+    }
+
+    if (
+      decoded.purpose !== "set_password" &&
+      decoded.purpose !== "reset_password"
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid token purpose." });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Account not found." });
+    }
+    if (!user.isActive) {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: "Account is suspended. Contact your administrator.",
+        });
+    }
+
+    user.password = password;
+    user.isVerified = true;
+    await user.save();
+
+    // Auto-login after setting password — return a token so they land on dashboard
+    const authToken = jwt.sign(
+      { id: user._id.toString(), role: user.role, name: user.name },
+      process.env.JWT_SECRET as string,
+      { expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any },
+    );
+
+    await logAction({
+      action: "login",
+      performedBy: {
+        userId: user._id.toString(),
+        name: user.name,
+        role: user.role,
+      },
+      detail: `${user.name} (owner) set their password and logged in`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Password set successfully. Welcome!",
+      token: authToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// =================== FORGOT PASSWORD ===================
+// Owner submits their email. If found, send a reset link.
+// Always returns 200 even if email not found — prevents email enumeration.
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body as { email: string };
+
+    if (!email?.trim()) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required." });
+    }
+
+    const user = await User.findOne({
+      email: email.toLowerCase().trim(),
+      role: "owner",
+    });
+
+    // Always return the same message — never reveal if email exists
+    const genericMessage =
+      "If that email is registered, you will receive a reset link shortly.";
+
+    if (!user || !user.isActive) {
+      return res.status(200).json({ success: true, message: genericMessage });
+    }
+
+    const resetToken = jwt.sign(
+      { id: user._id.toString(), purpose: "reset_password" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "1h" },
+    );
+
+    await sendResetPasswordEmail({
+      to: user.email!,
+      ownerName: user.name,
+      token: resetToken,
+    });
+
+    return res.status(200).json({ success: true, message: genericMessage });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// =================== RESET PASSWORD ===================
+// Owner lands on /reset-password?token=... from the forgot-password email.
+// Same handler as setPassword — reuses the same token purpose logic.
+export const resetPassword = async (req: Request, res: Response) => {
+  // Delegates entirely to setPassword — token purpose covers both cases
+  return setPassword(req, res);
 };

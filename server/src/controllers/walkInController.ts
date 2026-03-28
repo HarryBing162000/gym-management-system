@@ -64,7 +64,8 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
     const { name, phone, passType }: WalkInInput = req.body;
     const today = getTodayDate();
 
-    // ── Duplicate check: same name registered today ──────────────────────────
+    // ── Duplicate check 1: same name registered today ────────────────────────
+    // Catches intentional re-registration of the same guest on the same day.
     const existing = await WalkIn.findOne({
       date: today,
       name: {
@@ -78,6 +79,32 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
       return res.status(409).json({
         success: false,
         message: `${name} is already registered today (${existing.walkId}). Check if this is a different person.`,
+      });
+    }
+
+    // ── Duplicate check 2: 10-second rapid-fire guard ────────────────────────
+    // Catches double-clicks, offline queue re-syncing an already-created entry,
+    // and network retries. Same pattern as the Payment model duplicate guard.
+    // Returns the original walk-in so the client can treat it as success.
+    const tenSecondsAgo = new Date(Date.now() - 10_000);
+    const recentDuplicate = await WalkIn.findOne({
+      staffId: req.user!.id,
+      passType,
+      checkIn: { $gte: tenSecondsAgo },
+    }).lean();
+    if (recentDuplicate) {
+      return res.status(409).json({
+        success: false,
+        message: `Duplicate walk-in detected — ${recentDuplicate.name} (${recentDuplicate.walkId}) was just registered. No duplicate created.`,
+        walkIn: {
+          walkId: recentDuplicate.walkId,
+          name: recentDuplicate.name,
+          phone: recentDuplicate.phone,
+          passType: recentDuplicate.passType,
+          amount: recentDuplicate.amount,
+          checkIn: recentDuplicate.checkIn,
+          date: recentDuplicate.date,
+        },
       });
     }
 
