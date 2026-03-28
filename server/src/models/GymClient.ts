@@ -14,6 +14,8 @@ export type GymClientStatus = "active" | "suspended" | "deleted";
 export type BillingStatus = "trial" | "paid" | "overdue" | "cancelled";
 
 export interface IGymClient extends Document {
+  gymClientId: string; // GYM-001, GYM-002, etc.
+
   // Gym info
   gymName: string;
   gymAddress?: string;
@@ -42,6 +44,12 @@ export interface IGymClient extends Document {
 
 const GymClientSchema = new Schema<IGymClient>(
   {
+    gymClientId: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+    },
     gymName: {
       type: String,
       required: [true, "Gym name is required"],
