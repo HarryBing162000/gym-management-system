@@ -14,6 +14,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSuperAdminStore } from "../store/superAdminStore";
+import ConfirmModal from "../components/ConfirmModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -285,6 +286,13 @@ function GymDetailDrawer({
   const [billingStatus, setBillingStatus] = useState(gym.billingStatus);
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState("");
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: "danger" | "warning";
+    onConfirm: () => void;
+  } | null>(null);
 
   const doAction = async (method: string, path: string, body?: object) => {
     setActionLoading(path);
@@ -459,8 +467,20 @@ function GymDetailDrawer({
             Actions
           </div>
           <div className="space-y-2">
+            {/* Resend invite */}
             <button
-              onClick={() => doAction("POST", "/resend-invite")}
+              onClick={() =>
+                setConfirm({
+                  title: "Resend invite email?",
+                  message: `Send a new set-password link to ${gym.contactEmail}. Any previous link will still work until it expires.`,
+                  confirmLabel: "Resend",
+                  variant: "warning",
+                  onConfirm: () => {
+                    setConfirm(null);
+                    doAction("POST", "/resend-invite");
+                  },
+                })
+              }
               disabled={!!actionLoading}
               className="w-full py-2.5 text-xs font-semibold text-blue-400 bg-blue-400/10 border border-blue-400/20 rounded-lg hover:bg-blue-400/15 transition-all disabled:opacity-50 cursor-pointer"
             >
@@ -469,8 +489,20 @@ function GymDetailDrawer({
                 : "📧 Resend Invite Email"}
             </button>
 
+            {/* Reset password */}
             <button
-              onClick={() => doAction("POST", "/reset-password")}
+              onClick={() =>
+                setConfirm({
+                  title: "Send password reset?",
+                  message: `A reset link will be emailed to ${gym.contactEmail}. It expires in 1 hour.`,
+                  confirmLabel: "Send Reset",
+                  variant: "warning",
+                  onConfirm: () => {
+                    setConfirm(null);
+                    doAction("POST", "/reset-password");
+                  },
+                })
+              }
               disabled={!!actionLoading}
               className="w-full py-2.5 text-xs font-semibold text-[#FFB800] bg-[#FFB800]/10 border border-[#FFB800]/20 rounded-lg hover:bg-[#FFB800]/15 transition-all disabled:opacity-50 cursor-pointer"
             >
@@ -479,9 +511,22 @@ function GymDetailDrawer({
                 : "🔑 Send Password Reset"}
             </button>
 
+            {/* Suspend / Reactivate */}
             {gym.status === "active" ? (
               <button
-                onClick={() => doAction("PATCH", "/suspend")}
+                onClick={() =>
+                  setConfirm({
+                    title: `Suspend "${gym.gymName}"?`,
+                    message:
+                      "The owner will be deactivated and unable to log in until you reactivate the gym.",
+                    confirmLabel: "Suspend",
+                    variant: "warning",
+                    onConfirm: () => {
+                      setConfirm(null);
+                      doAction("PATCH", "/suspend");
+                    },
+                  })
+                }
                 disabled={!!actionLoading}
                 className="w-full py-2.5 text-xs font-semibold text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg hover:bg-amber-400/15 transition-all disabled:opacity-50 cursor-pointer"
               >
@@ -491,7 +536,19 @@ function GymDetailDrawer({
               </button>
             ) : gym.status === "suspended" ? (
               <button
-                onClick={() => doAction("PATCH", "/reactivate")}
+                onClick={() =>
+                  setConfirm({
+                    title: `Reactivate "${gym.gymName}"?`,
+                    message:
+                      "The owner will regain access and can log in immediately.",
+                    confirmLabel: "Reactivate",
+                    variant: "warning",
+                    onConfirm: () => {
+                      setConfirm(null);
+                      doAction("PATCH", "/reactivate");
+                    },
+                  })
+                }
                 disabled={!!actionLoading}
                 className="w-full py-2.5 text-xs font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-lg hover:bg-emerald-400/15 transition-all disabled:opacity-50 cursor-pointer"
               >
@@ -501,22 +558,41 @@ function GymDetailDrawer({
               </button>
             ) : null}
 
+            {/* Delete */}
             <button
-              onClick={() => {
-                if (
-                  confirm(`Delete "${gym.gymName}"? This cannot be undone.`)
-                ) {
-                  doAction("DELETE", "");
-                }
-              }}
+              onClick={() =>
+                setConfirm({
+                  title: `Delete "${gym.gymName}"?`,
+                  message:
+                    "This will permanently deactivate the gym and its owner. This action cannot be undone.",
+                  confirmLabel: "Delete Gym",
+                  variant: "danger",
+                  onConfirm: () => {
+                    setConfirm(null);
+                    doAction("DELETE", "");
+                  },
+                })
+              }
               disabled={!!actionLoading}
               className="w-full py-2.5 text-xs font-semibold text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg hover:bg-red-400/15 transition-all disabled:opacity-50 cursor-pointer"
             >
-              {actionLoading === "" && false ? "Deleting..." : "🗑 Delete Gym"}
+              🗑 Delete Gym
             </button>
           </div>
         </div>
       </div>
+
+      {/* Confirm modal */}
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          variant={confirm.variant}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </div>
   );
 }
@@ -537,6 +613,7 @@ export default function SuperAdminDashboard() {
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(
     null,
   );
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const showToast = (msg: string, type: "success" | "error" | "info") => {
     setToast({ msg, type });
@@ -582,6 +659,7 @@ export default function SuperAdminDashboard() {
     logout();
     navigate("/superadmin");
   };
+  const confirmLogout = () => setShowLogoutConfirm(true);
 
   const filtered = gyms.filter((g) => {
     const matchSearch =
@@ -650,7 +728,10 @@ export default function SuperAdminDashboard() {
               </span>
             </div>
             <button
-              onClick={handleLogout}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmLogout();
+              }}
               className="text-xs text-white/30 hover:text-white/60 transition-colors cursor-pointer"
             >
               Logout →
@@ -868,6 +949,20 @@ export default function SuperAdminDashboard() {
           onClose={() => setSelectedGym(null)}
           onRefresh={fetchGyms}
           onToast={showToast}
+        />
+      )}
+
+      {showLogoutConfirm && (
+        <ConfirmModal
+          title="Log out of Super Admin?"
+          message="You will be returned to the Super Admin login page."
+          confirmLabel="Log Out"
+          variant="warning"
+          onConfirm={() => {
+            setShowLogoutConfirm(false);
+            handleLogout();
+          }}
+          onCancel={() => setShowLogoutConfirm(false)}
         />
       )}
     </>

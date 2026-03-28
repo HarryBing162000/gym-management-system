@@ -178,22 +178,30 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       isVerified: false,
     });
 
-    // Create GymClient record
+    // Create GymClient record.
+    // If this fails, roll back the User so the email is free to register again.
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + 30); // 30-day trial
 
-    const gymClient = await GymClient.create({
-      gymClientId,
-      gymName: gymName.trim(),
-      gymAddress: gymAddress?.trim(),
-      contactEmail: ownerEmail.toLowerCase().trim(),
-      contactPhone: contactPhone?.trim(),
-      ownerId: owner._id,
-      status: "active",
-      billingStatus,
-      trialEndsAt,
-      notes: notes?.trim(),
-    });
+    let gymClient;
+    try {
+      gymClient = await GymClient.create({
+        gymClientId,
+        gymName: gymName.trim(),
+        gymAddress: gymAddress?.trim(),
+        contactEmail: ownerEmail.toLowerCase().trim(),
+        contactPhone: contactPhone?.trim(),
+        ownerId: owner._id,
+        status: "active",
+        billingStatus,
+        trialEndsAt,
+        notes: notes?.trim(),
+      });
+    } catch (gymErr) {
+      // Rollback — delete the orphaned User so the email can be re-used
+      await User.findByIdAndDelete(owner._id);
+      throw gymErr;
+    }
 
     // Create initial Settings document for this gym
     // Each gym needs its own Settings — seeded with defaults
@@ -316,6 +324,37 @@ export const updateGym = async (req: SuperAdminRequest, res: Response) => {
       success: true,
       message: "Gym updated.",
       gym,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── DELETE /api/superadmin/gyms/:id/hard-delete ─────────────────────────────
+// Permanently removes GymClient + User + Settings from ALL collections.
+// Use this during testing/development to fully clean up a gym.
+// In production, prefer the soft-delete (deleteGym) instead.
+export const hardDeleteGym = async (req: SuperAdminRequest, res: Response) => {
+  try {
+    const gym = await GymClient.findById(req.params.id);
+    if (!gym) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Gym not found." });
+    }
+
+    const gymName = gym.gymName;
+    const ownerEmail = gym.contactEmail;
+
+    // Delete all three records atomically
+    await Promise.all([
+      User.findByIdAndDelete(gym.ownerId),
+      GymClient.findByIdAndDelete(gym._id),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: `"${gymName}" (${ownerEmail}) permanently deleted from all collections.`,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

@@ -17,8 +17,10 @@ import {
   suspendGym,
   reactivateGym,
   deleteGym,
+  hardDeleteGym,
   resetOwnerPassword,
   resendInvite,
+  hardDeleteGym,
 } from "../controllers/superAdminController";
 
 const router = Router();
@@ -36,6 +38,7 @@ router.patch("/gyms/:id", updateGym);
 router.patch("/gyms/:id/suspend", suspendGym);
 router.patch("/gyms/:id/reactivate", reactivateGym);
 router.delete("/gyms/:id", deleteGym);
+router.delete("/gyms/:id/hard-delete", hardDeleteGym);
 router.post("/gyms/:id/reset-password", resetOwnerPassword);
 router.post("/gyms/:id/resend-invite", resendInvite);
 
