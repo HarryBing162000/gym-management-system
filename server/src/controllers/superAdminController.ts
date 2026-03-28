@@ -47,6 +47,17 @@ const generateResetToken = (userId: string): string => {
   );
 };
 
+// ─── Generate GymClient ID (GYM-001, GYM-002...) ─────────────────────────────
+const generateGymClientId = async (): Promise<string> => {
+  const last = await GymClient.findOne()
+    .sort({ createdAt: -1 })
+    .select("gymClientId")
+    .lean();
+  if (!last?.gymClientId) return "GYM-001";
+  const num = parseInt(last.gymClientId.replace("GYM-", ""), 10) || 0;
+  return `GYM-${String(num + 1).padStart(3, "0")}`;
+};
+
 // ─── POST /api/superadmin/login ───────────────────────────────────────────────
 export const superAdminLogin = async (req: Request, res: Response) => {
   try {
@@ -151,6 +162,9 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       });
     }
 
+    // Generate human-readable gym client ID (GYM-001, GYM-002...)
+    const gymClientId = await generateGymClientId();
+
     // Create owner User with a random placeholder password.
     // isVerified: false — they cannot log in until they set their password.
     // The placeholder is never usable because it's a random hash they don't know.
@@ -169,6 +183,7 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
     trialEndsAt.setDate(trialEndsAt.getDate() + 30); // 30-day trial
 
     const gymClient = await GymClient.create({
+      gymClientId,
       gymName: gymName.trim(),
       gymAddress: gymAddress?.trim(),
       contactEmail: ownerEmail.toLowerCase().trim(),
@@ -226,6 +241,7 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       message: `Gym "${gymName}" created. Invite email sent to ${ownerEmail}.`,
       gym: {
         id: gymClient._id,
+        gymClientId: gymClient.gymClientId,
         gymName: gymClient.gymName,
         contactEmail: gymClient.contactEmail,
         status: gymClient.status,
