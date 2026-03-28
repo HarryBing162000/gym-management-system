@@ -20,7 +20,6 @@ import {
   hardDeleteGym,
   resetOwnerPassword,
   resendInvite,
-  hardDeleteGym,
 } from "../controllers/superAdminController";
 
 const router = Router();
