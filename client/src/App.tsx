@@ -7,9 +7,14 @@ import { syncManager } from "./lib/syncManager";
 import ToastContainer from "./components/ToastContainer";
 
 import LoginPage from "./pages/LoginPage";
+import { useSuperAdminStore } from "./store/superAdminStore";
 import OwnerDashboard from "./pages/OwnerDashboard";
 import StaffDashboard from "./pages/StaffDashboard";
 import KioskPage from "./pages/KioskPage";
+import SuperAdminLoginPage from "./pages/SuperAdminLoginPage";
+import SuperAdminDashboard from "./pages/SuperAdminDashboard";
+import SetPasswordPage from "./pages/SetPasswordPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,6 +46,14 @@ function ProtectedRoute({
     return <Navigate to="/login" replace />;
   }
 
+  return <>{children}</>;
+}
+
+// ── Super Admin Protected Route ───────────────────────────────────────────────
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, _hasHydrated } = useSuperAdminStore();
+  if (!_hasHydrated) return null;
+  if (!isAuthenticated) return <Navigate to="/superadmin" replace />;
   return <>{children}</>;
 }
 
@@ -93,6 +106,22 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* Super Admin */}
+          <Route path="/superadmin" element={<SuperAdminLoginPage />} />
+          <Route
+            path="/superadmin/dashboard"
+            element={
+              <SuperAdminRoute>
+                <SuperAdminDashboard />
+              </SuperAdminRoute>
+            }
+          />
+
+          {/* Password flows — public */}
+          <Route path="/set-password" element={<SetPasswordPage />} />
+          <Route path="/reset-password" element={<SetPasswordPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
           {/* Root → login */}
           <Route path="/" element={<Navigate to="/login" replace />} />
