@@ -237,16 +237,32 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
     // Generate set-password token and send invite email
     const setPasswordToken = generateSetPasswordToken(owner._id.toString());
 
-    await sendSetPasswordEmail({
-      to: ownerEmail.toLowerCase().trim(),
-      ownerName: ownerName.trim(),
-      gymName: gymName.trim(),
-      token: setPasswordToken,
-    });
+    let emailSent = true;
+    let emailError = "";
+    try {
+      await sendSetPasswordEmail({
+        to: ownerEmail.toLowerCase().trim(),
+        ownerName: ownerName.trim(),
+        gymName: gymName.trim(),
+        token: setPasswordToken,
+      });
+    } catch (emailErr: any) {
+      // Email failed — but gym was created successfully.
+      // Log the error and return it in the response so Super Admin knows.
+      emailSent = false;
+      emailError = emailErr?.message ?? "Unknown email error";
+      console.error("[createGym] Resend error:", emailError);
+    }
 
     return res.status(201).json({
       success: true,
-      message: `Gym "${gymName}" created. Invite email sent to ${ownerEmail}.`,
+      emailSent,
+      emailError: emailSent
+        ? undefined
+        : `Email not sent: ${emailError}. Use "Resend Invite" from the dashboard.`,
+      message: emailSent
+        ? `Gym "${gymName}" created. Invite email sent to ${ownerEmail}.`
+        : `Gym "${gymName}" created but invite email failed. Use "Resend Invite" from the dashboard.`,
       gym: {
         id: gymClient._id,
         gymClientId: gymClient.gymClientId,
@@ -465,12 +481,21 @@ export const resetOwnerPassword = async (
 
     const resetToken = generateResetToken(owner._id.toString());
 
-    await sendSetPasswordEmail({
-      to: owner.email!,
-      ownerName: owner.name,
-      gymName: gym.gymName,
-      token: resetToken,
-    });
+    try {
+      await sendSetPasswordEmail({
+        to: owner.email!,
+        ownerName: owner.name,
+        gymName: gym.gymName,
+        token: resetToken,
+      });
+    } catch (emailErr: any) {
+      const msg = emailErr?.message ?? "Unknown error";
+      console.error("[resetOwnerPassword] Resend error:", msg);
+      return res.status(500).json({
+        success: false,
+        message: `Failed to send email: ${msg}. Check your Resend API key and domain settings.`,
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -508,12 +533,21 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
 
     const token = generateSetPasswordToken(owner._id.toString());
 
-    await sendSetPasswordEmail({
-      to: owner.email!,
-      ownerName: owner.name,
-      gymName: gym.gymName,
-      token,
-    });
+    try {
+      await sendSetPasswordEmail({
+        to: owner.email!,
+        ownerName: owner.name,
+        gymName: gym.gymName,
+        token,
+      });
+    } catch (emailErr: any) {
+      const msg = emailErr?.message ?? "Unknown error";
+      console.error("[resendInvite] Resend error:", msg);
+      return res.status(500).json({
+        success: false,
+        message: `Failed to send email: ${msg}. Check your Resend API key and domain settings.`,
+      });
+    }
 
     return res.status(200).json({
       success: true,
