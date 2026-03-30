@@ -1,7 +1,7 @@
 # Gym Management System — CLAUDE.md
 
 ## Project Overview
-Full-stack gym management system with role-based access for owners, staff, and members.
+Full-stack gym management system with role-based access for owners, staff, and members. Designed as a sellable SaaS product targeting Philippine gyms (with international capability planned).
 
 **GitHub:** HarryBing162000/gym-management-system
 **Deployed:** Render (frontend + backend)
@@ -27,6 +27,7 @@ Full-stack gym management system with role-based access for owners, staff, and m
 - bcrypt (rounds: 12)
 - Zod (request validation)
 - Manual NoSQL sanitizer — replaces express-mongo-sanitize (incompatible with Express 5)
+- node-cron — auto walk-out scheduler
 
 ---
 
@@ -42,61 +43,117 @@ Full-stack gym management system with role-based access for owners, staff, and m
 ## Architecture
 
 ### Auth & Roles
-| Role   | Login Identifier  | Notes                              |
-|--------|-------------------|------------------------------------|
-| Owner  | Email             | Full system access                 |
-| Staff  | Username          | Limited — sees own actions only    |
-| Member | Auto GYM-XXXX ID  | Gym client, separate from User     |
+| Role        | Login Identifier  | Token Expiry | Notes                              |
+|-------------|-------------------|--------------|------------------------------------|
+| Owner       | Email             | 7 days       | Full system access                 |
+| Staff       | Username          | 12 hours     | Limited — sees own actions only    |
+| Super Admin | Email (env only)  | 12 hours     | Separate SUPER_JWT_SECRET          |
+| Member      | Auto GYM-XXXX ID  | —            | Gym client, separate from User     |
 
 - `User` model → owner + staff authentication
 - `Member` model → gym clients (intentionally separate from User)
-- JWT middleware (`protect`) on all protected routes
+- `GymClient` model → one document per gym enrolled via Super Admin
+- JWT middleware (`protect`) on all protected routes — **async with live DB isActive check**
 - `AuthRequest` extends `Request` with `user: { id, role, name }`
 - `requireRole(...roles)` for role-based access control
+- `protectSuperAdmin` — completely separate middleware using `SUPER_JWT_SECRET`
+- **Auto-logout:** `protect` checks `isActive` on every request — suspending a gym or deactivating staff kicks them out on their next request
+
+### Token Functions
+- `generateOwnerToken(id, name)` → 7 days
+- `generateStaffToken(id, name)` → 12 hours
+- `superAdminLogin` token → 12 hours (SUPER_JWT_SECRET)
+- Set/reset password tokens → 24h / 1h (JWT_SECRET, `purpose` field)
 
 ### ID Schemes
 - Members: `GYM-XXXX` (auto-generated, sequential)
 - Walk-ins: `WALK-XXX` (daily-resetting, resets each day)
+- Gym clients: `GYM-001` format (sequential, `generateGymClientId()`)
 
 ### Key Zustand Stores
-| Store        | Responsibility |
-|--------------|----------------|
-| `authStore`  | Current user session, role, JWT token. `logout()` fires POST /api/action-logs/logout BEFORE clearing token |
-| `gymStore`   | Plans + walk-in price helpers. `lastMemberUpdate` + `triggerMemberRefresh()` for cross-page refresh signal |
-| `toastStore` | Global toast notifications |
+| Store             | Key             | Responsibility |
+|-------------------|-----------------|----------------|
+| `authStore`       | `gms-auth`      | Owner/staff session. `logout()` fires POST /api/action-logs/logout BEFORE clearing token |
+| `gymStore`        | (not persisted) | Settings + plans + walkInPrices + closingTime. `triggerMemberRefresh()`. `setClosingTime()` |
+| `toastStore`      | (not persisted) | Global toast notifications |
+| `superAdminStore` | `gms-superadmin`| Super admin JWT. Separate from authStore |
 
 ### Settings (Single Source of Truth)
-- `Settings.gymName`, `Settings.address`, `Settings.logoUrl` (Cloudinary)
+- `Settings.gymName`, `Settings.gymAddress`, `Settings.logoUrl` (Cloudinary)
 - `Settings.plans[]` — membership plans (drives PlansManager)
 - `Settings.walkInPrices` — walk-in pass pricing
+- `Settings.closingTime` — `"HH:mm"` 24h format, Manila time (default `"22:00"`)
 
 ---
 
 ## Data Models
 
+### User
+- Roles: `owner` | `staff`
+- Owner: email login. Staff: username login.
+- Fields added: `isVerified` (false until set-password), `passwordResetToken`, `passwordResetExpires`
+
+### GymClient
+- One per gym enrolled by Super Admin
+- `gymClientId`: `GYM-001`, `GYM-002`...
+- `status`: `active` | `suspended` | `deleted`
+- `billingStatus`: `trial` | `paid` | `overdue` | `cancelled`
+- `lastLoginAt`: updated on every owner login in `loginOwner`
+
 ### Member
-- Hard duplicate blocking on: name, email, phone
-- ID format: `GYM-XXXX`
-- `balance` field tracks outstanding unpaid amount
-- `checkedIn` + `lastCheckIn` for real-time presence tracking
+- Hard duplicate blocking: name, email, phone
+- `GYM-XXXX` sequential ID
+- `balance`, `checkedIn`, `lastCheckIn`
 
 ### WalkIn
-- Fields: `passType`, `amount`, `checkIn`, `checkOut`, `staffId`
-- Pass types: Regular, Student, Couple (different pricing)
-- Dual checkout: staff counter + public kiosk
-- IDs reset daily: `WALK-XXX`
+- `passType`, `amount`, `checkIn`, `checkOut`, `staffId`
+- Daily-resetting `WALK-XXX` IDs
+- **Duplicate guards:** same-name-today (409) + 10-second rapid-fire (same pattern as Payment)
+- **Auto walk-out:** `runAutoCheckout()` called by cron at `Settings.closingTime`
 
 ### Payment
-- Fields: `method`, `type`, `amountPaid`, `balance`, `isPartial`, `processedBy`
+- `method`, `type`, `amountPaid`, `balance`, `isPartial`, `processedBy`
 - Types: `new_member`, `renewal`, `manual`, `balance_settlement`
-- Duplicate guard: 10 seconds
-- `settleBalance` uses outstanding balance as `totalAmount`, not plan price
-- Expiry extension: calculates from `member.expiresAt` (not today) if still active
+- 10-second duplicate guard
+- Backend aggregate returns `grandTotal`, `cashTotal`, `onlineTotal`
 
 ### ActionLog
-- Fields: `action` (enum), `performedBy` ({ userId, name, role }), `targetId`, `targetName`, `detail`, `timestamp`
+- `action` (enum), `performedBy` ({ userId, name, role }), `targetId`, `targetName`, `detail`, `timestamp`
 - Indexes: `{ timestamp: -1 }` and `{ 'performedBy.userId': 1, timestamp: -1 }`
-- All filters (role, staffId, action, date) applied server-side
+
+---
+
+## Super Admin System
+
+### Routes (all under `/api/superadmin`)
+- `POST /login` — public, checks env credentials
+- `GET /gyms` — list all gyms
+- `POST /gyms` — create gym + owner + send invite email
+- `GET /gyms/:id` — get single gym + owner info
+- `PATCH /gyms/:id` — update billing/notes
+- `PATCH /gyms/:id/suspend` — suspend gym + deactivate owner
+- `PATCH /gyms/:id/reactivate` — reactivate gym + owner
+- `DELETE /gyms/:id` — soft delete
+- `DELETE /gyms/:id/hard-delete` — permanent delete (User + GymClient)
+- `POST /gyms/:id/reset-password` — send password reset email to owner
+- `POST /gyms/:id/resend-invite` — resend set-password invite
+
+### Email Service (Resend SDK)
+- Sender: `onboarding@resend.dev` → change to `noreply@yourdomain.com` after custom domain
+- `sendSetPasswordEmail` — 24h token, invite email
+- `sendResetPasswordEmail` — 1h token, reset email
+- Errors surfaced in API response (`emailSent: false`, `emailError`) — never silently swallowed
+
+### Owner Onboarding
+```
+Super Admin creates gym → User (isVerified: false) + GymClient + Settings created
+→ Resend sends invite → Owner sets password → isVerified: true → redirected to /login
+```
+
+### Forgot Password
+```
+Owner → /forgot-password → email sent → /reset-password?token=... → new password → /login
+```
 
 ---
 
@@ -107,157 +164,109 @@ Full-stack gym management system with role-based access for owners, staff, and m
 React UI → offlineQueue (IndexedDB) → syncManager → Service Worker → Render backend
 ```
 
-### New files added
+### Key files
 | File | Location | Purpose |
 |------|----------|---------|
-| `offlineQueue.ts` | `client/src/lib/` | IndexedDB wrapper. Stores pending actions with status: pending/syncing/failed |
-| `syncManager.ts` | `client/src/lib/` | Watches navigator.onLine. Drains queue on reconnect. Retry 3x. Fires custom events |
-| `offlineService.ts` | `client/src/lib/` | Offline-aware wrappers for check-in, checkout, walk-in register/checkout, add member |
-| `SyncBadge.tsx` | `client/src/components/` | Topbar badge showing pending/failed sync state. Orange = pending, Red = failed, Amber = offline |
-| `sw.ts` | `client/src/` | Service Worker. Workbox precache + NetworkFirst for members/walkins, CacheFirst for gym-info |
+| `offlineQueue.ts` | `client/src/lib/` | IndexedDB wrapper. Stores pending actions |
+| `syncManager.ts` | `client/src/lib/` | Watches navigator.onLine. Drains queue on reconnect. Retry 3x |
+| `offlineService.ts` | `client/src/lib/` | Offline-aware wrappers. `checkWalkInDuplicate()` for IndexedDB |
+| `SyncBadge.tsx` | `client/src/components/` | Topbar badge showing pending/failed sync state |
+| `sw.ts` | `client/src/` | Service Worker. Workbox precache + NetworkFirst/CacheFirst |
 
-### What works offline
-- Member check-in / check-out → queued in IndexedDB
-- Walk-in register / checkout → queued in IndexedDB
-- Add new member → queued in IndexedDB
-- View members list → cached (1 hour)
-- View today's walk-ins → cached (30 min)
-- Gym info (name, logo, plans) → cached (24 hours)
-- App shell loads without internet
+### Offline behavior
+- Works offline: check-in/out, walk-in register/checkout, add member, view cached data
+- Requires internet: payments, edit member, reports, settings, login
+- 409 Conflict on sync = duplicate = treated as success, fires `gms:sync-duplicate` event
+- Walk-in `gms:sync-duplicate` → amber info toast in `WalkInsPage`
 
-### What requires internet
-- Log payment
-- Edit member
-- Reports
-- Settings changes
-- Login (first time)
+---
 
-### Key technical decisions
-- `sw.ts` uses `(self as any).__WB_MANIFEST` — Workbox scans compiled JS for this literal string
-- Route matchers use `url.href.includes()` not `url.pathname` — API is cross-origin (Render backend)
-- `TypedSW` interface avoids `lib.webworker.d.ts` conflict with DOM lib in tsconfig
-- 409 Conflict on sync = duplicate = treated as success, fires `gms:sync-duplicate` event (not error)
-- `syncManager` fires custom events: `gms:sync-complete`, `gms:sync-failed`, `gms:sync-duplicate`
-- `SyncBadge` shows "Offline" amber badge even with empty queue via native `navigator.onLine` listener
-- `vite.config.ts` uses `injectManifest` block only (not `workbox` block) when `strategies: "injectManifest"`
+## Auto Walk-out System
 
-### Offline UI feedback
-- `OwnerLayout` + `StaffLayout`: Live badge → Offline badge (amber pulsing) when internet drops
-- Sticky amber banner below header: "You're offline — check-ins and walk-ins are queued..."
-- `SyncBadge` in topbar: orange count badge / amber "Offline" / red failed
-- Optimistic UI: check-in/checkout button flips immediately without waiting for network
-- Submit button shows "Queue Member (Offline)" when offline
+- `server/src/utils/autoCheckout.ts` — `initAutoCheckoutCron()` + `runAutoCheckout()`
+- Called once in `server.ts` AFTER Settings init block
+- Reads `Settings.closingTime` on startup, schedules cron in Asia/Manila timezone
+- Manual trigger: `POST /api/walkin/auto-checkout` (owner only)
+- Owner configures closing time in **Settings → Walk-in Day Passes**
 
-### npm packages required
-```bash
-cd client
-npm install -D vite-plugin-pwa workbox-precaching workbox-routing workbox-strategies workbox-expiration workbox-cacheable-response
-```
+---
+
+## Live Clock (Topbar)
+
+`useClock(closingTime?)` hook in both `OwnerLayout` and `StaffLayout`:
+- Ticks every second, Manila timezone
+- Shows `⚠ Closes X:XX PM` amber badge within 30 minutes of closing time
+- Reads `closingTime` from `gymStore.settings.closingTime`
+
+---
+
+## Report Charts
+
+Both charts use colorblind-safe colors: **Blue (#2563eb) + Orange (#ea580c)**
+
+### Revenue & Walk-in Trend
+- Blue = membership payment revenue (sum of `amountPaid` for all payment types that day)
+- Orange = walk-in count (raw count, independent scale)
+- Horizontal gridlines + Y-axis labels
+
+### Revenue Source — Last 6 Weeks
+- Blue = membership revenue (actual DB payments)
+- Orange = walk-in revenue (estimated: count × average pass price, labeled "est.")
+
+### Report Period Filter
+- Presets: Today, Last 7 Days, This Week, This Month, Custom
+- Active range always shown as orange badge in filter header
 
 ---
 
 ## Completed Features
-- Role-based auth (owner / staff / member flows)
-- MembersPage — `lastMemberUpdate` watcher for auto-refresh after payment renewal
-- WalkInsPage (owner: Today + History tabs, summary cards, live pulse, auto-refresh)
-- WalkInDesk (staff: register + checkout tab, professional SVG pass type icons)
-- PaymentsPage
-  - `forceStaffView` for staff → today-only
-  - Inline search results (no absolute positioning)
-  - Payment type selector: New Member / Renewal / Manual
-  - Settle Balance shortcut when member has outstanding balance
-  - Member search filters `status: "active"` only
-  - `triggerMemberRefresh()` called after renewal so MembersPage updates
-  - Expiry preview uses `member.expiresAt` as base date (not today)
-- OwnerDashboard
-  - Stats, at-risk members, RenewModal, `useSearchParams`
-  - Recent Activity widget (last 5 action logs)
-  - `calcNewExpiry()` in RenewModal extends from `member.expiresAt` not today
-  - Member card bottom border accent `border-b-2 border-b-[#FF6B1A]/40`
-  - Members Inside Now grid — `flex-1` removed, natural card height
-- StaffDashboard (stats bar, at-risk + renew, keyboard check-in, walk-in auto-reset, payments)
-- ReportsPage (PDF export, race condition fixed, 1000 record limit with truncation warning)
-- SettingsPage (PlansManager + Walk-in Prices + Account)
-- KioskPage — fully integrated
-  - Public self check-in by name or GYM-ID
-  - Walk-in self checkout by WALK-XXX
-  - Auto-suggest dropdown with members + today's walk-ins
-  - Auto-reset to idle after 8 seconds
-  - Offline banner + terminal status indicator
-  - Clock with seconds display
-  - Rate limited (20 req/min) + `X-Kiosk-Token` header auth
-  - Gym name comes from `gymStore.settings.gymName` — no hardcoding
-- Global toast system (`toastStore`, `ToastContainer` via `createPortal` in `App.tsx`)
-- Login success + logout confirm modals (via `createPortal` in `OwnerLayout` + `StaffLayout`)
-- Cloudinary logo upload
-- UptimeRobot ping every 5 min (keep Render awake)
-- Dynamic plans — Settings is single source of truth
-- Action Log system (fully complete)
-  - `ActionLog` model + `logAction()` helper (try/catch — never crashes routes)
-  - Injected into: login, logout, check-in, checkout, walk-in register/checkout, payment create/settle, member CRUD, settings changes
-  - `GET /api/action-logs` — server-side filtering by action, role, staffId, date range, pagination
-  - `POST /api/action-logs/logout` — called by `authStore.logout()` before token is cleared
-  - `ActionLogPage.tsx` — owner only, table with 5 filters
-  - `MyActivityPage.tsx` — staff only, timeline feed grouped by day, summary stats, date presets defaulting to Today
-  - Recent Activity widget on OwnerDashboard (last 5 actions)
-  - Staff name stripped from detail in MyActivityPage
-  - Manila timezone-aware date filtering (`toManilaStart` / `toManilaEnd`)
-- **Offline-first PWA (complete)**
-  - Service Worker with Workbox precaching
-  - IndexedDB offline queue with retry logic
-  - Background sync manager with custom events
-  - SyncBadge topbar indicator
-  - Offline banner + Live/Offline status badge
-  - Optimistic UI for check-in/checkout
-  - Offline add member with duplicate detection
-  - 409 Conflict handled as duplicate (not failure)
+- Role-based auth (owner / staff / super admin flows)
+- MembersPage, WalkInsPage, WalkInDesk, PaymentsPage, OwnerDashboard, StaffDashboard
+- ReportsPage — redesigned charts + filter, PDF export
+- SettingsPage — PlansManager + Walk-in Prices + Closing Time + Change Password
+- KioskPage — fully integrated, rate limited, X-Kiosk-Token auth
+- Global toast system, confirm modals via ConfirmModal component
+- Cloudinary logo upload, UptimeRobot ping
+- Action Log system — full audit trail, Manila timezone, role isolation
+- Offline-first PWA — SW, IndexedDB queue, syncManager, SyncBadge, optimistic UI
+- **Super Admin system** — GymClient, auth, email invite, dashboard, all CRUD
+- **Auto walk-out** — cron at closing time, manual trigger
+- **Live clock** — both layouts, closing time warning
+- **Owner password flows** — set-password (invite), forgot-password, reset-password
 
 ---
 
-## Known Bugs Fixed
-- `User.findOne({ email: undefined })` false-match bug
-- GYM-ID search regex fixed from exact-match to starts-with pattern
-- Babel breaks on `.reduce<T>()` generics — avoid inline generic reduce
-- ReportsPage race condition: `fetchRevenue` + `fetchWalkIns` merged into `Promise.all`
-- `settleBalance` was using plan price as `totalAmount` — now uses actual outstanding balance
-- Walk-in icons replaced: emoji → professional SVG
-- Payment modal search results were absolutely positioned — now inline flow
-- Action log date filters were UTC-based — fixed to Manila timezone
-- `paymentController.createPayment` expiry calculated from today — fixed to use `member.expiresAt`
-- `getNewExpiry()` in `PaymentsPage` modal mirrors backend expiry logic
-- `calcNewExpiry()` in `OwnerDashboard` RenewModal fixed — extends from `member.expiresAt`
-- `MembersPage` now watches `lastMemberUpdate` from `gymStore` and refetches on change
-- `PaymentsPage` member search showed inactive members — fixed with `status: "active"` filter
-- `paymentService.settleBalance` → correct method name is `settle`
-- Kiosk hardcoded `"at IronCore"` in checkout message removed
-- `VITE_API_URL` pointed to `localhost:5000` in production — fixed to Render backend URL
-- Action log returning 404 in production — caused by stale Render deploy
-- SW route matchers used `url.pathname` — fixed to `url.href.includes()` for cross-origin API caching
-- `SyncBadge` not showing offline state — fixed with native `navigator.onLine` listener
-- 409 Conflict on member sync was marking as failed — now treated as duplicate success
-- `self.__WB_MANIFEST` renamed by TypeScript compiler — fixed with `(self as any).__WB_MANIFEST`
-- `workbox` block + `injectManifest` block conflict in vite.config — removed workbox block
-- Mixed static/dynamic import of `toastStore` in SyncBadge — converted to static import
+## Known Bugs Fixed (latest session)
+- Walk-in double registration — `StaffDashboard` double API call
+- Walk-in missing 10-second duplicate guard on backend
+- `gms:sync-duplicate` not handled for walk-ins
+- Staff JWT was 7 days → reduced to 12 hours
+- Suspended owner/deactivated staff not kicked out until token expired → `protect` now checks `isActive`
+- Set/reset password auto-logged in owner → now redirects to `/login`
+- Change Email in owner Settings removed → Super Admin controls owner identity
+- `GymClient.lastLoginAt` never updated → added to `loginOwner`
+- Orphaned `User` if `GymClient.create` failed → rollback added
+- Resend errors silently swallowed → surfaced in API response
+- `gymStore.GymSettings` missing `closingTime` → added field + mapping + `setClosingTime`
+- `setClosingTime` name collision in `SettingsPage` → aliased as `setStoreClosingTime`
+
+---
+
+## Git Rules (CRITICAL)
+- **Never commit:** `dist/`, `.env`, `*.env.*`, `*.http`, `node_modules/`
+- Root `.gitignore` uses `**/node_modules/` with Unix line endings (CRLF breaks pattern matching)
+- Secrets go in Render environment variables ONLY
+- Server `dist/` is built by Render on deploy — never committed
+- Safe to use `git add .` — root `.gitignore` with `**/` patterns handles all subdirectories
+- Render build command: `npm install --include=dev && npm run build`
 
 ---
 
 ## Pending / Next Up
-1. **Super Admin Dashboard** — multi-tenancy for selling to multiple gyms
-   - `GymClient` model, `SuperAdmin` model + separate auth
-   - Impersonation with 15-min tokens logged to `SuperAuditLog`
-2. **Offline enhancements**
-   - At-risk members cache + renew offline
-   - Payments/reports read-only offline
-   - Walk-in duplicate name warning
-3. **Render upgrade** → Starter plan ($7/mo) for static IP before selling
-
----
-
-## Git Rules (IMPORTANT)
-- **Never commit** `dist/`, `.env`, `*.env.*`, `*.http` files
-- Secrets go in Render environment variables ONLY — never in code or committed files
-- Server `dist/` is built by Render on deploy — never pre-built and committed
-- `.gitignore` entries: `dist`, `dist-ssr`, `.env`, `.env.*`, `!.env.example`, `**/*.http`
+1. **Offline enhancements** — at-risk renew offline, payments read-only offline
+2. **Timezone setting** — `Settings.timezone` field, replace all `Asia/Manila` hardcodes (prerequisite for international)
+3. **Render Starter upgrade** — $7/mo for static IP before selling
+4. **Impersonation tokens** — Super Admin 15-min scoped token to log in as any owner for support
 
 ---
 
@@ -275,6 +284,15 @@ CLOUDINARY_API_KEY=your_api_key
 CLOUDINARY_API_SECRET=your_api_secret
 NODE_ENV=production
 
+# Super Admin (never commit)
+SUPER_JWT_SECRET=long-random-string-32-chars-min
+SUPER_ADMIN_EMAIL=your@email.com
+SUPER_ADMIN_PASSWORD=strong-password
+
+# Email via Resend (never commit)
+RESEND_API_KEY=re_your_key
+CLIENT_URL=https://ironcore-gms.onrender.com
+
 # client/.env.local (local dev only — never commit)
 VITE_API_URL=http://localhost:5000
 VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
@@ -289,22 +307,19 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 ## Dev Notes
 - Tailwind v4: spacing via `style={{}}` only — no `p-4`, `mt-2`, etc.
 - Babel issue: avoid `.reduce<T>()` generic syntax in TSX files
-- Express 5 incompatibility: no express-mongo-sanitize — manual sanitizer in place
+- Express 5: no express-mongo-sanitize — manual sanitizer in place
 - Member ≠ User — never conflate these two models
-- `AuthRequest` has `user: { id, role, name }` — name included for action logging, no extra DB calls
-- `logAction()` is fire-and-forget with try/catch — never let logging crash a real operation
-- `autoLogPayment()` has its own try/catch — logs errors instead of swallowing silently
-- Settings cached per-request in `paymentController` — avoids multiple `Settings.findOne()` calls
-- Duplicate payment guard: 10 seconds
-- ReportsPage fetch limit: 1000 records with amber warning banner if truncated
-- `authStore` persist key: `gms-auth`
-- `gymStore.triggerMemberRefresh()` sets `lastMemberUpdate: Date.now()` → `MembersPage` `useEffect` watches and refetches
-- Expiry extension (frontend + backend): if `member.expiresAt > now` → extend from expiry date; else extend from today
-- Kiosk routes: `GET /api/kiosk/search`, `POST /api/kiosk/member/checkin`, `POST /api/kiosk/member/checkout`, `GET /api/kiosk/walkin/:walkId`, `POST /api/kiosk/walkin/checkout`
-- `ALLOWED_ORIGINS` in `config/security.ts` must include both frontend and backend Render URLs
-- Use `.env.local` for local dev so `VITE_API_URL=localhost:5000` never gets committed to GitHub
-- Renaming a Render service changes the display name only — the original URL is permanent
-- PWA Service Worker only registers in production build (`npm run build && npm run preview`) — not in `npm run dev`
-- SW uses `(self as any).__WB_MANIFEST` — TypeScript would rename `sw.__WB_MANIFEST` during compilation
-- `syncManager` is a singleton module — call `syncManager.init()` once in `App.tsx`
-- Offline queue entries include JWT token captured at queue time — token may expire before sync
+- `protect` is now async — adds ~1-5ms DB lookup per request for `isActive` check
+- `authStore` persist key: `gms-auth` | `superAdminStore` persist key: `gms-superadmin`
+- `gymStore.triggerMemberRefresh()` → `lastMemberUpdate: Date.now()` → `MembersPage` refetches
+- Expiry extension: if `member.expiresAt > now` → extend from expiry; else extend from today
+- Kiosk uses raw `fetch()` with `X-Kiosk-Token` — NOT Axios `api` instance
+- `syncManager` is singleton — call `syncManager.init()` once in `App.tsx`
+- SW only registers in production build (`npm run build && npm run preview`)
+- `logAction()` is fire-and-forget with try/catch — never crashes routes
+- `initAutoCheckoutCron()` must be called AFTER Settings init block in `server.ts`
+- Resend free plan: can only send to your own verified email without a custom domain
+- Super Admin route `/superadmin` — not linked anywhere in public UI
+- Owner email is immutable after creation — only Super Admin can manage it
+- Name collision fix: `const { setClosingTime: setStoreClosingTime } = useGymStore()`
+- `ALLOWED_ORIGINS` in `config/security.ts` must include both Render URLs
