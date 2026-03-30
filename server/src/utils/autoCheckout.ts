@@ -12,11 +12,11 @@
  * the closing time in Settings, it takes effect the next day automatically.
  */
 
-import cron from "node-cron";
+import cron, { ScheduledTask } from "node-cron"; // ← named type import fixes TS2503
 import WalkIn from "../models/WalkIn";
 import Settings from "../models/Settings";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const getTodayManila = (): string =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
@@ -98,7 +98,7 @@ export const runAutoCheckout = async (): Promise<{
 
 // ─── Cron job ─────────────────────────────────────────────────────────────────
 
-let _cronTask: cron.ScheduledTask | null = null;
+let _cronTask: ScheduledTask | null = null; // ← was cron.ScheduledTask (invalid namespace usage)
 
 /**
  * Initialize the auto-checkout cron job.
