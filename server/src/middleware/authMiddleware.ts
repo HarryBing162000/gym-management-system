@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import User from "../models/User";
+import GymClient from "../models/GymClient";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -11,17 +12,21 @@ export interface AuthRequest extends Request {
 }
 
 // ─── protect ─────────────────────────────────────────────────────────────────
-// Verifies JWT then does a live DB check on isActive.
+// Verifies JWT then does two live DB checks per request:
 //
-// This means:
-//   - If Super Admin suspends a gym  → owner isActive = false
-//     → every subsequent owner request returns 401 immediately
-//     → frontend catches 401 → clears authStore → redirects to /login
+// Check 1 — isActive (existing behaviour):
+//   Staff deactivated by owner  → isActive = false → 401 → kicked out
 //
-//   - If owner deactivates a staff   → staff isActive = false
-//     → same flow — staff is kicked out on their next request
+// Check 2 — Gym suspension (new):
+//   Owner: looks up GymClient where ownerId = owner's own _id
+//   Staff: looks up GymClient where ownerId = staff.ownerId (set at creation)
+//   If GymClient.status === "suspended" → 401 → existing api.ts interceptor
+//   auto-logouts and redirects to /login — no frontend changes needed.
 //
-// The DB check adds ~1-5ms per request. Acceptable at this scale.
+// Existing staff with no ownerId (created before this fix): ownerIdToCheck
+// will be null → suspension check is skipped safely. No crashes, no lockout.
+//
+// Two DB lookups add ~2–10ms per request. Fine at this scale.
 
 export const protect = async (
   req: AuthRequest,
@@ -44,8 +49,12 @@ export const protect = async (
       name: string;
     };
 
-    // ── Live DB check — catches suspend and deactivate in real time ───────────
-    const user = await User.findById(decoded.id).select("isActive").lean();
+    // ── Check 1: isActive ─────────────────────────────────────────────────────
+    // Also select ownerId so staff can be traced to their gym below.
+    const user = await User.findById(decoded.id)
+      .select("isActive ownerId")
+      .lean();
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -60,6 +69,33 @@ export const protect = async (
             ? "Your gym account has been suspended. Please contact support."
             : "Your account has been deactivated. Please contact the gym owner.",
       });
+    }
+
+    // ── Check 2: Gym suspension ───────────────────────────────────────────────
+    // Owner  → their own _id is the GymClient's ownerId
+    // Staff  → their ownerId field points to the owner's _id
+    const ownerIdToCheck =
+      decoded.role === "owner"
+        ? decoded.id
+        : ((user as any).ownerId?.toString() ?? null);
+
+    if (ownerIdToCheck) {
+      const suspendedGym = await GymClient.findOne({
+        ownerId: ownerIdToCheck,
+        status: "suspended",
+      })
+        .select("_id")
+        .lean();
+
+      if (suspendedGym) {
+        // Use 401 (not 403) so the existing api.ts response interceptor
+        // handles it automatically — no frontend changes needed.
+        return res.status(401).json({
+          success: false,
+          message:
+            "Your gym account has been suspended. Please contact support.",
+        });
+      }
     }
 
     req.user = { id: decoded.id, role: decoded.role, name: decoded.name };

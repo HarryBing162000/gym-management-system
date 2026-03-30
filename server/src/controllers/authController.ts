@@ -60,7 +60,7 @@ export const registerOwner = async (req: Request, res: Response) => {
 };
 
 // =================== REGISTER STAFF ===================
-export const registerStaff = async (req: Request, res: Response) => {
+export const registerStaff = async (req: AuthRequest, res: Response) => {
   try {
     const { name, username, password }: RegisterStaffInput = req.body;
 
@@ -72,7 +72,13 @@ export const registerStaff = async (req: Request, res: Response) => {
       });
     }
 
-    const user = await User.create({ name, username, password, role: "staff" });
+    const user = await User.create({
+      name,
+      username,
+      password,
+      role: "staff",
+      ownerId: req.user!.id, // ← links this staff to their owner's gym
+    });
     const token = generateToken(user._id.toString(), user.role, user.name);
 
     return res.status(201).json({
@@ -395,7 +401,7 @@ export const updateGym = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Gym info updated — name: "${gymName}", address: "${gymAddress}"`,
+      detail: `Gym info updated â€" name: "${gymName}", address: "${gymAddress}"`,
     });
 
     return res.status(200).json({
@@ -592,7 +598,7 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Plan "${name.trim()}" added — ₱${price} / ${durationMonths} month(s)`,
+      detail: `Plan "${name.trim()}" added â€" â‚±${price} / ${durationMonths} month(s)`,
     });
 
     return res.status(201).json({
@@ -740,7 +746,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       settings.walkInPrices.student = student;
     if (couple != null && couple >= 0) settings.walkInPrices.couple = couple;
 
-    // Save closing time — validate HH:mm format
+    // Save closing time â€" validate HH:mm format
     if (closingTime && /^\d{2}:\d{2}$/.test(closingTime)) {
       settings.closingTime = closingTime;
     }
@@ -754,7 +760,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Walk-in prices updated — regular: ₱${settings.walkInPrices.regular}, student: ₱${settings.walkInPrices.student}, couple: ₱${settings.walkInPrices.couple}${closingTime ? ` · closing time: ${closingTime}` : ""}`,
+      detail: `Walk-in prices updated â€" regular: â‚±${settings.walkInPrices.regular}, student: â‚±${settings.walkInPrices.student}, couple: â‚±${settings.walkInPrices.couple}${closingTime ? ` Â· closing time: ${closingTime}` : ""}`,
     });
 
     return res.status(200).json({
@@ -824,7 +830,7 @@ export const setPassword = async (req: Request, res: Response) => {
     user.isVerified = true;
     await user.save();
 
-    // Auto-login after setting password — return a token so they land on dashboard
+    // Auto-login after setting password â€" return a token so they land on dashboard
     const authToken = jwt.sign(
       { id: user._id.toString(), role: user.role, name: user.name },
       process.env.JWT_SECRET as string,
@@ -859,7 +865,7 @@ export const setPassword = async (req: Request, res: Response) => {
 
 // =================== FORGOT PASSWORD ===================
 // Owner submits their email. If found, send a reset link.
-// Always returns 200 even if email not found — prevents email enumeration.
+// Always returns 200 even if email not found â€" prevents email enumeration.
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
     const { email } = req.body as { email: string };
@@ -875,7 +881,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
       role: "owner",
     });
 
-    // Always return the same message — never reveal if email exists
+    // Always return the same message â€" never reveal if email exists
     const genericMessage =
       "If that email is registered, you will receive a reset link shortly.";
 
@@ -903,8 +909,8 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
 // =================== RESET PASSWORD ===================
 // Owner lands on /reset-password?token=... from the forgot-password email.
-// Same handler as setPassword — reuses the same token purpose logic.
+// Same handler as setPassword â€" reuses the same token purpose logic.
 export const resetPassword = async (req: Request, res: Response) => {
-  // Delegates entirely to setPassword — token purpose covers both cases
+  // Delegates entirely to setPassword â€" token purpose covers both cases
   return setPassword(req, res);
 };

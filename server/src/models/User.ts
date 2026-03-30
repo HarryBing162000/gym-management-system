@@ -24,6 +24,10 @@ export interface IUser extends Document {
   // Staff only
   username?: string;
 
+  // Staff only — links staff to the owner who created them.
+  // Used by protect middleware to check if the gym is suspended.
+  ownerId?: mongoose.Types.ObjectId;
+
   // Email verification + password reset (owner only)
   isVerified: boolean;
   passwordResetToken?: string;
@@ -86,6 +90,14 @@ const UserSchema = new Schema<IUser>(
       sparse: true,
       lowercase: true,
       trim: true,
+    },
+
+    // Staff only — set at creation time, null for owners.
+    // Enables protect middleware to trace staff back to their gym's GymClient.
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
   },
   { timestamps: true },
