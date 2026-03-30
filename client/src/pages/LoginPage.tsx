@@ -102,7 +102,7 @@ export default function LoginPage() {
     destination: string;
   } | null>(null);
 
-  const gymName = settings?.gymName || "IronCore";
+  const gymName = settings?.gymName || "Gym Management System";
   const logoUrl = settings?.logoUrl || null;
   const isEmail = identifier.includes("@");
 
@@ -183,7 +183,7 @@ export default function LoginPage() {
               </div>
             ) : (
               <h1 className="text-xl sm:text-2xl font-black tracking-widest text-[#FF6B1A] text-center uppercase">
-                ⚡ {gymName}
+                {gymName}
               </h1>
             )}
             <p className="text-xs sm:text-sm text-white/40 mt-1 text-center tracking-wide">

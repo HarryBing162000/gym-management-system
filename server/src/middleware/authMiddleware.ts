@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import User from "../models/User";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -9,7 +10,20 @@ export interface AuthRequest extends Request {
   };
 }
 
-export const protect = (
+// ─── protect ─────────────────────────────────────────────────────────────────
+// Verifies JWT then does a live DB check on isActive.
+//
+// This means:
+//   - If Super Admin suspends a gym  → owner isActive = false
+//     → every subsequent owner request returns 401 immediately
+//     → frontend catches 401 → clears authStore → redirects to /login
+//
+//   - If owner deactivates a staff   → staff isActive = false
+//     → same flow — staff is kicked out on their next request
+//
+// The DB check adds ~1-5ms per request. Acceptable at this scale.
+
+export const protect = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction,
@@ -30,8 +44,26 @@ export const protect = (
       name: string;
     };
 
+    // ── Live DB check — catches suspend and deactivate in real time ───────────
+    const user = await User.findById(decoded.id).select("isActive").lean();
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authorized. Account not found.",
+      });
+    }
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message:
+          decoded.role === "owner"
+            ? "Your gym account has been suspended. Please contact support."
+            : "Your account has been deactivated. Please contact the gym owner.",
+      });
+    }
+
     req.user = { id: decoded.id, role: decoded.role, name: decoded.name };
-    next();
+    return next();
   } catch (err) {
     return res.status(401).json({
       success: false,

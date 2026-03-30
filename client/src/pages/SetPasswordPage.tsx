@@ -12,7 +12,6 @@
 
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -20,7 +19,6 @@ const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 export default function SetPasswordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { setAuth } = useAuthStore();
   const { settings } = useGymStore();
 
   const token = searchParams.get("token") ?? "";
@@ -66,12 +64,10 @@ export default function SetPasswordPage() {
         return;
       }
 
-      // Auto-login — backend returns token + user on success
-      setAuth(data.user, data.token);
+      // Do NOT auto-login — owner should log in consciously.
+      // Just show success and redirect to login page.
       setDone(true);
-
-      // Redirect to dashboard after brief success message
-      setTimeout(() => navigate("/dashboard"), 1800);
+      setTimeout(() => navigate("/login"), 2500);
     } catch {
       setErrorMsg("Connection failed. Please try again.");
     } finally {
@@ -98,10 +94,10 @@ export default function SetPasswordPage() {
               />
             </svg>
           </div>
-          <div className="text-white font-bold text-lg mb-1">Password set!</div>
-          <div className="text-white/40 text-sm">
-            Redirecting to your dashboard...
+          <div className="text-white font-bold text-lg mb-1">
+            Password set successfully!
           </div>
+          <div className="text-white/40 text-sm">Redirecting to login...</div>
         </div>
       </div>
     );

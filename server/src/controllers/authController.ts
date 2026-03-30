@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User";
+import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
 import { cloudinary } from "../middleware/upload";
 import { AuthRequest } from "../middleware/authMiddleware";
@@ -17,15 +18,22 @@ import {
   UpdateGymInput,
 } from "../middleware/authSchemas";
 
-// name is now included in the JWT payload
-const generateToken = (
-  id: string,
-  role: "owner" | "staff",
-  name: string,
-): string => {
-  return jwt.sign({ id, role, name }, process.env.JWT_SECRET as string, {
-    expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any,
-  });
+// Owner token — 7 days (long session, they manage the system)
+const generateOwnerToken = (id: string, name: string): string => {
+  return jwt.sign(
+    { id, role: "owner", name },
+    process.env.JWT_SECRET as string,
+    { expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any },
+  );
+};
+
+// Staff token — 12 hours (shorter session for security)
+const generateStaffToken = (id: string, name: string): string => {
+  return jwt.sign(
+    { id, role: "staff", name },
+    process.env.JWT_SECRET as string,
+    { expiresIn: "12h" },
+  );
 };
 
 // =================== REGISTER OWNER ===================
@@ -41,7 +49,7 @@ export const registerOwner = async (req: Request, res: Response) => {
     }
 
     const user = await User.create({ name, email, password, role: "owner" });
-    const token = generateToken(user._id.toString(), user.role, user.name);
+    const token = generateOwnerToken(user._id.toString(), user.name);
 
     return res.status(201).json({
       success: true,
@@ -73,7 +81,7 @@ export const registerStaff = async (req: Request, res: Response) => {
     }
 
     const user = await User.create({ name, username, password, role: "staff" });
-    const token = generateToken(user._id.toString(), user.role, user.name);
+    const token = generateStaffToken(user._id.toString(), user.name);
 
     return res.status(201).json({
       success: true,
@@ -119,7 +127,14 @@ export const loginOwner = async (req: Request, res: Response) => {
       });
     }
 
-    const token = generateToken(user._id.toString(), user.role, user.name);
+    const token = generateOwnerToken(user._id.toString(), user.name);
+
+    // Update lastLoginAt in GymClient so Super Admin dashboard shows real activity
+    // Fire-and-forget — never crash the login if this fails
+    GymClient.findOneAndUpdate(
+      { ownerId: user._id },
+      { lastLoginAt: new Date() },
+    ).catch((e) => console.error("[loginOwner] lastLoginAt update failed:", e));
 
     await logAction({
       action: "login",
@@ -177,7 +192,7 @@ export const loginStaff = async (req: Request, res: Response) => {
       });
     }
 
-    const token = generateToken(user._id.toString(), user.role, user.name);
+    const token = generateStaffToken(user._id.toString(), user.name);
 
     await logAction({
       action: "login",
@@ -772,25 +787,21 @@ export const setPassword = async (req: Request, res: Response) => {
         .json({ success: false, message: "Token and password are required." });
     }
     if (password.length < 6) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Password must be at least 6 characters.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters.",
+      });
     }
 
     let decoded: { id: string; purpose: string };
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET as string) as any;
     } catch {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "This link has expired or is invalid. Ask your administrator to resend the invite.",
-        });
+      return res.status(400).json({
+        success: false,
+        message:
+          "This link has expired or is invalid. Ask your administrator to resend the invite.",
+      });
     }
 
     if (
@@ -809,12 +820,10 @@ export const setPassword = async (req: Request, res: Response) => {
         .json({ success: false, message: "Account not found." });
     }
     if (!user.isActive) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Account is suspended. Contact your administrator.",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "Account is suspended. Contact your administrator.",
+      });
     }
 
     user.password = password;
