@@ -120,7 +120,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 // ─── Date range ───────────────────────────────────────────────────────────────
 
-type RangePreset = "today" | "week" | "month" | "custom";
+type RangePreset = "today" | "last7" | "week" | "month" | "custom";
 
 function getRange(
   preset: RangePreset,
@@ -129,6 +129,7 @@ function getRange(
 ): { from: string; to: string } {
   const today = getManilaDate();
   if (preset === "today") return { from: today, to: today };
+  if (preset === "last7") return { from: getManilaDate(6), to: today };
   if (preset === "week") {
     const mondayOffset = (new Date().getDay() + 6) % 7;
     return { from: getManilaDate(mondayOffset), to: today };
@@ -145,7 +146,11 @@ function getRange(
   return { from: customFrom || today, to: customTo || today };
 }
 
-// ─── Chart: Dual Bar ─────────────────────────────────────────────────────────
+// ─── Chart: Revenue & Walk-in Trend — Grouped Bars ──────────────────────────
+// Two bars per day: Revenue (blue, left) + Walk-ins scaled (orange, right).
+// Horizontal gridlines + Y-axis labels for readability.
+// Colors chosen for colorblind safety: blue (#2563eb) + orange (#ea580c)
+// Safe for deuteranopia, protanopia, and tritanopia.
 
 function DualBarChart({
   dates,
@@ -157,10 +162,11 @@ function DualBarChart({
   walkInData: Record<string, number>;
 }) {
   const totalDays = dates.length;
-  const step = Math.max(1, Math.ceil(totalDays / 28));
+  const step = Math.max(1, Math.ceil(totalDays / 20));
   const sampled = dates.filter(
     (_, i) => i % step === 0 || i === dates.length - 1,
   );
+
   const maxRev = Math.max(...sampled.map((d) => revenueData[d] ?? 0), 1);
   const maxWI = Math.max(...sampled.map((d) => walkInData[d] ?? 0), 1);
   const hasAnyData =
@@ -169,87 +175,178 @@ function DualBarChart({
 
   if (!hasAnyData)
     return (
-      <div className="flex items-center justify-center h-24 text-white/20 text-xs">
+      <div className="flex items-center justify-center h-32 text-white/20 text-xs">
         No data for this period
       </div>
     );
 
+  const CHART_H = 120; // px — chart area height
+  const GRID_LINES = 4; // horizontal reference lines
+
+  // Y-axis tick values for revenue axis
+  const revTicks = Array.from({ length: GRID_LINES + 1 }, (_, i) =>
+    Math.round((maxRev / GRID_LINES) * (GRID_LINES - i)),
+  );
+
+  const formatRevTick = (v: number) =>
+    v >= 1000 ? `₱${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `₱${v}`;
+
   return (
     <div>
-      <div className="flex gap-4 mb-3">
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-[#FF6B1A]" />
-          <span className="text-[10px] text-white/40">Revenue (₱)</span>
+      {/* Legend */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-5">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ background: "#2563eb" }}
+            />
+            <span className="text-[10px] text-white/50 font-medium">
+              Revenue (₱)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ background: "#ea580c" }}
+            />
+            <span className="text-[10px] text-white/50 font-medium">
+              Walk-ins
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-[#FFB800]/70" />
-          <span className="text-[10px] text-white/40">Walk-ins (count)</span>
-        </div>
+        <span className="text-[9px] text-white/20 font-mono">
+          {sampled.length} data points
+        </span>
       </div>
-      <div className="flex items-end gap-0.5 h-24">
-        {sampled.map((d, i) => {
-          const rev = revenueData[d] ?? 0;
-          const wi = walkInData[d] ?? 0;
-          const revH = Math.max(2, (rev / maxRev) * 88);
-          const wiH = Math.max(2, (wi / maxWI) * 88);
-          const lbl = dateLabel(d, totalDays);
-          return (
+
+      {/* Chart area */}
+      <div className="flex gap-2">
+        {/* Y-axis labels */}
+        <div
+          className="flex flex-col justify-between shrink-0"
+          style={{ height: `${CHART_H}px`, width: "36px" }}
+        >
+          {revTicks.map((v, i) => (
+            <span
+              key={i}
+              className="text-[8px] text-white/20 font-mono text-right leading-none"
+            >
+              {formatRevTick(v)}
+            </span>
+          ))}
+        </div>
+
+        {/* Bars + gridlines */}
+        <div className="flex-1 relative" style={{ height: `${CHART_H}px` }}>
+          {/* Horizontal gridlines */}
+          {Array.from({ length: GRID_LINES + 1 }, (_, i) => (
             <div
               key={i}
-              className="flex-1 flex flex-col items-center gap-0.5 min-w-0 group relative"
-            >
-              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#111] border border-white/15 rounded-lg px-2.5 py-1.5 text-[9px] text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-xl">
-                <div className="font-semibold text-white/60 mb-0.5">{lbl}</div>
-                <div className="text-[#FF6B1A]">₱{rev.toLocaleString()}</div>
-                <div className="text-[#FFB800]">
-                  {wi} walk-in{wi !== 1 ? "s" : ""}
+              className="absolute left-0 right-0"
+              style={{
+                top: `${(i / GRID_LINES) * 100}%`,
+                borderTop:
+                  i === GRID_LINES
+                    ? "1px solid rgba(255,255,255,0.12)"
+                    : "1px dashed rgba(255,255,255,0.05)",
+              }}
+            />
+          ))}
+
+          {/* Grouped bars */}
+          <div className="absolute inset-0 flex items-end gap-0.5 px-0.5">
+            {sampled.map((d, i) => {
+              const rev = revenueData[d] ?? 0;
+              const wi = walkInData[d] ?? 0;
+              const revH =
+                rev > 0 ? Math.max(3, (rev / maxRev) * (CHART_H - 4)) : 0;
+              const wiH =
+                wi > 0 ? Math.max(3, (wi / maxWI) * (CHART_H - 4)) : 0;
+              const lbl = dateLabel(d, totalDays);
+
+              return (
+                <div
+                  key={i}
+                  className="flex-1 flex flex-col items-center min-w-0 group relative h-full justify-end"
+                >
+                  {/* Hover tooltip */}
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-[#0f0f0f] border border-white/15 rounded-lg px-3 py-2 text-[9px] text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-2xl">
+                    <div className="font-semibold text-white/40 mb-1 uppercase tracking-widest text-[8px]">
+                      {lbl}
+                    </div>
+                    <div style={{ color: "#60a5fa" }}>
+                      ₱{rev.toLocaleString()} revenue
+                    </div>
+                    <div style={{ color: "#fb923c" }}>
+                      {wi} walk-in{wi !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+
+                  {/* Two bars side by side */}
+                  <div
+                    className="w-full flex items-end gap-px"
+                    style={{ height: `${CHART_H}px` }}
+                  >
+                    {/* Revenue bar — blue */}
+                    <div
+                      className="flex-1 rounded-t-sm transition-all"
+                      style={{
+                        height: revH > 0 ? `${revH}px` : "2px",
+                        background: "#2563eb",
+                        opacity: rev === 0 ? 0.12 : 0.9,
+                      }}
+                    />
+                    {/* Walk-in bar — orange */}
+                    <div
+                      className="flex-1 rounded-t-sm transition-all"
+                      style={{
+                        height: wiH > 0 ? `${wiH}px` : "2px",
+                        background: "#ea580c",
+                        opacity: wi === 0 ? 0.12 : 0.9,
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="w-full flex items-end gap-px">
-                <div
-                  className="flex-1 rounded-t-sm"
-                  style={{
-                    height: `${revH}px`,
-                    background: "#FF6B1A",
-                    opacity: rev === 0 ? 0.1 : 0.85,
-                  }}
-                />
-                <div
-                  className="flex-1 rounded-t-sm"
-                  style={{
-                    height: `${wiH}px`,
-                    background: "#FFB800",
-                    opacity: wi === 0 ? 0.1 : 0.65,
-                  }}
-                />
-              </div>
-              {sampled.length <= 14 && (
-                <span className="text-[7px] text-white/20 truncate w-full text-center leading-none">
-                  {lbl}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {sampled.length > 14 && (
-        <div className="flex justify-between mt-1.5">
-          <span className="text-[9px] text-white/25">
-            {dateLabel(sampled[0], totalDays)}
-          </span>
-          <span className="text-[9px] text-white/25">
-            {dateLabel(sampled[Math.floor(sampled.length / 2)], totalDays)}
-          </span>
-          <span className="text-[9px] text-white/25">
-            {dateLabel(sampled[sampled.length - 1], totalDays)}
-          </span>
+              );
+            })}
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* X-axis labels */}
+      <div className="flex gap-0.5 mt-1.5 ml-10">
+        {sampled.length <= 12 ? (
+          sampled.map((d, i) => (
+            <span
+              key={i}
+              className="flex-1 text-[7px] text-white/25 truncate text-center"
+            >
+              {dateLabel(d, totalDays)}
+            </span>
+          ))
+        ) : (
+          <div className="flex-1 flex justify-between">
+            <span className="text-[8px] text-white/25">
+              {dateLabel(sampled[0], totalDays)}
+            </span>
+            <span className="text-[8px] text-white/25">
+              {dateLabel(sampled[Math.floor(sampled.length / 2)], totalDays)}
+            </span>
+            <span className="text-[8px] text-white/25">
+              {dateLabel(sampled[sampled.length - 1], totalDays)}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── Chart: Revenue Source ────────────────────────────────────────────────────
+// ─── Chart: Revenue Source — Grouped Bars per Week ───────────────────────────
+// Two bars per week: Membership revenue (blue) + Walk-in revenue (orange).
+// Same colorblind-safe palette as DualBarChart for visual consistency.
+// Y-axis + gridlines for readability. Weekly totals shown below.
 
 function RevenueSourceChart({
   payments,
@@ -286,71 +383,169 @@ function RevenueSourceChart({
       weekDates,
       prices,
     );
-    return { label, memberRev, wiRev };
+    return { label, memberRev, wiRev, total: memberRev + wiRev };
   }).reverse();
 
   const maxVal = Math.max(...weeks.flatMap((w) => [w.memberRev, w.wiRev]), 1);
-  const hasData = weeks.some((w) => w.memberRev > 0 || w.wiRev > 0);
+  const hasData = weeks.some((w) => w.total > 0);
+
+  const CHART_H = 100;
+  const GRID_LINES = 4;
 
   if (!hasData)
     return (
-      <div className="flex items-center justify-center h-20 text-white/20 text-xs">
-        No data for last 6 weeks
+      <div className="flex items-center justify-center h-24 text-white/20 text-xs">
+        No revenue data for last 6 weeks
       </div>
     );
 
+  const revTicks = Array.from({ length: GRID_LINES + 1 }, (_, i) =>
+    Math.round((maxVal / GRID_LINES) * (GRID_LINES - i)),
+  );
+  const fmt = (v: number) =>
+    v >= 1000 ? `₱${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `₱${v}`;
+
   return (
     <div>
-      <div className="flex gap-4 mb-3">
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-[#FF6B1A]" />
-          <span className="text-[10px] text-white/40">Membership Revenue</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-[#c084fc]/80" />
-          <span className="text-[10px] text-white/40">
-            Walk-in Revenue (est.)
-          </span>
+      {/* Legend */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-5">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ background: "#2563eb" }}
+            />
+            <span className="text-[10px] text-white/50 font-medium">
+              Membership Revenue
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-3 h-3 rounded-sm"
+              style={{ background: "#ea580c" }}
+            />
+            <span className="text-[10px] text-white/50 font-medium">
+              Walk-in Revenue (est.)
+            </span>
+          </div>
         </div>
       </div>
-      <div className="flex items-end gap-2 h-20">
+
+      {/* Chart area */}
+      <div className="flex gap-2">
+        {/* Y-axis */}
+        <div
+          className="flex flex-col justify-between shrink-0"
+          style={{ height: `${CHART_H}px`, width: "36px" }}
+        >
+          {revTicks.map((v, i) => (
+            <span
+              key={i}
+              className="text-[8px] text-white/20 font-mono text-right leading-none"
+            >
+              {fmt(v)}
+            </span>
+          ))}
+        </div>
+
+        {/* Bars + gridlines */}
+        <div className="flex-1 relative" style={{ height: `${CHART_H}px` }}>
+          {/* Gridlines */}
+          {Array.from({ length: GRID_LINES + 1 }, (_, i) => (
+            <div
+              key={i}
+              className="absolute left-0 right-0"
+              style={{
+                top: `${(i / GRID_LINES) * 100}%`,
+                borderTop:
+                  i === GRID_LINES
+                    ? "1px solid rgba(255,255,255,0.12)"
+                    : "1px dashed rgba(255,255,255,0.05)",
+              }}
+            />
+          ))}
+
+          {/* Grouped bars */}
+          <div className="absolute inset-0 flex items-end gap-2 px-1">
+            {weeks.map((w, i) => {
+              const memberH =
+                w.memberRev > 0
+                  ? Math.max(3, (w.memberRev / maxVal) * (CHART_H - 4))
+                  : 0;
+              const wiH =
+                w.wiRev > 0
+                  ? Math.max(3, (w.wiRev / maxVal) * (CHART_H - 4))
+                  : 0;
+              const isEmpty = w.total === 0;
+
+              return (
+                <div
+                  key={i}
+                  className="flex-1 flex flex-col items-center min-w-0 group relative h-full justify-end"
+                >
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-[#0f0f0f] border border-white/15 rounded-lg px-3 py-2 text-[9px] text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-2xl">
+                    <div className="font-semibold text-white/40 mb-1 uppercase tracking-widest text-[8px]">
+                      {w.label}
+                    </div>
+                    {isEmpty ? (
+                      <div className="text-white/25">No revenue this week</div>
+                    ) : (
+                      <>
+                        <div style={{ color: "#60a5fa" }}>
+                          ₱{w.memberRev.toLocaleString()} members
+                        </div>
+                        <div style={{ color: "#fb923c" }}>
+                          ₱{w.wiRev.toLocaleString()} walk-ins
+                        </div>
+                        <div className="text-white/40 mt-0.5 pt-0.5 border-t border-white/10">
+                          ₱{w.total.toLocaleString()} total
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Two bars side by side */}
+                  <div
+                    className="w-full flex items-end gap-px"
+                    style={{ height: `${CHART_H}px` }}
+                  >
+                    <div
+                      className="flex-1 rounded-t-sm"
+                      style={{
+                        height: memberH > 0 ? `${memberH}px` : "2px",
+                        background: "#2563eb",
+                        opacity: w.memberRev === 0 ? 0.1 : 0.9,
+                      }}
+                    />
+                    <div
+                      className="flex-1 rounded-t-sm"
+                      style={{
+                        height: wiH > 0 ? `${wiH}px` : "2px",
+                        background: "#ea580c",
+                        opacity: w.wiRev === 0 ? 0.1 : 0.9,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* X-axis week labels */}
+      <div className="flex gap-2 mt-1.5 ml-10">
         {weeks.map((w, i) => (
-          <div
-            key={i}
-            className="flex-1 flex flex-col items-center gap-1 min-w-0 group relative"
-          >
-            <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#111] border border-white/15 rounded-lg px-2.5 py-1.5 text-[9px] text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-xl">
-              <div className="font-semibold text-white/60 mb-0.5">
-                {w.label}
-              </div>
-              <div className="text-[#FF6B1A]">
-                ₱{w.memberRev.toLocaleString()} members
-              </div>
-              <div className="text-[#c084fc]">
-                ₱{w.wiRev.toLocaleString()} walk-ins
-              </div>
-            </div>
-            <div className="w-full flex items-end gap-px">
-              <div
-                className="flex-1 rounded-t-sm"
-                style={{
-                  height: `${Math.max(2, (w.memberRev / maxVal) * 72)}px`,
-                  background: "#FF6B1A",
-                  opacity: w.memberRev === 0 ? 0.1 : 0.85,
-                }}
-              />
-              <div
-                className="flex-1 rounded-t-sm"
-                style={{
-                  height: `${Math.max(2, (w.wiRev / maxVal) * 72)}px`,
-                  background: "#c084fc",
-                  opacity: w.wiRev === 0 ? 0.1 : 0.75,
-                }}
-              />
-            </div>
-            <span className="text-[7px] text-white/25 truncate w-full text-center">
+          <div key={i} className="flex-1 text-center">
+            <span className="text-[7px] text-white/25 truncate block">
               {w.label}
             </span>
+            {w.total > 0 && (
+              <span className="text-[7px] font-mono text-white/20">
+                ₱{w.total >= 1000 ? `${(w.total / 1000).toFixed(1)}k` : w.total}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -1072,52 +1267,135 @@ export default function ReportsPage() {
         )}
 
         {/* ── Date Range Filter ── */}
-        <div className="bg-[#212121] border border-white/10 rounded-xl p-4">
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-[10px] text-white/25 uppercase tracking-widest font-semibold">
-              Period:
-            </span>
+        <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
+          {/* Filter header */}
+          <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-white/30"
+              >
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">
+                Report Period
+              </span>
+            </div>
+            {/* Active range badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A]" />
+              <span className="text-[10px] font-semibold text-[#FF6B1A] font-mono">
+                {formatDate(range.from)}
+                {range.from !== range.to && (
+                  <> → {formatDate(range.to)}</>
+                )} · {rangeDates.length}d
+              </span>
+            </div>
+          </div>
+
+          {/* Preset buttons */}
+          <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
             {(
               [
-                { key: "today", label: "Today" },
-                { key: "week", label: "This Week" },
-                { key: "month", label: "This Month" },
-                { key: "custom", label: "Custom" },
-              ] as { key: RangePreset; label: string }[]
-            ).map(({ key, label }) => (
+                { key: "today", label: "Today", icon: "◉" },
+                { key: "last7", label: "Last 7 Days", icon: "↩" },
+                { key: "week", label: "This Week", icon: "⌗" },
+                { key: "month", label: "This Month", icon: "▦" },
+                { key: "custom", label: "Custom Range", icon: "⊞" },
+              ] as { key: RangePreset; label: string; icon: string }[]
+            ).map(({ key, label, icon }) => (
               <button
                 key={key}
                 onClick={() => setPreset(key)}
-                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${preset === key ? "bg-[#FF6B1A]/15 text-[#FF6B1A] border-[#FF6B1A]/30" : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"}`}
+                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                  preset === key
+                    ? "bg-[#FF6B1A] text-black border-[#FF6B1A] shadow-lg"
+                    : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/25 hover:bg-[#333]"
+                }`}
               >
+                <span
+                  className={`text-[10px] ${preset === key ? "opacity-70" : "opacity-40"}`}
+                >
+                  {icon}
+                </span>
                 {label}
               </button>
             ))}
-            {preset === "custom" && (
-              <>
-                <div className="w-px h-5 bg-white/10" />
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-                  style={{ colorScheme: "dark" }}
-                />
-                <span className="text-white/20 text-xs">→</span>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="bg-[#2a2a2a] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/70 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
-                  style={{ colorScheme: "dark" }}
-                />
-              </>
-            )}
-            <div className="ml-auto text-[10px] text-white/25 font-mono">
-              {formatDate(range.from)} → {formatDate(range.to)} ·{" "}
-              {rangeDates.length}d
-            </div>
           </div>
+
+          {/* Custom date picker — only shown when Custom is active */}
+          {preset === "custom" && (
+            <div className="px-4 pb-4">
+              <div className="bg-[#2a2a2a] border border-white/10 rounded-xl p-4">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">
+                  Select Date Range
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div>
+                    <div className="text-[9px] text-white/30 uppercase tracking-widest mb-1 font-semibold">
+                      From
+                    </div>
+                    <input
+                      type="date"
+                      value={customFrom}
+                      max={customTo || getManilaDate()}
+                      onChange={(e) => setCustomFrom(e.target.value)}
+                      className="bg-[#1a1a1a] border border-white/15 rounded-lg px-3 py-2 text-xs text-white/80 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+                      style={{ colorScheme: "dark" }}
+                    />
+                  </div>
+                  <div className="flex flex-col items-center gap-1 pt-4">
+                    <div className="w-8 h-px bg-white/15" />
+                    <span className="text-[9px] text-white/20">to</span>
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-white/30 uppercase tracking-widest mb-1 font-semibold">
+                      To
+                    </div>
+                    <input
+                      type="date"
+                      value={customTo}
+                      min={customFrom}
+                      max={getManilaDate()}
+                      onChange={(e) => setCustomTo(e.target.value)}
+                      className="bg-[#1a1a1a] border border-white/15 rounded-lg px-3 py-2 text-xs text-white/80 outline-none focus:border-[#FF6B1A] transition-colors cursor-pointer"
+                      style={{ colorScheme: "dark" }}
+                    />
+                  </div>
+                  {customFrom && customTo && (
+                    <div className="pt-4 flex items-center gap-2">
+                      <div className="h-px w-3 bg-white/10" />
+                      <span className="text-[10px] text-white/30 font-mono">
+                        {rangeDates.length} day
+                        {rangeDates.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  )}
+                  {(customFrom || customTo) && (
+                    <button
+                      onClick={() => {
+                        setCustomFrom(getManilaDate(30));
+                        setCustomTo(getManilaDate());
+                      }}
+                      className="pt-4 text-[10px] text-white/20 hover:text-white/50 transition-colors cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Combined Revenue Hero ── */}

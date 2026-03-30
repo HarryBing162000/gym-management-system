@@ -1,18 +1,17 @@
 /**
  * SettingsPage.tsx
- * IronCore GMS — Owner Settings
+ *  GMS — Owner Settings
  *
  * Sections:
  *   1. Gym Info         — name, address, logo
  *   2. Membership Plans — dynamic plans (add/edit/deactivate/delete)
  *   3. Walk-in Prices   — day pass pricing
- *   4. Account          — change email, change password
+ *   4. Account          — change password
  */
 
 import { useState, useRef, useEffect } from "react";
 import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
-import { useAuthStore } from "../store/authStore";
 import PlansManager from "./PlansManager";
 import api from "../services/api";
 
@@ -268,7 +267,11 @@ function GymInfoSection() {
 // ─── 3. Walk-in Prices Section ────────────────────────────────────────────────
 function WalkInPricesSection() {
   const { showToast } = useToastStore();
-  const { settings, setWalkInPrices } = useGymStore();
+  const {
+    settings,
+    setWalkInPrices,
+    setClosingTime: setStoreClosingTime,
+  } = useGymStore();
 
   const [regular, setRegular] = useState(
     String(settings?.walkInPrices?.regular ?? 150),
@@ -279,6 +282,9 @@ function WalkInPricesSection() {
   const [couple, setCouple] = useState(
     String(settings?.walkInPrices?.couple ?? 250),
   );
+  const [closingTime, setClosingTime] = useState(
+    settings?.closingTime ?? "22:00",
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -287,7 +293,10 @@ function WalkInPricesSection() {
       setStudent(String(settings.walkInPrices.student));
       setCouple(String(settings.walkInPrices.couple));
     }
-  }, [settings?.walkInPrices]);
+    if (settings?.closingTime) {
+      setClosingTime(settings.closingTime);
+    }
+  }, [settings?.walkInPrices, settings?.closingTime]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -296,8 +305,10 @@ function WalkInPricesSection() {
         regular: Number(regular),
         student: Number(student),
         couple: Number(couple),
+        closingTime: closingTime.trim() || "22:00",
       });
       setWalkInPrices(res.data.walkInPrices);
+      if (res.data.closingTime) setStoreClosingTime(res.data.closingTime);
       showToast(res.data.message, "success");
     } catch (err: any) {
       showToast(
@@ -344,6 +355,38 @@ function WalkInPricesSection() {
           ))}
         </div>
 
+        {/* Closing time */}
+        <div className="border-t border-white/[0.06] pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-white mb-0.5">
+                Gym Closing Time
+              </div>
+              <div className="text-[11px] text-white/30">
+                Walk-ins still inside will be automatically checked out at this
+                time daily (Manila time).
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="time"
+                value={closingTime}
+                onChange={(e) => setClosingTime(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#FF6B1A]/50 transition-colors"
+                style={{ colorScheme: "dark" }}
+              />
+              <div className="text-[10px] text-white/25 font-mono whitespace-nowrap">
+                {(() => {
+                  const [h, m] = closingTime.split(":").map(Number);
+                  const suffix = h >= 12 ? "PM" : "AM";
+                  const displayH = h % 12 === 0 ? 12 : h % 12;
+                  return `${displayH}:${String(m).padStart(2, "0")} ${suffix}`;
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="flex justify-end">
           <button onClick={handleSave} disabled={saving} className={btnPrimary}>
             {saving ? "Saving..." : "Save Walk-in Prices"}
@@ -357,16 +400,10 @@ function WalkInPricesSection() {
 // ─── 4. Account Section ───────────────────────────────────────────────────────
 function AccountSection() {
   const { showToast } = useToastStore();
-  const { user } = useAuthStore();
-
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPw, setSavingPw] = useState(false);
-
-  const [newEmail, setNewEmail] = useState("");
-  const [emailPassword, setEmailPassword] = useState("");
-  const [savingEmail, setSavingEmail] = useState(false);
 
   const handleUpdatePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -398,32 +435,8 @@ function AccountSection() {
     }
   };
 
-  const handleUpdateEmail = async () => {
-    if (!newEmail || !emailPassword) {
-      showToast("Please fill in all email fields.", "error");
-      return;
-    }
-    setSavingEmail(true);
-    try {
-      await api.put("/auth/update-email", {
-        newEmail,
-        password: emailPassword,
-      });
-      showToast("Email updated.", "success");
-      setNewEmail("");
-      setEmailPassword("");
-    } catch (err: any) {
-      showToast(
-        err.response?.data?.message || "Failed to update email.",
-        "error",
-      );
-    } finally {
-      setSavingEmail(false);
-    }
-  };
-
   return (
-    <Section title="Account" subtitle="Login credentials for the owner account">
+    <Section title="Account" subtitle="Change your account password">
       <div className="space-y-6">
         {/* Change Password */}
         <div className="space-y-3">
@@ -464,45 +477,6 @@ function AccountSection() {
               className={btnPrimary}
             >
               {savingPw ? "Updating..." : "Update Password"}
-            </button>
-          </div>
-        </div>
-
-        <div className="border-t border-white/10" />
-
-        {/* Change Email */}
-        <div className="space-y-3">
-          <div className="text-xs font-semibold text-white/30 uppercase tracking-widest">
-            Change Email
-          </div>
-          <div className="text-xs text-white/30">
-            Current: <span className="text-white/50">{user?.email || "—"}</span>
-          </div>
-          <Field label="New Email">
-            <input
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="New email address"
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Confirm with Password">
-            <input
-              type="password"
-              value={emailPassword}
-              onChange={(e) => setEmailPassword(e.target.value)}
-              placeholder="Your current password"
-              className={inputClass}
-            />
-          </Field>
-          <div className="flex justify-end">
-            <button
-              onClick={handleUpdateEmail}
-              disabled={savingEmail}
-              className={btnPrimary}
-            >
-              {savingEmail ? "Updating..." : "Update Email"}
             </button>
           </div>
         </div>

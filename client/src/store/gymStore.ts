@@ -33,6 +33,7 @@ interface GymSettings {
   logoUrl: string | null;
   plans: GymPlan[];
   walkInPrices: WalkInPrices;
+  closingTime: string; // "HH:mm" 24h format, Manila time — e.g. "22:00"
 }
 
 interface GymStore {
@@ -58,6 +59,9 @@ interface GymStore {
 
   // Walk-in price helper
   getWalkInPrice: (passType: "regular" | "student" | "couple") => number;
+
+  // Closing time helper
+  setClosingTime: (closingTime: string) => void;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL
@@ -91,6 +95,7 @@ export const useGymStore = create<GymStore>((set, get) => ({
               student: 100,
               couple: 250,
             },
+            closingTime: data.settings.closingTime ?? "22:00",
           },
           hasFetched: true,
         });
@@ -117,6 +122,12 @@ export const useGymStore = create<GymStore>((set, get) => ({
   setPlans: (plans) => {
     set((state) => ({
       settings: state.settings ? { ...state.settings, plans } : null,
+    }));
+  },
+
+  setClosingTime: (closingTime) => {
+    set((state) => ({
+      settings: state.settings ? { ...state.settings, closingTime } : null,
     }));
   },
 

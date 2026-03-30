@@ -6,6 +6,57 @@ import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import SyncBadge from "../components/SyncBadge";
 
+// ─── useClock hook ────────────────────────────────────────────────────────────
+// Ticks every second. Returns live time string + closing status.
+// closingTime format: "HH:mm" (24h Manila time)
+function useClock(closingTime?: string) {
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const timeStr = now.toLocaleTimeString("en-PH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Manila",
+  });
+
+  const dateStr = now.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "Asia/Manila",
+  });
+
+  // Check if within 30 minutes of closing
+  let closingWarning = false;
+  let closingLabel = "";
+  if (closingTime) {
+    const [ch, cm] = closingTime.split(":").map(Number);
+    const manilaStr = now.toLocaleString("en-CA", {
+      timeZone: "Asia/Manila",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const [mh, mm] = manilaStr.split(":").map(Number);
+    const nowMins = mh * 60 + mm;
+    const closeMins = ch * 60 + cm;
+    const diffMins = closeMins - nowMins;
+    closingWarning = diffMins >= 0 && diffMins <= 30;
+    // Format closing time for display (12h)
+    const suffix = ch >= 12 ? "PM" : "AM";
+    const displayH = ch % 12 === 0 ? 12 : ch % 12;
+    closingLabel = `${displayH}:${String(cm).padStart(2, "0")} ${suffix}`;
+  }
+
+  return { timeStr, dateStr, closingWarning, closingLabel };
+}
+
 // Nav items with inline SVG icons
 const navItems = [
   {
@@ -139,6 +190,9 @@ export default function OwnerLayout({
 }: OwnerLayoutProps) {
   const { user, logout } = useAuthStore();
   const { settings } = useGymStore();
+  const { timeStr, dateStr, closingWarning, closingLabel } = useClock(
+    settings?.closingTime,
+  );
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -372,13 +426,18 @@ export default function OwnerLayout({
             >
               ☰
             </button>
-            <span className="text-xs text-white/30 font-mono">
-              {new Date().toLocaleDateString("en-PH", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/30 font-mono">{dateStr}</span>
+              <span className="text-xs font-mono font-semibold text-white/50">
+                {timeStr}
+              </span>
+              {closingWarning && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-0.5 rounded-full">
+                  <span>⚠</span>
+                  Closes {closingLabel}
+                </span>
+              )}
+            </div>
             {isOnline ? (
               <span className="flex items-center gap-1.5 text-xs bg-[#FF6B1A]/10 text-[#FF6B1A] border border-[#FF6B1A]/20 px-2.5 py-1 rounded-full font-semibold">
                 <span className="relative flex h-2 w-2">
