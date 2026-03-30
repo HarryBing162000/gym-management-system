@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User";
-import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
 import { cloudinary } from "../middleware/upload";
 import { AuthRequest } from "../middleware/authMiddleware";
@@ -18,22 +17,15 @@ import {
   UpdateGymInput,
 } from "../middleware/authSchemas";
 
-// Owner token — 7 days (long session, they manage the system)
-const generateOwnerToken = (id: string, name: string): string => {
-  return jwt.sign(
-    { id, role: "owner", name },
-    process.env.JWT_SECRET as string,
-    { expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any },
-  );
-};
-
-// Staff token — 12 hours (shorter session for security)
-const generateStaffToken = (id: string, name: string): string => {
-  return jwt.sign(
-    { id, role: "staff", name },
-    process.env.JWT_SECRET as string,
-    { expiresIn: "12h" },
-  );
+// name is now included in the JWT payload
+const generateToken = (
+  id: string,
+  role: "owner" | "staff",
+  name: string,
+): string => {
+  return jwt.sign({ id, role, name }, process.env.JWT_SECRET as string, {
+    expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any,
+  });
 };
 
 // =================== REGISTER OWNER ===================
@@ -49,7 +41,7 @@ export const registerOwner = async (req: Request, res: Response) => {
     }
 
     const user = await User.create({ name, email, password, role: "owner" });
-    const token = generateOwnerToken(user._id.toString(), user.name);
+    const token = generateToken(user._id.toString(), user.role, user.name);
 
     return res.status(201).json({
       success: true,
@@ -81,7 +73,7 @@ export const registerStaff = async (req: Request, res: Response) => {
     }
 
     const user = await User.create({ name, username, password, role: "staff" });
-    const token = generateStaffToken(user._id.toString(), user.name);
+    const token = generateToken(user._id.toString(), user.role, user.name);
 
     return res.status(201).json({
       success: true,
@@ -127,14 +119,7 @@ export const loginOwner = async (req: Request, res: Response) => {
       });
     }
 
-    const token = generateOwnerToken(user._id.toString(), user.name);
-
-    // Update lastLoginAt in GymClient so Super Admin dashboard shows real activity
-    // Fire-and-forget — never crash the login if this fails
-    GymClient.findOneAndUpdate(
-      { ownerId: user._id },
-      { lastLoginAt: new Date() },
-    ).catch((e) => console.error("[loginOwner] lastLoginAt update failed:", e));
+    const token = generateToken(user._id.toString(), user.role, user.name);
 
     await logAction({
       action: "login",
@@ -192,7 +177,7 @@ export const loginStaff = async (req: Request, res: Response) => {
       });
     }
 
-    const token = generateStaffToken(user._id.toString(), user.name);
+    const token = generateToken(user._id.toString(), user.role, user.name);
 
     await logAction({
       action: "login",
@@ -446,6 +431,7 @@ export const getGymInfo = async (_req: Request, res: Response) => {
               student: 100,
               couple: 250,
             },
+            closingTime: settings.closingTime ?? "22:00",
           }
         : {
             gymName: process.env.GYM_NAME || "Gym",
@@ -453,6 +439,7 @@ export const getGymInfo = async (_req: Request, res: Response) => {
             logoUrl: null,
             plans: [],
             walkInPrices: { regular: 150, student: 100, couple: 250 },
+            closingTime: "22:00",
           },
     });
   } catch (err: any) {
@@ -731,13 +718,14 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// =================== WALK-IN PRICES ===================
+// =================== WALK-IN PRICES + CLOSING TIME ===================
 export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
   try {
-    const { regular, student, couple } = req.body as {
+    const { regular, student, couple, closingTime } = req.body as {
       regular?: number;
       student?: number;
       couple?: number;
+      closingTime?: string;
     };
 
     const settings = await Settings.findOne({});
@@ -752,6 +740,11 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       settings.walkInPrices.student = student;
     if (couple != null && couple >= 0) settings.walkInPrices.couple = couple;
 
+    // Save closing time — validate HH:mm format
+    if (closingTime && /^\d{2}:\d{2}$/.test(closingTime)) {
+      settings.closingTime = closingTime;
+    }
+
     await settings.save();
 
     await logAction({
@@ -761,13 +754,14 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Walk-in prices updated — regular: ₱${settings.walkInPrices.regular}, student: ₱${settings.walkInPrices.student}, couple: ₱${settings.walkInPrices.couple}`,
+      detail: `Walk-in prices updated — regular: ₱${settings.walkInPrices.regular}, student: ₱${settings.walkInPrices.student}, couple: ₱${settings.walkInPrices.couple}${closingTime ? ` · closing time: ${closingTime}` : ""}`,
     });
 
     return res.status(200).json({
       success: true,
       message: "Walk-in prices updated.",
       walkInPrices: settings.walkInPrices,
+      closingTime: settings.closingTime ?? "22:00",
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

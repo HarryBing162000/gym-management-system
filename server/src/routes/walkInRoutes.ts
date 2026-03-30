@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { runAutoCheckout } from "../utils/autoCheckout";
 import {
   registerWalkIn,
   checkOutWalkIn,
@@ -47,5 +48,28 @@ router.get(
 
 // Public kiosk self-checkout
 router.post("/kiosk-checkout", validate(walkInCheckOutSchema), kioskCheckOut);
+
+// Owner-only manual trigger — runs the same logic as the cron job immediately
+// Useful if the owner wants to close early or the cron missed for any reason
+router.post(
+  "/auto-checkout",
+  protect,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const result = await runAutoCheckout();
+      return res.status(200).json({
+        success: true,
+        message:
+          result.checkedOut > 0
+            ? `${result.checkedOut} walk-in${result.checkedOut !== 1 ? "s" : ""} checked out at ${result.closingTime}.`
+            : "No open walk-ins to check out.",
+        ...result,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  },
+);
 
 export default router;

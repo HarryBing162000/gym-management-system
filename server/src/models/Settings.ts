@@ -1,6 +1,6 @@
 /**
  * Settings.ts
- * IronCore GMS — Gym Settings Model
+ *  GMS — Gym Settings Model
  *
  * Stores gym-level configuration that the owner can update at runtime.
  * Uses a singleton pattern — only one settings document ever exists.
@@ -34,6 +34,7 @@ export interface ISettings extends Document {
   logoPublicId?: string;
   plans: IPlan[];
   walkInPrices: IWalkInPrices;
+  closingTime: string; // "HH:mm" 24h format, Manila time — e.g. "22:00"
   updatedAt: Date;
 }
 
@@ -98,6 +99,11 @@ const SettingsSchema = new Schema<ISettings>(
       regular: { type: Number, default: 150, min: 0 },
       student: { type: Number, default: 100, min: 0 },
       couple: { type: Number, default: 250, min: 0 },
+    },
+    closingTime: {
+      type: String,
+      default: "22:00", // 10:00 PM Manila time
+      trim: true,
     },
   },
   { timestamps: true },

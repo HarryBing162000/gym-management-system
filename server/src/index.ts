@@ -14,6 +14,7 @@ import paymentRoutes from "./routes/paymentRoutes";
 import kioskRoutes from "./routes/kioskRoutes";
 import memberRoutes from "./routes/memberRoutes";
 import actionLogsRouter from "./routes/actionLogRoutes";
+import { initAutoCheckoutCron } from "./utils/autoCheckout";
 
 // Security middleware
 import {
@@ -104,6 +105,9 @@ app.listen(PORT, async () => {
       console.log("⚙️  Settings migrated with missing defaults");
     }
   }
+
+  // ── Auto walk-out cron — runs daily at gym closing time ──────────────────
+  await initAutoCheckoutCron();
 
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`🔐 Security layers active`);
