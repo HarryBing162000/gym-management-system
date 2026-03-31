@@ -15,6 +15,10 @@ import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
 import type { WalkIn, WalkInSummary } from "../types";
 
+// ─── Offline cache keys (module level — not hooks) ────────────────────────────
+const CACHE_KEY_TODAY = "gms:walkins-today-cache";
+const CACHE_KEY_HISTORY = "gms:walkins-history-cache";
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTime(iso: string): string {
@@ -370,12 +374,9 @@ function SummaryCards({
 }
 
 // ─── Walk-in Row ──────────────────────────────────────────────────────────────
-// showDate     = true on History tab (shows date column + Status column)
-// showCheckout = true on Today tab AND History tab (owner can check out from both)
-//
 // Grid columns:
 //   Today:   Guest | Pass | Amount | Check-in | Duration | By | Action  (7 cols)
-//   History: Guest | Pass | Amount | Date      | Duration | Status | By | Action (8 cols)
+//   History: Guest | Pass | Amount | Date | Duration | Status | By | Action (8 cols)
 
 function WalkInRow({
   w,
@@ -384,7 +385,7 @@ function WalkInRow({
 }: {
   w: WalkIn;
   showDate?: boolean;
-  onCheckOut?: (walkId: string, date: string) => void; // ← date added
+  onCheckOut?: (walkId: string, date: string) => void;
 }) {
   const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
   const staffName = w.staffId?.name ?? "—";
@@ -504,7 +505,7 @@ function WalkInRow({
         {!w.isCheckedOut ? (
           <button
             onClick={() => onCheckOut?.(w.walkId, w.date)}
-            className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-[#FFB800]/40 hover:text-[#FFB800] rounded-md transition-all cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-[#FFB800] border border-white/10 hover:border-[#FFB800]/40 rounded-md transition-all cursor-pointer whitespace-nowrap"
           >
             Check Out
           </button>
@@ -590,6 +591,9 @@ export default function WalkInsPage() {
   const [activeTab, setActiveTab] = useState<"today" | "history">("today");
   const [showRegisterModal, setShowRegisterModal] = useState(false);
 
+  // ── Offline state ──────────────────────────────────────────────────────────
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   // Today
   const [todayWalkIns, setTodayWalkIns] = useState<WalkIn[]>([]);
   const [todaySummary, setTodaySummary] = useState<WalkInSummary | null>(null);
@@ -649,7 +653,25 @@ export default function WalkInsPage() {
     return params;
   }, [quickFilter, customFrom, customTo, historyPage, historySearch]);
 
+  // ── fetchToday — reads cache when offline, writes cache when online ────────
   const fetchToday = useCallback(async () => {
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY_TODAY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setTodayWalkIns(parsed.walkIns ?? []);
+          setTodaySummary(parsed.summary ?? null);
+          setTodayDate(parsed.date ?? "");
+          setYesterdayRevenue(parsed.yesterdayRevenue ?? null);
+          setYesterdayTotal(parsed.yesterdayTotal ?? null);
+        }
+      } catch {
+        /* ignore */
+      }
+      setTodayLoading(false);
+      return;
+    }
     setTodayLoading(true);
     setTodayError("");
     try {
@@ -662,6 +684,17 @@ export default function WalkInsPage() {
       setTodayDate(todayRes.date);
       setYesterdayRevenue(yestRes.revenue);
       setYesterdayTotal(yestRes.total);
+      // Write cache
+      localStorage.setItem(
+        CACHE_KEY_TODAY,
+        JSON.stringify({
+          walkIns: todayRes.walkIns,
+          summary: todayRes.summary,
+          date: todayRes.date,
+          yesterdayRevenue: yestRes.revenue,
+          yesterdayTotal: yestRes.total,
+        }),
+      );
     } catch {
       setTodayError("Failed to load today's walk-ins.");
     } finally {
@@ -669,7 +702,24 @@ export default function WalkInsPage() {
     }
   }, []);
 
+  // ── fetchHistory — reads cache when offline, writes cache when online ──────
   const fetchHistory = useCallback(async () => {
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY_HISTORY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setHistoryWalkIns(parsed.walkIns ?? []);
+          setHistorySummary(parsed.summary ?? null);
+          setHistoryTotal(parsed.total ?? 0);
+          setHistoryTotalPages(parsed.totalPages ?? 1);
+        }
+      } catch {
+        /* ignore */
+      }
+      setHistoryLoading(false);
+      return;
+    }
     setHistoryLoading(true);
     setHistoryError("");
     try {
@@ -678,12 +728,24 @@ export default function WalkInsPage() {
       setHistorySummary(res.summary);
       setHistoryTotal(res.total);
       setHistoryTotalPages(res.totalPages);
+      // Only cache the default unfiltered week view
+      if (!historySearch) {
+        localStorage.setItem(
+          CACHE_KEY_HISTORY,
+          JSON.stringify({
+            walkIns: res.walkIns,
+            summary: res.summary,
+            total: res.total,
+            totalPages: res.totalPages,
+          }),
+        );
+      }
     } catch {
       setHistoryError("Failed to load history.");
     } finally {
       setHistoryLoading(false);
     }
-  }, [getHistoryParams]);
+  }, [getHistoryParams, historySearch]);
 
   useEffect(() => {
     fetchToday();
@@ -699,6 +761,22 @@ export default function WalkInsPage() {
   useEffect(() => {
     setHistoryPage(1);
   }, [quickFilter, customFrom, customTo, historySearch]);
+
+  // ── Online/offline listener — auto-refresh on reconnect ───────────────────
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => {
+      setIsOffline(false);
+      fetchToday();
+      if (activeTab === "history") fetchHistory();
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, [fetchToday, fetchHistory, activeTab]);
 
   // ── Offline sync-duplicate listener ────────────────────────────────────────
   useEffect(() => {
@@ -718,8 +796,8 @@ export default function WalkInsPage() {
       window.removeEventListener("gms:sync-duplicate", handleSyncDuplicate);
   }, [showToast, fetchToday]);
 
+  // ── handleCheckOut — passes date so history tab checkouts work ────────────
   const handleCheckOut = async (walkId: string, date: string) => {
-    // ← date param
     const walkIn =
       todayWalkIns.find((w) => w.walkId === walkId) ||
       historyWalkIns.find((w) => w.walkId === walkId);
@@ -732,7 +810,6 @@ export default function WalkInsPage() {
           : `${walkId} checked out.`,
         "success",
       );
-      // Refresh whichever tab is active
       if (activeTab === "today") {
         fetchToday();
       } else {
@@ -761,6 +838,22 @@ export default function WalkInsPage() {
       `}</style>
 
       <div className="max-w-7xl mx-auto pb-24 lg:pb-6 space-y-5">
+        {/* ── Offline banner ── */}
+        {isOffline && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-amber-400/10 border border-amber-400/20 rounded-xl">
+            <span className="text-amber-400 text-base shrink-0">⚠</span>
+            <div>
+              <div className="text-amber-400 text-xs font-bold">
+                You're offline
+              </div>
+              <div className="text-amber-400/70 text-[11px]">
+                Showing last cached data. Registering walk-ins still works
+                offline — they'll sync when internet restores.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>

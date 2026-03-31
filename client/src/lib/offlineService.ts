@@ -2,17 +2,17 @@
  * offlineService.ts
  * GMS — Offline-Aware Action Wrappers
  *
- * Wraps the four write actions that must work offline:
+ * Wraps write actions that must work offline:
  *   - Member check-in
  *   - Member check-out
+ *   - Member renew (at-risk panel)
  *   - Walk-in register
  *   - Walk-in checkout
  *
  * Flow:
  *   1. Try the real API call (via existing service)
  *   2. If it fails due to network (not a 4xx error) → enqueue in IndexedDB
- *   3. Update local UI state optimistically
- *   4. Return result so caller behaves the same whether online or offline
+ *   3. Return result so caller behaves the same whether online or offline
  */
 
 import { memberService } from "../services/memberService";
@@ -86,6 +86,47 @@ export const offlineCheckOut = async (
       success: true,
       queued: true,
       message: `${memberName} checked out (offline — will sync when internet restores).`,
+    };
+  }
+};
+
+// ─── Member renew (at-risk panel) ─────────────────────────────────────────────
+// Called from RenewModal in OwnerDashboard.
+// memberService.renew() is just PATCH /members/:gymId — same as update.
+// Queued with full renewal payload so sync fires the right update.
+
+export interface RenewPayload {
+  plan: string;
+  expiresAt: string;
+  paymentMethod: "cash" | "online";
+  amountPaid: number;
+  totalAmount?: number;
+  status: string;
+}
+
+export const offlineRenew = async (
+  gymId: string,
+  memberName: string,
+  payload: RenewPayload,
+): Promise<{ success: boolean; queued: boolean; message: string }> => {
+  try {
+    const res = await memberService.renew(gymId, payload);
+    return { success: true, queued: false, message: res.message };
+  } catch (err) {
+    if (!isNetworkError(err)) throw err;
+
+    await syncManager.enqueue({
+      url: `/members/${gymId}`,
+      method: "PATCH",
+      body: payload as unknown as Record<string, unknown>,
+      label: `Renew: ${memberName} (${gymId}) — ${payload.plan}`,
+      token: getToken(),
+    });
+
+    return {
+      success: true,
+      queued: true,
+      message: `${memberName.split(" ")[0]}'s renewal queued offline — will sync when internet restores.`,
     };
   }
 };
@@ -178,7 +219,7 @@ export const offlineWalkInRegister = async (
 export const offlineWalkInCheckOut = async (
   walkId: string,
   name: string,
-  date?: string, // ← the walk-in's date (YYYY-MM-DD), from w.date on the row
+  date?: string,
 ): Promise<{ success: boolean; queued: boolean; message: string }> => {
   try {
     const res = await walkInService.checkOut(walkId, date);

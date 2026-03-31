@@ -12,6 +12,7 @@ import OwnerLayout from "../layouts/OwnerLayout";
 import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import { memberService } from "../services/memberService";
+import { offlineRenew } from "../lib/offlineService";
 import type { AtRiskMember } from "../services/memberService";
 import { paymentService } from "../services/paymentService";
 import { walkInService } from "../services/walkInService";
@@ -93,7 +94,7 @@ function RenewModal({
     setSaving(true);
     try {
       const planTotal = getPlanPrice(plan);
-      await memberService.renew(member.gymId, {
+      const res = await offlineRenew(member.gymId, member.name, {
         plan,
         expiresAt: calcNewExpiry(plan),
         paymentMethod: method,
@@ -102,7 +103,9 @@ function RenewModal({
         status: "active",
       });
       showToast(
-        `${member.name.split(" ")[0]}'s membership renewed successfully.`,
+        res.queued
+          ? res.message
+          : `${member.name.split(" ")[0]}'s membership renewed successfully.`,
         "success",
       );
       onSuccess();

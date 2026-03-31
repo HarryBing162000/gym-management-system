@@ -7,6 +7,8 @@
  *   3. Settle Balance shortcut shown when member has outstanding balance
  *   4. Member search filters active-only members
  *   5. triggerMemberRefresh() called after renewal so MembersPage updates
+ *   6. Offline read-only mode — caches last fetch in localStorage, shows
+ *      amber banner, disables Log Payment button when offline
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -38,6 +40,10 @@ function formatTime(iso: string): string {
     hour12: true,
   });
 }
+
+// ─── Offline cache keys (module level — not hooks, fine here) ─────────────────
+const CACHE_KEY_PAYMENTS = "gms:payments-cache";
+const CACHE_KEY_SUMMARY = "gms:payments-summary-cache";
 
 const TYPE_LABELS: Record<string, string> = {
   new_member: "New Member",
@@ -224,7 +230,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     );
     const shouldRenew = m.status === "expired" || daysLeft <= 7;
     setRenewExpiry(shouldRenew);
-    // Auto-set payment type based on member status
     if (shouldRenew) setPaymentType("renewal");
     else setPaymentType("manual");
   };
@@ -234,7 +239,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     setAmountPaidInput("");
   };
 
-  // FIX: Extend from member's current expiry if still active, from today if expired
   const getNewExpiry = (plan: string): string => {
     if (!selected) return "";
     const months = getPlanDuration(plan);
@@ -248,7 +252,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     return baseDate.toISOString().split("T")[0];
   };
 
-  // Toggle renewExpiry and sync payment type
   const handleRenewToggle = () => {
     const next = !renewExpiry;
     setRenewExpiry(next);
@@ -256,7 +259,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     else setPaymentType("manual");
   };
 
-  // FIX: Only show active members in search
   useEffect(() => {
     if (!search.trim()) {
       setResults([]);
@@ -268,7 +270,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
         const res = await memberService.getAll({
           search: search.trim(),
           limit: 5,
-          status: "active", // FIX: exclude inactive/expired members
+          status: "active",
         });
         setResults(res.members);
       } catch {
@@ -280,7 +282,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     return () => clearTimeout(id);
   }, [search]);
 
-  // Settle balance shortcut — calls settleBalance endpoint directly
   const handleSettleBalance = async () => {
     if (!selected || !selected.balance) return;
     setErrorMsg("");
@@ -288,7 +289,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     try {
       const res = await paymentService.settle(selected.gymId, method);
       showToast(res.message, "success");
-      triggerMemberRefresh(); // signal MembersPage to refetch
+      triggerMemberRefresh();
       onLogged();
       onClose();
     } catch (e) {
@@ -327,7 +328,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
         renewExpiry: renewExpiry ? true : undefined,
       });
       showToast(res.message, "success");
-      // FIX: Signal MembersPage to refetch so updated expiresAt shows immediately
       if (renewExpiry) triggerMemberRefresh();
       onLogged();
       onClose();
@@ -525,7 +525,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
               )}
             </div>
 
-            {/* FIX: Settle Balance shortcut — shown when member has outstanding balance */}
+            {/* Settle Balance shortcut */}
             {selected && selected.balance > 0 && (
               <div className="px-4 py-3 bg-amber-400/5 border border-amber-400/20 rounded-lg">
                 <div className="flex items-center justify-between gap-3">
@@ -586,7 +586,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
               </div>
             )}
 
-            {/* FIX: Payment type selector */}
+            {/* Payment type selector */}
             {selected && (
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-1.5">
@@ -598,7 +598,6 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       key={opt.value}
                       onClick={() => {
                         setPaymentType(opt.value);
-                        // Auto-toggle renewExpiry when switching to/from renewal
                         if (opt.value === "renewal") setRenewExpiry(true);
                         else setRenewExpiry(false);
                       }}
@@ -812,11 +811,26 @@ export default function PaymentsPage({
   const LIMIT = 10;
   const [showLogModal, setShowLogModal] = useState(false);
 
+  // ── Offline state — inside component, correct placement ───────────────────
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  // ── fetchSummary — reads cache when offline, writes cache when online ──────
   const fetchSummary = useCallback(async () => {
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY_SUMMARY);
+        if (cached) setSummary(JSON.parse(cached));
+      } catch {
+        /* ignore */
+      }
+      setSummaryLoading(false);
+      return;
+    }
     setSummaryLoading(true);
     try {
       const res = await paymentService.getSummary();
       setSummary(res);
+      localStorage.setItem(CACHE_KEY_SUMMARY, JSON.stringify(res));
     } catch {
       showToast("Failed to load payment summary.", "error");
     } finally {
@@ -824,7 +838,24 @@ export default function PaymentsPage({
     }
   }, [showToast]);
 
+  // ── fetchPayments — reads cache when offline, writes cache when online ─────
   const fetchPayments = useCallback(async () => {
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY_PAYMENTS);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setPayments(parsed.payments ?? []);
+          setTotal(parsed.total ?? 0);
+          setTotalPages(parsed.totalPages ?? 1);
+          setGrandTotal(parsed.grandTotal ?? 0);
+        }
+      } catch {
+        /* ignore */
+      }
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -848,6 +879,18 @@ export default function PaymentsPage({
             0,
           ),
       );
+      // Only cache the unfiltered default view so the cache is always useful
+      if (!search && !filterMethod && !filterType && !filterPartial) {
+        localStorage.setItem(
+          CACHE_KEY_PAYMENTS,
+          JSON.stringify({
+            payments: res.payments,
+            total: res.total,
+            totalPages: res.totalPages,
+            grandTotal: res.grandTotal,
+          }),
+        );
+      }
     } catch {
       setError("Failed to load payments.");
     } finally {
@@ -873,10 +916,26 @@ export default function PaymentsPage({
     setPage(1);
   }, [search, filterMethod, filterType, filterPartial, fromDate, toDate]);
 
+  // ── Online/offline listener — update state and auto-refresh on reconnect ───
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => {
+      setIsOffline(false);
+      fetchSummary();
+      fetchPayments();
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, [fetchSummary, fetchPayments]);
+
   const handleLogged = () => {
     fetchSummary();
     fetchPayments();
-    triggerMemberRefresh(); // always signal — safe even if renewal wasn't toggled
+    triggerMemberRefresh();
   };
 
   const hasFilters = isStaff
@@ -947,6 +1006,22 @@ export default function PaymentsPage({
         className="max-w-7xl mx-auto pb-24 lg:pb-6 space-y-5"
         style={{ animation: "fadeIn 0.2s ease" }}
       >
+        {/* ── Offline banner ── */}
+        {isOffline && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-amber-400/10 border border-amber-400/20 rounded-xl">
+            <span className="text-amber-400 text-base shrink-0">⚠</span>
+            <div>
+              <div className="text-amber-400 text-xs font-bold">
+                You're offline
+              </div>
+              <div className="text-amber-400/70 text-[11px]">
+                Showing last cached data. Logging payments requires an internet
+                connection.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -964,12 +1039,21 @@ export default function PaymentsPage({
               ) : null}
             </p>
           </div>
+          {/* ── Log Payment button — disabled when offline ── */}
           <button
-            onClick={() => setShowLogModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all active:scale-95 cursor-pointer"
+            onClick={() => !isOffline && setShowLogModal(true)}
+            disabled={isOffline}
+            title={
+              isOffline ? "Payments require internet connection" : undefined
+            }
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${
+              isOffline
+                ? "bg-white/10 text-white/30 cursor-not-allowed"
+                : "bg-[#FF6B1A] text-black hover:bg-[#ff8a45] cursor-pointer"
+            }`}
           >
             <span className="text-base leading-none">+</span>
-            Log Payment
+            {isOffline ? "Offline" : "Log Payment"}
           </button>
         </div>
 
