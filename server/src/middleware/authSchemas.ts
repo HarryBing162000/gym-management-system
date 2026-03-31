@@ -69,6 +69,7 @@ export const walkInSchema = z.object({
 // ============================================================
 export const walkInCheckOutSchema = z.object({
   walkId: z.string().min(1, "Walk-in ID is required"),
+  date: z.string().optional(), // ← allows history tab checkout with past dates
 });
 
 // ============================================================

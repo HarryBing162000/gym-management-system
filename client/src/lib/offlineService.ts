@@ -13,9 +13,6 @@
  *   2. If it fails due to network (not a 4xx error) → enqueue in IndexedDB
  *   3. Update local UI state optimistically
  *   4. Return result so caller behaves the same whether online or offline
- *
- * The caller (StaffDashboard, WalkInDesk) doesn't need to know whether
- * the action was sent live or queued — it always gets a success response.
  */
 
 import { memberService } from "../services/memberService";
@@ -27,7 +24,6 @@ import { useAuthStore } from "../store/authStore";
 
 function isNetworkError(err: unknown): boolean {
   if (!navigator.onLine) return true;
-  // Axios network errors have no response
   const e = err as { response?: unknown; code?: string };
   if (!e.response && !e.code) return true;
   if (e.code === "ERR_NETWORK" || e.code === "ECONNABORTED") return true;
@@ -48,9 +44,8 @@ export const offlineCheckIn = async (
     const res = await memberService.checkIn(gymId);
     return { success: true, queued: false, message: res.message };
   } catch (err) {
-    if (!isNetworkError(err)) throw err; // real error (403 expired, 400 etc) — rethrow
+    if (!isNetworkError(err)) throw err;
 
-    // Queue for later sync
     await syncManager.enqueue({
       url: `/members/${gymId}/checkin`,
       method: "PATCH",
@@ -106,14 +101,9 @@ export interface WalkInRegisterPayload {
 
 export interface OfflineDuplicateResult {
   isDuplicate: boolean;
-  matchedLabel?: string; // e.g. "Juan Dela Cruz (regular)" — for the warning toast
+  matchedLabel?: string;
 }
 
-/**
- * Check the local IndexedDB queue for a walk-in with the same name or phone
- * registered today. Runs entirely offline — no network call needed.
- * Call this BEFORE offlineWalkInRegister when offline.
- */
 export const checkWalkInDuplicate = async (
   name: string,
   phone?: string,
@@ -182,21 +172,24 @@ export const offlineWalkInRegister = async (
 };
 
 // ─── Walk-in checkout ─────────────────────────────────────────────────────────
+// date is passed through so the backend can find walk-ins from previous days
+// (History tab checkout). Today's checkouts don't need it — backend falls back.
 
 export const offlineWalkInCheckOut = async (
   walkId: string,
   name: string,
+  date?: string, // ← the walk-in's date (YYYY-MM-DD), from w.date on the row
 ): Promise<{ success: boolean; queued: boolean; message: string }> => {
   try {
-    const res = await walkInService.checkOut(walkId);
+    const res = await walkInService.checkOut(walkId, date);
     return { success: true, queued: false, message: res.message };
   } catch (err) {
     if (!isNetworkError(err)) throw err;
 
     await syncManager.enqueue({
       url: "/walkin/checkout",
-      method: "PATCH", // must match backend: PATCH /walkin/checkout
-      body: { walkId }, // walkId in body — matches walkInService.checkOut
+      method: "PATCH",
+      body: { walkId, date },
       label: `Walk-in checkout: ${name} (${walkId})`,
       token: getToken(),
     });

@@ -31,7 +31,6 @@ const getPassAmount = async (
 };
 
 const generateWalkId = async (today: string): Promise<string> => {
-  // Sort by createdAt descending — more reliable than string sort on walkId
   const last = await WalkIn.findOne({ date: today })
     .sort({ createdAt: -1 })
     .select("walkId")
@@ -65,7 +64,6 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
     const today = getTodayDate();
 
     // ── Duplicate check 1: same name registered today ────────────────────────
-    // Catches intentional re-registration of the same guest on the same day.
     const existing = await WalkIn.findOne({
       date: today,
       name: {
@@ -83,9 +81,6 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
     }
 
     // ── Duplicate check 2: 10-second rapid-fire guard ────────────────────────
-    // Catches double-clicks, offline queue re-syncing an already-created entry,
-    // and network retries. Same pattern as the Payment model duplicate guard.
-    // Returns the original walk-in so the client can treat it as success.
     const tenSecondsAgo = new Date(Date.now() - 10_000);
     const recentDuplicate = await WalkIn.findOne({
       staffId: req.user!.id,
@@ -125,10 +120,8 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
         isCheckedOut: false,
       });
     } catch (createErr: unknown) {
-      // MongoDB unique index violation on walkId — two requests raced
       const mongoErr = createErr as { code?: number };
       if (mongoErr.code === 11000) {
-        // Retry once with a fresh walkId
         const retryWalkId = await generateWalkId(today);
         walkIn = await WalkIn.create({
           walkId: retryWalkId,
@@ -178,16 +171,18 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── PATCH /api/walkin/checkout ───────────────────────────────────────────────
+// Accepts optional `date` in body so owners can check out walk-ins from
+// previous days (History tab). Falls back to today if not provided.
 export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;
-    const today = getTodayDate();
+    const date: string = req.body.date ?? getTodayDate(); // ← use provided date or today
 
-    const walkIn = await WalkIn.findOne({ walkId, date: today });
+    const walkIn = await WalkIn.findOne({ walkId, date });
     if (!walkIn)
       return res
         .status(404)
-        .json({ success: false, message: `${walkId} not found for today.` });
+        .json({ success: false, message: `${walkId} not found.` });
     if (walkIn.isCheckedOut)
       return res.status(400).json({
         success: false,
@@ -329,7 +324,6 @@ export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── POST /api/walkin/kiosk-checkout (public) ─────────────────────────────────
-// No logAction here — kiosk is public, no authenticated user
 export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;

@@ -384,7 +384,7 @@ function WalkInRow({
 }: {
   w: WalkIn;
   showDate?: boolean;
-  onCheckOut?: (walkId: string) => void;
+  onCheckOut?: (walkId: string, date: string) => void; // ← date added
 }) {
   const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
   const staffName = w.staffId?.name ?? "—";
@@ -503,7 +503,7 @@ function WalkInRow({
       <div className="flex items-center">
         {!w.isCheckedOut ? (
           <button
-            onClick={() => onCheckOut?.(w.walkId)}
+            onClick={() => onCheckOut?.(w.walkId, w.date)}
             className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-[#FFB800]/40 hover:text-[#FFB800] rounded-md transition-all cursor-pointer whitespace-nowrap"
           >
             Check Out
@@ -718,13 +718,14 @@ export default function WalkInsPage() {
       window.removeEventListener("gms:sync-duplicate", handleSyncDuplicate);
   }, [showToast, fetchToday]);
 
-  const handleCheckOut = async (walkId: string) => {
+  const handleCheckOut = async (walkId: string, date: string) => {
+    // ← date param
     const walkIn =
       todayWalkIns.find((w) => w.walkId === walkId) ||
       historyWalkIns.find((w) => w.walkId === walkId);
     const name = walkIn?.name ?? walkId;
     try {
-      const res = await offlineWalkInCheckOut(walkId, name);
+      const res = await offlineWalkInCheckOut(walkId, name, date);
       showToast(
         res.queued
           ? `${name.split(" ")[0]} checked out offline — will sync when internet restores.`

@@ -12,7 +12,7 @@ interface WalkInHistoryResponse extends WalkInTodayResponse {
 }
 
 export const walkInService = {
-  // Register a walk-in (staff/owner) — now accepts "couple" pass type
+  // Register a walk-in (staff/owner)
   register: async (
     payload: WalkInRegisterPayload,
   ): Promise<WalkInRegisterResponse> => {
@@ -26,13 +26,14 @@ export const walkInService = {
     return res.data;
   },
 
-  // Staff checkout
-  checkOut: async (walkId: string) => {
-    const res = await api.patch("/walkin/checkout", { walkId });
+  // Staff/Owner checkout — pass date so History tab checkouts work for past days.
+  // date is optional: today's checkouts don't need it, history checkouts do.
+  checkOut: async (walkId: string, date?: string) => {
+    const res = await api.patch("/walkin/checkout", { walkId, date });
     return res.data;
   },
 
-  // Get walk-in history (owner only) — by date or last 7 days
+  // Get walk-in history (owner only)
   getHistory: async (
     params?: Record<string, string | number>,
   ): Promise<WalkInHistoryResponse> => {
