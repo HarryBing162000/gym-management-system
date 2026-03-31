@@ -117,7 +117,7 @@ function RegisterModal({
   };
 
   const handleSubmit = async (force = false) => {
-    if (loading) return; // prevent double-submit from rapid clicks or Enter+click
+    if (loading) return;
     setErrorMsg("");
     if (!name.trim() || name.trim().split(" ").length < 2) {
       setErrorMsg("Please enter a full name (first and last).");
@@ -125,7 +125,6 @@ function RegisterModal({
     }
     setLoading(true);
     try {
-      // When offline — check IndexedDB queue for duplicate name/phone first
       if (!navigator.onLine && !force) {
         const dupCheck = await checkWalkInDuplicate(
           name.trim(),
@@ -136,7 +135,6 @@ function RegisterModal({
           setErrorMsg(
             `Possible duplicate: ${dupCheck.matchedLabel}. Click Register again to proceed anyway.`,
           );
-          // Next submit call passes force=true to skip the check
           return;
         }
       }
@@ -159,7 +157,6 @@ function RegisterModal({
       const err = e as {
         response?: { data?: { message?: string }; status?: number };
       };
-      // 409 from server = online duplicate — show the server message directly
       setErrorMsg(
         err.response?.data?.message || "Registration failed. Please try again.",
       );
@@ -373,16 +370,20 @@ function SummaryCards({
 }
 
 // ─── Walk-in Row ──────────────────────────────────────────────────────────────
+// showDate     = true on History tab (shows date column + Status column)
+// showCheckout = true on Today tab AND History tab (owner can check out from both)
+//
+// Grid columns:
+//   Today:   Guest | Pass | Amount | Check-in | Duration | By | Action  (7 cols)
+//   History: Guest | Pass | Amount | Date      | Duration | Status | By | Action (8 cols)
 
 function WalkInRow({
   w,
   showDate = false,
-  showCheckout = false,
   onCheckOut,
 }: {
   w: WalkIn;
   showDate?: boolean;
-  showCheckout?: boolean;
   onCheckOut?: (walkId: string) => void;
 }) {
   const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
@@ -393,8 +394,8 @@ function WalkInRow({
       className="walkin-row grid grid-cols-1 gap-2 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
       style={{
         gridTemplateColumns: showDate
-          ? "1.5fr 1fr 1fr 1fr 1fr 1fr 1fr"
-          : "1.5fr 1fr 1fr 1fr 1fr 1fr auto",
+          ? "1.5fr 1fr 1fr 1fr 1fr 1fr 1fr auto" // History: 8 cols
+          : "1.5fr 1fr 1fr 1fr 1fr 1fr auto", // Today:   7 cols
       }}
     >
       {/* Guest */}
@@ -421,6 +422,7 @@ function WalkInRow({
           <div className="text-[10px] font-mono text-white/30">{w.walkId}</div>
         </div>
       </div>
+
       {/* Pass */}
       <div className="flex items-center">
         <span
@@ -434,13 +436,15 @@ function WalkInRow({
           {PASS_LABELS[w.passType]}
         </span>
       </div>
+
       {/* Amount */}
       <div className="flex items-center">
         <span className="text-sm font-mono font-semibold text-[#FFB800]">
           ₱{w.amount}
         </span>
       </div>
-      {/* Date or Time */}
+
+      {/* Date (history) or Check-in time (today) */}
       <div className="flex items-center">
         {showDate ? (
           <div>
@@ -457,6 +461,7 @@ function WalkInRow({
           </span>
         )}
       </div>
+
       {/* Duration */}
       <div className="flex items-center">
         {w.isCheckedOut ? (
@@ -473,7 +478,8 @@ function WalkInRow({
           </span>
         )}
       </div>
-      {/* Status (history only) */}
+
+      {/* Status badge — history only */}
       {showDate && (
         <div className="flex items-center">
           {w.isCheckedOut ? (
@@ -487,27 +493,27 @@ function WalkInRow({
           )}
         </div>
       )}
+
       {/* By */}
       <div className="flex items-center">
         <span className="text-xs text-white/40 truncate">{staffName}</span>
       </div>
-      {/* Action (today only) */}
-      {showCheckout && (
-        <div className="flex items-center">
-          {!w.isCheckedOut ? (
-            <button
-              onClick={() => onCheckOut?.(w.walkId)}
-              className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-white/20 rounded-md transition-all cursor-pointer"
-            >
-              Check Out
-            </button>
-          ) : (
-            <span className="text-[10px] text-white/20 font-mono">
-              {w.checkOut ? formatTime(w.checkOut) : "—"}
-            </span>
-          )}
-        </div>
-      )}
+
+      {/* Action — shown on BOTH Today and History */}
+      <div className="flex items-center">
+        {!w.isCheckedOut ? (
+          <button
+            onClick={() => onCheckOut?.(w.walkId)}
+            className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-white border border-white/10 hover:border-[#FFB800]/40 hover:text-[#FFB800] rounded-md transition-all cursor-pointer whitespace-nowrap"
+          >
+            Check Out
+          </button>
+        ) : (
+          <span className="text-[10px] font-semibold text-emerald-400/60 whitespace-nowrap">
+            ✓ Done
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -695,10 +701,6 @@ export default function WalkInsPage() {
   }, [quickFilter, customFrom, customTo, historySearch]);
 
   // ── Offline sync-duplicate listener ────────────────────────────────────────
-  // When the syncManager drains the queue and hits a 409 for a walk-in
-  // (meaning it was already registered while back online), show a friendly
-  // warning toast instead of a silent failure. Mirrors the member duplicate
-  // pattern already in place.
   useEffect(() => {
     const handleSyncDuplicate = (e: Event) => {
       const detail = (e as CustomEvent<{ label?: string; url?: string }>)
@@ -708,7 +710,6 @@ export default function WalkInsPage() {
           `Walk-in already registered on server — no duplicate created. (${detail.label ?? "queued entry"})`,
           "info",
         );
-        // Refresh today's list so the real server entry is shown
         fetchToday();
       }
     };
@@ -718,8 +719,9 @@ export default function WalkInsPage() {
   }, [showToast, fetchToday]);
 
   const handleCheckOut = async (walkId: string) => {
-    // Find the walk-in name for the offline label
-    const walkIn = todayWalkIns.find((w) => w.walkId === walkId);
+    const walkIn =
+      todayWalkIns.find((w) => w.walkId === walkId) ||
+      historyWalkIns.find((w) => w.walkId === walkId);
     const name = walkIn?.name ?? walkId;
     try {
       const res = await offlineWalkInCheckOut(walkId, name);
@@ -729,7 +731,12 @@ export default function WalkInsPage() {
           : `${walkId} checked out.`,
         "success",
       );
-      fetchToday();
+      // Refresh whichever tab is active
+      if (activeTab === "today") {
+        fetchToday();
+      } else {
+        fetchHistory();
+      }
     } catch {
       showToast("Checkout failed. Please try again.", "error");
     }
@@ -824,7 +831,7 @@ export default function WalkInsPage() {
 
             {!todayLoading && !todayError && (
               <>
-                {/* Table */}
+                {/* Today Table */}
                 <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
                   <div
                     className="hidden md:grid gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]"
@@ -839,7 +846,7 @@ export default function WalkInsPage() {
                       "Check-in",
                       "Duration",
                       "By",
-                      "",
+                      "Action",
                     ].map((h) => (
                       <div
                         key={h}
@@ -870,7 +877,6 @@ export default function WalkInsPage() {
                         <WalkInRow
                           key={w._id}
                           w={w}
-                          showCheckout
                           onCheckOut={handleCheckOut}
                         />
                       ))
@@ -1007,7 +1013,9 @@ export default function WalkInsPage() {
             <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
               <div
                 className="hidden md:grid gap-4 px-5 py-3 border-b border-white/10 bg-white/[0.02]"
-                style={{ gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr 1fr 1fr" }}
+                style={{
+                  gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr 1fr 1fr auto",
+                }}
               >
                 {[
                   "Guest",
@@ -1017,6 +1025,7 @@ export default function WalkInsPage() {
                   "Duration",
                   "Status",
                   "By",
+                  "Action",
                 ].map((h) => (
                   <div
                     key={h}
@@ -1077,7 +1086,12 @@ export default function WalkInsPage() {
               {!historyLoading &&
                 !historyError &&
                 historyWalkIns.map((w) => (
-                  <WalkInRow key={w._id} w={w} showDate />
+                  <WalkInRow
+                    key={w._id}
+                    w={w}
+                    showDate
+                    onCheckOut={handleCheckOut}
+                  />
                 ))}
 
               {!historyLoading &&

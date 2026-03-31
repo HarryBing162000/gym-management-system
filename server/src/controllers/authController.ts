@@ -17,7 +17,62 @@ import {
   UpdateGymInput,
 } from "../middleware/authSchemas";
 
-// name is now included in the JWT payload
+// ─── Login rate limiter ───────────────────────────────────────────────────────
+// Per-account in-memory store. Keyed by "role:identifier".
+// 5 failed attempts → 15-minute lockout on THAT account only.
+// Other accounts are completely unaffected until they hit 5 wrong attempts too.
+// Resets automatically after the lockout window expires, or on successful login.
+
+const MAX_ATTEMPTS = 5;
+const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+interface LockEntry {
+  attempts: number;
+  lockedUntil: number | null; // epoch ms, null = not locked
+}
+
+const loginAttempts = new Map<string, LockEntry>();
+
+function getLockEntry(key: string): LockEntry {
+  if (!loginAttempts.has(key)) {
+    loginAttempts.set(key, { attempts: 0, lockedUntil: null });
+  }
+  return loginAttempts.get(key)!;
+}
+
+function checkLocked(key: string): { locked: boolean; minutesLeft: number } {
+  const entry = getLockEntry(key);
+  if (entry.lockedUntil === null) return { locked: false, minutesLeft: 0 };
+  const remaining = entry.lockedUntil - Date.now();
+  if (remaining <= 0) {
+    // Lock expired — auto-clear
+    entry.attempts = 0;
+    entry.lockedUntil = null;
+    return { locked: false, minutesLeft: 0 };
+  }
+  return { locked: true, minutesLeft: Math.ceil(remaining / 60000) };
+}
+
+function recordFailure(key: string): LockEntry {
+  const entry = getLockEntry(key);
+  // If a previous lock has expired, reset before recording
+  if (entry.lockedUntil !== null && Date.now() > entry.lockedUntil) {
+    entry.attempts = 0;
+    entry.lockedUntil = null;
+  }
+  entry.attempts += 1;
+  if (entry.attempts >= MAX_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOCK_DURATION_MS;
+  }
+  return entry;
+}
+
+function clearLock(key: string): void {
+  loginAttempts.delete(key);
+}
+
+// ─── Token generator ──────────────────────────────────────────────────────────
+
 const generateToken = (
   id: string,
   role: "owner" | "staff",
@@ -77,7 +132,7 @@ export const registerStaff = async (req: AuthRequest, res: Response) => {
       username,
       password,
       role: "staff",
-      ownerId: req.user!.id, // ← links this staff to their owner's gym
+      ownerId: req.user!.id, // links staff to their owner's gym
     });
     const token = generateToken(user._id.toString(), user.role, user.name);
 
@@ -101,11 +156,22 @@ export const registerStaff = async (req: AuthRequest, res: Response) => {
 export const loginOwner = async (req: Request, res: Response) => {
   try {
     const { email, password }: LoginOwnerInput = req.body;
+    const lockKey = `owner:${email.toLowerCase().trim()}`;
+
+    // ── Check lockout ─────────────────────────────────────────────────────────
+    const lockStatus = checkLocked(lockKey);
+    if (lockStatus.locked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed attempts. This account is locked for ${lockStatus.minutesLeft} more minute${lockStatus.minutesLeft !== 1 ? "s" : ""}.`,
+      });
+    }
 
     const user = await User.findOne({ email, role: "owner" }).select(
       "+password",
     );
     if (!user) {
+      recordFailure(lockKey);
       return res
         .status(401)
         .json({ success: false, message: "Invalid email or password" });
@@ -113,9 +179,20 @@ export const loginOwner = async (req: Request, res: Response) => {
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid email or password" });
+      const entry = recordFailure(lockKey);
+      const attemptsLeft = MAX_ATTEMPTS - entry.attempts;
+
+      if (entry.lockedUntil !== null) {
+        return res.status(429).json({
+          success: false,
+          message: `Too many failed attempts. This account is locked for 15 minutes.`,
+        });
+      }
+
+      return res.status(401).json({
+        success: false,
+        message: `Invalid email or password. ${attemptsLeft} attempt${attemptsLeft !== 1 ? "s" : ""} remaining before lockout.`,
+      });
     }
 
     if (!user.isActive) {
@@ -124,6 +201,9 @@ export const loginOwner = async (req: Request, res: Response) => {
         message: "Account deactivated. Contact support.",
       });
     }
+
+    // ── Success — clear any failed attempts ───────────────────────────────────
+    clearLock(lockKey);
 
     const token = generateToken(user._id.toString(), user.role, user.name);
 
@@ -157,6 +237,16 @@ export const loginOwner = async (req: Request, res: Response) => {
 export const loginStaff = async (req: Request, res: Response) => {
   try {
     const { username, password }: LoginStaffInput = req.body;
+    const lockKey = `staff:${username.toLowerCase().trim()}`;
+
+    // ── Check lockout ─────────────────────────────────────────────────────────
+    const lockStatus = checkLocked(lockKey);
+    if (lockStatus.locked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed attempts. This account is locked for ${lockStatus.minutesLeft} more minute${lockStatus.minutesLeft !== 1 ? "s" : ""}.`,
+      });
+    }
 
     const user = await User.findOne({
       username: username.toLowerCase(),
@@ -164,6 +254,7 @@ export const loginStaff = async (req: Request, res: Response) => {
     }).select("+password");
 
     if (!user) {
+      recordFailure(lockKey);
       return res
         .status(401)
         .json({ success: false, message: "Invalid username or password" });
@@ -171,9 +262,20 @@ export const loginStaff = async (req: Request, res: Response) => {
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid username or password" });
+      const entry = recordFailure(lockKey);
+      const attemptsLeft = MAX_ATTEMPTS - entry.attempts;
+
+      if (entry.lockedUntil !== null) {
+        return res.status(429).json({
+          success: false,
+          message: `Too many failed attempts. This account is locked for 15 minutes.`,
+        });
+      }
+
+      return res.status(401).json({
+        success: false,
+        message: `Invalid username or password. ${attemptsLeft} attempt${attemptsLeft !== 1 ? "s" : ""} remaining before lockout.`,
+      });
     }
 
     if (!user.isActive) {
@@ -182,6 +284,9 @@ export const loginStaff = async (req: Request, res: Response) => {
         message: "Account deactivated. Contact the owner.",
       });
     }
+
+    // ── Success — clear any failed attempts ───────────────────────────────────
+    clearLock(lockKey);
 
     const token = generateToken(user._id.toString(), user.role, user.name);
 
@@ -401,7 +506,7 @@ export const updateGym = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Gym info updated â€" name: "${gymName}", address: "${gymAddress}"`,
+      detail: `Gym info updated — name: "${gymName}", address: "${gymAddress}"`,
     });
 
     return res.status(200).json({
@@ -598,7 +703,7 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Plan "${name.trim()}" added â€" â‚±${price} / ${durationMonths} month(s)`,
+      detail: `Plan "${name.trim()}" added — ₱${price} / ${durationMonths} month(s)`,
     });
 
     return res.status(201).json({
@@ -746,7 +851,6 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       settings.walkInPrices.student = student;
     if (couple != null && couple >= 0) settings.walkInPrices.couple = couple;
 
-    // Save closing time â€" validate HH:mm format
     if (closingTime && /^\d{2}:\d{2}$/.test(closingTime)) {
       settings.closingTime = closingTime;
     }
@@ -760,7 +864,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
         name: req.user!.name,
         role: req.user!.role,
       },
-      detail: `Walk-in prices updated â€" regular: â‚±${settings.walkInPrices.regular}, student: â‚±${settings.walkInPrices.student}, couple: â‚±${settings.walkInPrices.couple}${closingTime ? ` Â· closing time: ${closingTime}` : ""}`,
+      detail: `Walk-in prices updated — regular: ₱${settings.walkInPrices.regular}, student: ₱${settings.walkInPrices.student}, couple: ₱${settings.walkInPrices.couple}${closingTime ? ` · closing time: ${closingTime}` : ""}`,
     });
 
     return res.status(200).json({
@@ -774,9 +878,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// =================== SET PASSWORD (owner first-time, from invite email) ===================
-// Owner lands on /set-password?token=... after Super Admin creates their account.
-// Token was signed with JWT_SECRET + purpose: set_password (24h expiry).
+// =================== SET PASSWORD ===================
 export const setPassword = async (req: Request, res: Response) => {
   try {
     const { token, password } = req.body as { token: string; password: string };
@@ -830,7 +932,6 @@ export const setPassword = async (req: Request, res: Response) => {
     user.isVerified = true;
     await user.save();
 
-    // Auto-login after setting password â€" return a token so they land on dashboard
     const authToken = jwt.sign(
       { id: user._id.toString(), role: user.role, name: user.name },
       process.env.JWT_SECRET as string,
@@ -864,8 +965,6 @@ export const setPassword = async (req: Request, res: Response) => {
 };
 
 // =================== FORGOT PASSWORD ===================
-// Owner submits their email. If found, send a reset link.
-// Always returns 200 even if email not found â€" prevents email enumeration.
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
     const { email } = req.body as { email: string };
@@ -881,7 +980,6 @@ export const forgotPassword = async (req: Request, res: Response) => {
       role: "owner",
     });
 
-    // Always return the same message â€" never reveal if email exists
     const genericMessage =
       "If that email is registered, you will receive a reset link shortly.";
 
@@ -908,9 +1006,6 @@ export const forgotPassword = async (req: Request, res: Response) => {
 };
 
 // =================== RESET PASSWORD ===================
-// Owner lands on /reset-password?token=... from the forgot-password email.
-// Same handler as setPassword â€" reuses the same token purpose logic.
 export const resetPassword = async (req: Request, res: Response) => {
-  // Delegates entirely to setPassword â€" token purpose covers both cases
   return setPassword(req, res);
 };
