@@ -45,9 +45,9 @@ function calcDuration(checkIn: string, checkOut?: string): string {
     m = mins % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
-function getWeekRange(): { from: string; to: string } {
+function getWeekRange(timezone: string): { from: string; to: string } {
   const fmt = (d: Date) =>
-    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(d);
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(d);
   const now = new Date();
   const mon = new Date(now);
   mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
@@ -55,9 +55,9 @@ function getWeekRange(): { from: string; to: string } {
   sun.setDate(mon.getDate() + 6);
   return { from: fmt(mon), to: fmt(sun) };
 }
-function getMonthRange(): { from: string; to: string } {
+function getMonthRange(timezone: string): { from: string; to: string } {
   const fmt = (d: Date) =>
-    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(d);
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(d);
   const now = new Date();
   return {
     from: fmt(new Date(now.getFullYear(), now.getMonth(), 1)),
@@ -588,6 +588,8 @@ type QuickFilter = "week" | "month" | "custom";
 
 export default function WalkInsPage() {
   const { showToast } = useToastStore();
+  const { getTimezone } = useGymStore();
+  const timezone = getTimezone();
   const [activeTab, setActiveTab] = useState<"today" | "history">("today");
   const [showRegisterModal, setShowRegisterModal] = useState(false);
 
@@ -639,11 +641,11 @@ export default function WalkInsPage() {
     };
     if (historySearch.trim()) params.search = historySearch.trim();
     if (quickFilter === "week") {
-      const { from, to } = getWeekRange();
+      const { from, to } = getWeekRange(timezone);
       params.from = from;
       params.to = to;
     } else if (quickFilter === "month") {
-      const { from, to } = getMonthRange();
+      const { from, to } = getMonthRange(timezone);
       params.from = from;
       params.to = to;
     } else {
@@ -822,9 +824,8 @@ export default function WalkInsPage() {
 
   const todayIsToday =
     todayDate ===
-    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
-      new Date(),
-    );
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+
   const todayTotalPages = Math.ceil(todayWalkIns.length / TODAY_LIMIT);
 
   // ── Render ─────────────────────────────────────────────────────────────────

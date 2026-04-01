@@ -543,6 +543,7 @@ export const getGymInfo = async (_req: Request, res: Response) => {
               couple: 250,
             },
             closingTime: settings.closingTime ?? "22:00",
+            timezone: settings.timezone ?? "Asia/Manila", // ← ADD
           }
         : {
             gymName: process.env.GYM_NAME || "Gym",
@@ -551,6 +552,7 @@ export const getGymInfo = async (_req: Request, res: Response) => {
             plans: [],
             walkInPrices: { regular: 150, student: 100, couple: 250 },
             closingTime: "22:00",
+            timezone: "Asia/Manila", // ← ADD
           },
     });
   } catch (err: any) {
@@ -832,11 +834,12 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
 // =================== WALK-IN PRICES + CLOSING TIME ===================
 export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
   try {
-    const { regular, student, couple, closingTime } = req.body as {
+    const { regular, student, couple, closingTime, timezone } = req.body as {
       regular?: number;
       student?: number;
       couple?: number;
       closingTime?: string;
+      timezone?: string; // ← ADD
     };
 
     const settings = await Settings.findOne({});
@@ -854,7 +857,9 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
     if (closingTime && /^\d{2}:\d{2}$/.test(closingTime)) {
       settings.closingTime = closingTime;
     }
-
+    if (timezone && timezone.trim().length > 0) {
+      settings.timezone = timezone.trim();
+    }
     await settings.save();
 
     await logAction({
@@ -872,6 +877,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       message: "Walk-in prices updated.",
       walkInPrices: settings.walkInPrices,
       closingTime: settings.closingTime ?? "22:00",
+      timezone: settings.timezone ?? "Asia/Manila", // ← ADD
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

@@ -6,8 +6,7 @@
  * Plans are the SINGLE SOURCE OF TRUTH for pricing across the entire frontend.
  * No auth required — gym-info is a public endpoint.
  *
- * Added: lastMemberUpdate + triggerMemberRefresh
- * Used to signal MembersPage to refetch after a payment renewal updates expiresAt.
+ * Added: timezone field — replaces all hardcoded Asia/Manila in the frontend.
  */
 
 import { create } from "zustand";
@@ -33,7 +32,8 @@ interface GymSettings {
   logoUrl: string | null;
   plans: GymPlan[];
   walkInPrices: WalkInPrices;
-  closingTime: string; // "HH:mm" 24h format, Manila time — e.g. "22:00"
+  closingTime: string; // "HH:mm" 24h format
+  timezone: string; // IANA timezone string e.g. "Asia/Manila"
 }
 
 interface GymStore {
@@ -41,7 +41,7 @@ interface GymStore {
   isLoading: boolean;
   hasFetched: boolean;
 
-  // Member refresh signal — incremented whenever a payment renewal updates a member
+  // Member refresh signal
   lastMemberUpdate: number;
   triggerMemberRefresh: () => void;
 
@@ -51,6 +51,8 @@ interface GymStore {
   setLogoUrl: (logoUrl: string | null) => void;
   setPlans: (plans: GymPlan[]) => void;
   setWalkInPrices: (prices: WalkInPrices) => void;
+  setClosingTime: (closingTime: string) => void;
+  setTimezone: (timezone: string) => void;
 
   // Plan helpers
   getActivePlans: () => GymPlan[];
@@ -60,8 +62,8 @@ interface GymStore {
   // Walk-in price helper
   getWalkInPrice: (passType: "regular" | "student" | "couple") => number;
 
-  // Closing time helper
-  setClosingTime: (closingTime: string) => void;
+  // Timezone helper — use this everywhere instead of hardcoding "Asia/Manila"
+  getTimezone: () => string;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL
@@ -73,7 +75,6 @@ export const useGymStore = create<GymStore>((set, get) => ({
   isLoading: false,
   hasFetched: false,
 
-  // Starts at 0 — MembersPage watches this and refetches when it changes
   lastMemberUpdate: 0,
   triggerMemberRefresh: () => set({ lastMemberUpdate: Date.now() }),
 
@@ -96,6 +97,7 @@ export const useGymStore = create<GymStore>((set, get) => ({
               couple: 250,
             },
             closingTime: data.settings.closingTime ?? "22:00",
+            timezone: data.settings.timezone ?? "Asia/Manila",
           },
           hasFetched: true,
         });
@@ -131,6 +133,12 @@ export const useGymStore = create<GymStore>((set, get) => ({
     }));
   },
 
+  setTimezone: (timezone) => {
+    set((state) => ({
+      settings: state.settings ? { ...state.settings, timezone } : null,
+    }));
+  },
+
   getActivePlans: () => {
     return get().settings?.plans?.filter((p) => p.isActive) ?? [];
   },
@@ -163,5 +171,11 @@ export const useGymStore = create<GymStore>((set, get) => ({
       prices?.[passType] ??
       { regular: 150, student: 100, couple: 250 }[passType]
     );
+  },
+
+  // Returns the gym's configured timezone, defaulting to Asia/Manila.
+  // Use this everywhere instead of hardcoding the timezone string.
+  getTimezone: () => {
+    return get().settings?.timezone ?? "Asia/Manila";
   },
 }));

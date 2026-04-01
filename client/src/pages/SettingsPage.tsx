@@ -5,7 +5,7 @@
  * Sections:
  *   1. Gym Info         — name, address, logo
  *   2. Membership Plans — dynamic plans (add/edit/deactivate/delete)
- *   3. Walk-in Prices   — day pass pricing
+ *   3. Walk-in Prices   — day pass pricing + closing time + timezone
  *   4. Account          — change password
  */
 
@@ -14,6 +14,69 @@ import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
 import PlansManager from "./PlansManager";
 import api from "../services/api";
+
+// ─── Common IANA timezones for gym use ────────────────────────────────────────
+const TIMEZONE_OPTIONS = [
+  // Asia
+  { value: "Asia/Manila", label: "Asia/Manila — Philippines (UTC+8)" },
+  { value: "Asia/Singapore", label: "Asia/Singapore (UTC+8)" },
+  { value: "Asia/Kuala_Lumpur", label: "Asia/Kuala_Lumpur — Malaysia (UTC+8)" },
+  { value: "Asia/Jakarta", label: "Asia/Jakarta — Indonesia (UTC+7)" },
+  { value: "Asia/Bangkok", label: "Asia/Bangkok — Thailand (UTC+7)" },
+  { value: "Asia/Hong_Kong", label: "Asia/Hong_Kong (UTC+8)" },
+  { value: "Asia/Tokyo", label: "Asia/Tokyo — Japan (UTC+9)" },
+  { value: "Asia/Seoul", label: "Asia/Seoul — Korea (UTC+9)" },
+  { value: "Asia/Dubai", label: "Asia/Dubai — UAE (UTC+4)" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata — India (UTC+5:30)" },
+  // Pacific
+  {
+    value: "Pacific/Auckland",
+    label: "Pacific/Auckland — New Zealand (UTC+12/13)",
+  },
+  { value: "Pacific/Honolulu", label: "Pacific/Honolulu — Hawaii (UTC-10)" },
+  // Australia
+  { value: "Australia/Sydney", label: "Australia/Sydney (UTC+10/11)" },
+  { value: "Australia/Melbourne", label: "Australia/Melbourne (UTC+10/11)" },
+  { value: "Australia/Perth", label: "Australia/Perth (UTC+8)" },
+  // Americas
+  {
+    value: "America/New_York",
+    label: "America/New_York — US Eastern (UTC-5/4)",
+  },
+  { value: "America/Chicago", label: "America/Chicago — US Central (UTC-6/5)" },
+  { value: "America/Denver", label: "America/Denver — US Mountain (UTC-7/6)" },
+  {
+    value: "America/Los_Angeles",
+    label: "America/Los_Angeles — US Pacific (UTC-8/7)",
+  },
+  {
+    value: "America/Toronto",
+    label: "America/Toronto — Canada Eastern (UTC-5/4)",
+  },
+  {
+    value: "America/Vancouver",
+    label: "America/Vancouver — Canada Pacific (UTC-8/7)",
+  },
+  { value: "America/Sao_Paulo", label: "America/Sao_Paulo — Brazil (UTC-3)" },
+  { value: "America/Mexico_City", label: "America/Mexico_City (UTC-6/5)" },
+  // Europe
+  { value: "Europe/London", label: "Europe/London — UK (UTC+0/1)" },
+  { value: "Europe/Paris", label: "Europe/Paris — France (UTC+1/2)" },
+  { value: "Europe/Berlin", label: "Europe/Berlin — Germany (UTC+1/2)" },
+  { value: "Europe/Madrid", label: "Europe/Madrid — Spain (UTC+1/2)" },
+  { value: "Europe/Rome", label: "Europe/Rome — Italy (UTC+1/2)" },
+  { value: "Europe/Amsterdam", label: "Europe/Amsterdam (UTC+1/2)" },
+  { value: "Europe/Moscow", label: "Europe/Moscow — Russia (UTC+3)" },
+  // Africa
+  {
+    value: "Africa/Johannesburg",
+    label: "Africa/Johannesburg — South Africa (UTC+2)",
+  },
+  { value: "Africa/Lagos", label: "Africa/Lagos — Nigeria (UTC+1)" },
+  { value: "Africa/Cairo", label: "Africa/Cairo — Egypt (UTC+2)" },
+  // UTC
+  { value: "UTC", label: "UTC — Coordinated Universal Time (UTC+0)" },
+];
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
 function Section({
@@ -271,6 +334,7 @@ function WalkInPricesSection() {
     settings,
     setWalkInPrices,
     setClosingTime: setStoreClosingTime,
+    setTimezone: setStoreTimezone,
   } = useGymStore();
 
   const [regular, setRegular] = useState(
@@ -285,6 +349,7 @@ function WalkInPricesSection() {
   const [closingTime, setClosingTime] = useState(
     settings?.closingTime ?? "22:00",
   );
+  const [timezone, setTimezone] = useState(settings?.timezone ?? "Asia/Manila");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -293,10 +358,9 @@ function WalkInPricesSection() {
       setStudent(String(settings.walkInPrices.student));
       setCouple(String(settings.walkInPrices.couple));
     }
-    if (settings?.closingTime) {
-      setClosingTime(settings.closingTime);
-    }
-  }, [settings?.walkInPrices, settings?.closingTime]);
+    if (settings?.closingTime) setClosingTime(settings.closingTime);
+    if (settings?.timezone) setTimezone(settings.timezone);
+  }, [settings?.walkInPrices, settings?.closingTime, settings?.timezone]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -306,9 +370,11 @@ function WalkInPricesSection() {
         student: Number(student),
         couple: Number(couple),
         closingTime: closingTime.trim() || "22:00",
+        timezone: timezone.trim() || "Asia/Manila",
       });
       setWalkInPrices(res.data.walkInPrices);
       if (res.data.closingTime) setStoreClosingTime(res.data.closingTime);
+      if (res.data.timezone) setStoreTimezone(res.data.timezone);
       showToast(res.data.message, "success");
     } catch (err: any) {
       showToast(
@@ -364,7 +430,7 @@ function WalkInPricesSection() {
               </div>
               <div className="text-[11px] text-white/30">
                 Walk-ins still inside will be automatically checked out at this
-                time daily (Manila time).
+                time daily.
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -387,9 +453,38 @@ function WalkInPricesSection() {
           </div>
         </div>
 
+        {/* Timezone */}
+        <div className="border-t border-white/[0.06] pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-white mb-0.5">
+                Timezone
+              </div>
+              <div className="text-[11px] text-white/30">
+                Used for date calculations, closing time, and all reports.
+                Change this if your gym is not in the Philippines.
+              </div>
+            </div>
+            <div className="shrink-0 min-w-0">
+              <select
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className="bg-[#2a2a2a] border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#FF6B1A]/50 transition-colors cursor-pointer max-w-xs w-full"
+                style={{ colorScheme: "dark" }}
+              >
+                {TIMEZONE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div className="flex justify-end">
           <button onClick={handleSave} disabled={saving} className={btnPrimary}>
-            {saving ? "Saving..." : "Save Walk-in Prices"}
+            {saving ? "Saving..." : "Save Walk-in Settings"}
           </button>
         </div>
       </div>
@@ -438,7 +533,6 @@ function AccountSection() {
   return (
     <Section title="Account" subtitle="Change your account password">
       <div className="space-y-6">
-        {/* Change Password */}
         <div className="space-y-3">
           <div className="text-xs font-semibold text-white/30 uppercase tracking-widest">
             Change Password
@@ -489,7 +583,6 @@ function AccountSection() {
 export default function SettingsPage() {
   return (
     <div className="max-w-3xl mx-auto pb-24 lg:pb-6 space-y-5">
-      {/* Header */}
       <div>
         <h2 className="text-lg font-bold text-white">Settings</h2>
         <p className="text-xs text-white/30 mt-0.5">
@@ -499,7 +592,6 @@ export default function SettingsPage() {
 
       <GymInfoSection />
 
-      {/* Membership Plans */}
       <Section
         title="Membership Plans"
         subtitle="Add, edit, or deactivate plans — changes apply everywhere immediately"

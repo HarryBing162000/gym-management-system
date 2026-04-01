@@ -34,7 +34,8 @@ export interface ISettings extends Document {
   logoPublicId?: string;
   plans: IPlan[];
   walkInPrices: IWalkInPrices;
-  closingTime: string; // "HH:mm" 24h format, Manila time — e.g. "22:00"
+  closingTime: string; // "HH:mm" 24h format — e.g. "22:00"
+  timezone: string; // IANA timezone — e.g. "Asia/Manila"
   updatedAt: Date;
 }
 
@@ -102,7 +103,14 @@ const SettingsSchema = new Schema<ISettings>(
     },
     closingTime: {
       type: String,
-      default: "22:00", // 10:00 PM Manila time
+      default: "22:00",
+      trim: true,
+    },
+    // IANA timezone string — replaces all Asia/Manila hardcodes.
+    // Existing gyms get "Asia/Manila" as default via migration or schema default.
+    timezone: {
+      type: String,
+      default: "Asia/Manila",
       trim: true,
     },
   },

@@ -782,7 +782,8 @@ export default function PaymentsPage({
   forceStaffView = false,
 }: PaymentsPageProps = {}) {
   const { showToast } = useToastStore();
-  const { triggerMemberRefresh } = useGymStore();
+  const { triggerMemberRefresh, getTimezone } = useGymStore();
+  const timezone = getTimezone();
   const isStaff = forceStaffView;
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
@@ -795,7 +796,7 @@ export default function PaymentsPage({
   const [error, setError] = useState("");
 
   const todayManila = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
+    timeZone: timezone,
   }).format(new Date());
 
   const [search, setSearch] = useState("");
@@ -964,9 +965,7 @@ export default function PaymentsPage({
   const getManilaDate = (offsetDays = 0) => {
     const d = new Date();
     d.setDate(d.getDate() - offsetDays);
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
-      d,
-    );
+    return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(d);
   };
 
   const DATE_RANGES = {
@@ -983,8 +982,9 @@ export default function PaymentsPage({
     })(),
     "This Month": {
       from: new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Manila",
+        timeZone: timezone,
       }).format(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+
       to: getManilaDate(),
     },
   };

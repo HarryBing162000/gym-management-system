@@ -2,26 +2,20 @@
  * autoCheckout.ts
  * GMS — Auto Walk-out Cron Job
  *
- * Runs daily at the gym's configured closing time (Asia/Manila).
- * Finds all walk-ins that are still checked in for today and
- * marks them as checked out with checkOut = closing time.
+ * Runs daily at the gym's configured closing time.
+ * Timezone is read from Settings.timezone (no more hardcoded Asia/Manila).
  *
  * Setup: call initAutoCheckoutCron() once in server.ts after DB connects.
- *
- * Cron schedule is rebuilt every time it runs so if the owner changes
- * the closing time in Settings, it takes effect the next day automatically.
  */
 
-import cron, { ScheduledTask } from "node-cron"; // ← named type import fixes TS2503
+import cron, { ScheduledTask } from "node-cron";
 import WalkIn from "../models/WalkIn";
 import Settings from "../models/Settings";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const getTodayManila = (): string =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
-    new Date(),
-  );
+const getTodayInTz = (timezone: string): string =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
 
 /**
  * Parse "HH:mm" into { hour, minute } for cron schedule.
@@ -44,20 +38,34 @@ const parseClosingTime = (time?: string): { hour: number; minute: number } => {
 export const runAutoCheckout = async (): Promise<{
   checkedOut: number;
   closingTime: string;
+  timezone: string;
 }> => {
-  const today = getTodayManila();
+  // Read both closingTime and timezone from Settings
+  const settings = await Settings.findOne({})
+    .select("closingTime timezone")
+    .lean();
 
-  // Get closing time from Settings
-  const settings = await Settings.findOne({}).select("closingTime").lean();
   const closingTimeStr =
     (settings?.closingTime as string | undefined) ?? "22:00";
+  const timezone = (settings?.timezone as string | undefined) ?? "Asia/Manila";
+
+  const today = getTodayInTz(timezone);
   const { hour, minute } = parseClosingTime(closingTimeStr);
 
-  // Build closing time Date in Manila timezone
-  // We create it as UTC then adjust — Manila is UTC+8
+  // Build closing time Date in the gym's timezone
+  // We create it as local time then shift to UTC for storage.
+  // For a robust approach, use Intl to get the UTC offset for the timezone.
   const now = new Date();
-  const manilaOffset = 8 * 60; // minutes
-  const localOffset = now.getTimezoneOffset(); // minutes (negative for UTC+)
+
+  // Get the UTC offset for the gym's timezone at this moment (in minutes)
+  const tzOffset = (() => {
+    const tzDate = new Date(
+      new Date().toLocaleString("en-US", { timeZone: timezone }),
+    );
+    return Math.round((now.getTime() - tzDate.getTime()) / 60000);
+  })();
+
+  const localOffset = now.getTimezoneOffset(); // server's local offset
   const closingDate = new Date(
     now.getFullYear(),
     now.getMonth(),
@@ -67,8 +75,8 @@ export const runAutoCheckout = async (): Promise<{
     0,
     0,
   );
-  // Shift from Manila time to UTC for storage
-  closingDate.setMinutes(closingDate.getMinutes() - manilaOffset - localOffset);
+  // Shift: remove server local offset, add gym timezone offset to get UTC
+  closingDate.setMinutes(closingDate.getMinutes() + localOffset + tzOffset);
 
   // Find all walk-ins still inside today
   const result = await WalkIn.updateMany(
@@ -85,46 +93,44 @@ export const runAutoCheckout = async (): Promise<{
 
   if (checkedOut > 0) {
     console.log(
-      `[autoCheckout] ${today} — checked out ${checkedOut} walk-in(s) at closing time ${closingTimeStr} (Manila)`,
+      `[autoCheckout] ${today} — checked out ${checkedOut} walk-in(s) at ${closingTimeStr} (${timezone})`,
     );
   } else {
     console.log(
-      `[autoCheckout] ${today} — no open walk-ins at closing time ${closingTimeStr}`,
+      `[autoCheckout] ${today} — no open walk-ins at ${closingTimeStr} (${timezone})`,
     );
   }
 
-  return { checkedOut, closingTime: closingTimeStr };
+  return { checkedOut, closingTime: closingTimeStr, timezone };
 };
 
 // ─── Cron job ─────────────────────────────────────────────────────────────────
 
-let _cronTask: ScheduledTask | null = null; // ← was cron.ScheduledTask (invalid namespace usage)
+let _cronTask: ScheduledTask | null = null;
 
 /**
  * Initialize the auto-checkout cron job.
  * Call once in server.ts after MongoDB connects.
  *
- * The cron re-reads Settings on every run, so closing time changes
- * made by the owner take effect automatically the next day.
- *
- * Schedule: reads closing time from DB at startup.
- * Default: 22:00 Manila time = cron "0 22 * * *"
+ * Reads closingTime AND timezone from Settings so both can be changed
+ * at runtime by the owner.
  */
 export const initAutoCheckoutCron = async (): Promise<void> => {
-  // Read current closing time to set initial schedule
-  const settings = await Settings.findOne({}).select("closingTime").lean();
+  const settings = await Settings.findOne({})
+    .select("closingTime timezone")
+    .lean();
+
   const closingTimeStr =
     (settings?.closingTime as string | undefined) ?? "22:00";
-  const { hour, minute } = parseClosingTime(closingTimeStr);
+  const timezone = (settings?.timezone as string | undefined) ?? "Asia/Manila";
 
-  // Cron expression: "minute hour * * *" in Manila timezone
+  const { hour, minute } = parseClosingTime(closingTimeStr);
   const cronExpr = `${minute} ${hour} * * *`;
 
   console.log(
-    `[autoCheckout] Cron initialized — runs at ${closingTimeStr} Manila time (${cronExpr})`,
+    `[autoCheckout] Cron initialized — runs at ${closingTimeStr} (${timezone}) (${cronExpr})`,
   );
 
-  // Stop existing task if server hot-reloads
   if (_cronTask) {
     _cronTask.stop();
   }
@@ -140,7 +146,7 @@ export const initAutoCheckoutCron = async (): Promise<void> => {
       }
     },
     {
-      timezone: "Asia/Manila",
+      timezone, // ← was hardcoded "Asia/Manila", now dynamic
     },
   );
 };
