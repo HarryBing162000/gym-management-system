@@ -54,6 +54,9 @@ function actionLabel(action: string): { label: string; color: string } {
   return map[action] ?? { label: action, color: "text-white/40" };
 }
 
+// ─── Dashboard cache key (module level) ──────────────────────────────────────
+const DASH_CACHE_KEY = "gms:dashboard-cache";
+
 // ─── Renew Modal ──────────────────────────────────────────────────────────────
 function RenewModal({
   member,
@@ -370,6 +373,9 @@ function DashboardContent({
   const [recentActivity, setRecentActivity] = useState<ActionLog[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
 
+  // ── Offline state ──────────────────────────────────────────────────────────
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
@@ -379,26 +385,55 @@ function DashboardContent({
   const firstName = user?.name?.split(" ")[0] || "Owner";
 
   const load = useCallback(async () => {
+    // ── Offline: read from cache and return early ─────────────────────────────
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem(DASH_CACHE_KEY);
+        if (cached) {
+          const d = JSON.parse(cached);
+          if (d.memberStats)
+            setMemberStats({ ...d.memberStats, loading: false });
+          if (d.paymentSummary)
+            setPaymentSummary({ ...d.paymentSummary, loading: false });
+          if (d.walkInToday)
+            setWalkInToday({ ...d.walkInToday, loading: false });
+          if (d.recentCheckins) setRecentCheckins(d.recentCheckins);
+          if (d.atRisk) setAtRisk(d.atRisk);
+          if (d.recentActivity) setRecentActivity(d.recentActivity);
+        }
+      } catch {
+        /* ignore */
+      }
+      setAtRiskLoading(false);
+      setActivityLoading(false);
+      return;
+    }
+
+    // ── Online: fetch fresh data and write cache ───────────────────────────────
+    const cacheData: Record<string, unknown> = {};
+
     try {
       const stats = await memberService.getMemberStats();
-      setMemberStats({
+      const ms = {
         total: stats.total,
         checkedIn: stats.checkedIn,
         expiringSoon: stats.expiringSoon,
         withBalance: stats.withBalance,
-        loading: false,
-      });
+      };
+      setMemberStats({ ...ms, loading: false });
+      cacheData.memberStats = ms;
+
       const checkedInRes = await memberService.getAll({
         checkedIn: "true",
         limit: 50,
       });
-      setRecentCheckins(
-        checkedInRes.members.map((m) => ({
-          id: m.gymId,
-          name: m.name,
-          gymId: m.gymId,
-        })),
-      );
+      const rc = checkedInRes.members.map((m) => ({
+        id: m.gymId,
+        name: m.name,
+        gymId: m.gymId,
+      }));
+      setRecentCheckins(rc);
+      cacheData.recentCheckins = rc;
     } catch {
       setMemberStats((s) => ({ ...s, loading: false }));
     }
@@ -406,6 +441,7 @@ function DashboardContent({
     try {
       const res = await memberService.getAtRiskMembers();
       setAtRisk(res.atRisk);
+      cacheData.atRisk = res.atRisk;
     } catch {
       setAtRisk([]);
     } finally {
@@ -414,24 +450,26 @@ function DashboardContent({
 
     try {
       const summary = await paymentService.getSummary();
-      setPaymentSummary({
+      const ps = {
         monthRevenue: summary.month?.revenue ?? 0,
         todayRevenue: summary.today?.revenue ?? 0,
-        loading: false,
-      });
+      };
+      setPaymentSummary({ ...ps, loading: false });
+      cacheData.paymentSummary = ps;
     } catch {
       setPaymentSummary((s) => ({ ...s, loading: false }));
     }
 
     try {
       const walkins = await walkInService.getToday();
-      setWalkInToday({
+      const wi = {
         count: walkins.summary?.total ?? 0,
         revenue: walkins.summary?.revenue ?? 0,
         stillInside:
           walkins.walkIns?.filter((w) => !w.isCheckedOut).length ?? 0,
-        loading: false,
-      });
+      };
+      setWalkInToday({ ...wi, loading: false });
+      cacheData.walkInToday = wi;
     } catch {
       setWalkInToday((s) => ({ ...s, loading: false }));
     }
@@ -439,10 +477,18 @@ function DashboardContent({
     try {
       const res = await actionLogService.getLogs({ limit: 5 });
       setRecentActivity(res.logs);
+      cacheData.recentActivity = res.logs;
     } catch {
       setRecentActivity([]);
     } finally {
       setActivityLoading(false);
+    }
+
+    // Write everything to cache in one shot
+    try {
+      localStorage.setItem(DASH_CACHE_KEY, JSON.stringify(cacheData));
+    } catch {
+      /* ignore quota errors */
     }
   }, []);
 
@@ -455,6 +501,21 @@ function DashboardContent({
     const id = setInterval(() => loadRef.current(), 30000);
     return () => clearInterval(id);
   }, []);
+
+  // ── Online/offline listener — auto-refresh on reconnect ───────────────────
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => {
+      setIsOffline(false);
+      load();
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, [load]);
 
   const fmt = (n: number) =>
     n >= 1000 ? `₱${(n / 1000).toFixed(1)}K` : `₱${n.toLocaleString()}`;
@@ -501,6 +562,22 @@ function DashboardContent({
 
   return (
     <div className="space-y-5 pb-24 lg:pb-6 max-w-7xl mx-auto">
+      {/* ── Offline banner ── */}
+      {isOffline && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-400/10 border border-amber-400/20 rounded-xl">
+          <span className="text-amber-400 text-base shrink-0">⚠</span>
+          <div>
+            <div className="text-amber-400 text-xs font-bold">
+              You're offline
+            </div>
+            <div className="text-amber-400/70 text-[11px]">
+              Showing last cached data. Live stats will resume when internet
+              restores.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── HEADER ── */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
@@ -629,7 +706,7 @@ function DashboardContent({
             </div>
           ) : (
             <div
-              className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto  pr-1"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto pr-1"
               style={{
                 scrollbarWidth: "thin",
                 scrollbarColor: "rgba(255,107,26,0.2) transparent",
@@ -662,7 +739,7 @@ function DashboardContent({
           )}
 
           {recentCheckins.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between  shrink-0">
+            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between shrink-0">
               <span className="text-[11px] text-white/25">
                 {memberStats.checkedIn} member
                 {memberStats.checkedIn !== 1 ? "s" : ""} currently inside

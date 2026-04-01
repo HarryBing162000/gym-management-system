@@ -12,6 +12,7 @@ import { walkInService } from "../services/walkInService";
 import {
   offlineWalkInRegister,
   offlineWalkInCheckOut,
+  offlineRenew,
 } from "../lib/offlineService";
 import { useToastStore } from "../store/toastStore";
 import { useGymStore } from "../store/gymStore";
@@ -29,6 +30,9 @@ type PageKey = (typeof VALID_PAGES)[number];
 function isValidPage(p: string | null): p is PageKey {
   return VALID_PAGES.includes(p as PageKey);
 }
+
+// ─── Staff dashboard cache key (module level) ─────────────────────────────────
+const STAFF_DASH_CACHE_KEY = "gms:staff-dashboard-cache";
 
 export default function StaffDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -103,7 +107,7 @@ function StaffRenewModal({
     }
     setSaving(true);
     try {
-      await memberService.renew(member.gymId, {
+      const res = await offlineRenew(member.gymId, member.name, {
         plan,
         expiresAt: calcNewExpiry(plan),
         paymentMethod: method,
@@ -112,7 +116,9 @@ function StaffRenewModal({
         status: "active",
       });
       showToast(
-        `${member.name.split(" ")[0]}'s membership renewed.`,
+        res.queued
+          ? res.message
+          : `${member.name.split(" ")[0]}'s membership renewed.`,
         "success",
       );
       onSuccess();
@@ -272,7 +278,6 @@ function StaffRenewModal({
 
 // ─── Check-in Desk ────────────────────────────────────────────────────────────
 function CheckInDesk() {
-  // ✅ Moved inside the component so it's in scope where it's used
   const LOG_PAGE_SIZE = 10;
 
   const { user } = useAuthStore();
@@ -295,7 +300,31 @@ function CheckInDesk() {
   const [atRiskLoading, setAtRiskLoading] = useState(true);
   const [renewTarget, setRenewTarget] = useState<AtRiskMember | null>(null);
 
+  // ── Offline state ────────────────────────────────────────────────────────────
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   const loadDashData = useCallback(async () => {
+    // ── Offline: read from cache and return early ─────────────────────────────
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem(STAFF_DASH_CACHE_KEY);
+        if (cached) {
+          const d = JSON.parse(cached);
+          if (d.membersInside != null) setMembersInside(d.membersInside);
+          if (d.walkInsToday != null) setWalkInsToday(d.walkInsToday);
+          if (d.totalCheckins != null) setTotalCheckins(d.totalCheckins);
+          if (d.atRisk) setAtRisk(d.atRisk);
+          if (d.todayLog) setTodayLog(d.todayLog);
+        }
+      } catch {
+        /* ignore */
+      }
+      setStatsLoading(false);
+      setAtRiskLoading(false);
+      return;
+    }
+
+    // ── Online: fetch fresh data and write cache ───────────────────────────────
     setStatsLoading(true);
     setAtRiskLoading(true);
     try {
@@ -305,25 +334,43 @@ function CheckInDesk() {
         memberService.getAtRiskMembers(),
       ]);
       const inside = checkedInRes.members;
-      setMembersInside(inside.length);
-      setWalkInsToday(walkInRes.summary?.total ?? 0);
-      setTotalCheckins(inside.length + (walkInRes.summary?.total ?? 0));
-      setAtRisk(atRiskRes.atRisk ?? []);
-      if (inside.length > 0) {
-        setTodayLog(
-          inside.map((m) => ({
-            gymId: m.gymId,
-            name: m.name,
-            time: m.lastCheckIn
-              ? new Date(m.lastCheckIn).toLocaleTimeString("en-PH", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                })
-              : "—",
-            action: "in" as const,
-          })),
+      const mi = inside.length;
+      const wit = walkInRes.summary?.total ?? 0;
+      const tc = mi + wit;
+      const ar = atRiskRes.atRisk ?? [];
+      const log = inside.map((m) => ({
+        gymId: m.gymId,
+        name: m.name,
+        time: m.lastCheckIn
+          ? new Date(m.lastCheckIn).toLocaleTimeString("en-PH", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })
+          : "—",
+        action: "in" as const,
+      }));
+
+      setMembersInside(mi);
+      setWalkInsToday(wit);
+      setTotalCheckins(tc);
+      setAtRisk(ar);
+      if (inside.length > 0) setTodayLog(log);
+
+      // Write cache
+      try {
+        localStorage.setItem(
+          STAFF_DASH_CACHE_KEY,
+          JSON.stringify({
+            membersInside: mi,
+            walkInsToday: wit,
+            totalCheckins: tc,
+            atRisk: ar,
+            todayLog: log,
+          }),
         );
+      } catch {
+        /* ignore quota errors */
       }
     } catch {
       /* silent */
@@ -336,6 +383,21 @@ function CheckInDesk() {
   useEffect(() => {
     loadDashData();
     inputRef.current?.focus();
+  }, [loadDashData]);
+
+  // ── Online/offline listener ───────────────────────────────────────────────
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => {
+      setIsOffline(false);
+      loadDashData();
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
   }, [loadDashData]);
 
   useEffect(() => {
@@ -372,7 +434,6 @@ function CheckInDesk() {
     if (selected) {
       if (selected.status === "expired" || selected.status === "inactive")
         return;
-      // ✅ Replaced ternary-as-expression with if/else
       if (selected.checkedIn) {
         handleCheckOut(selected);
       } else {
@@ -456,6 +517,21 @@ function CheckInDesk() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 pb-24 lg:pb-6">
+      {/* ── Offline banner ── */}
+      {isOffline && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-400/10 border border-amber-400/20 rounded-xl">
+          <span className="text-amber-400 text-base shrink-0">⚠</span>
+          <div>
+            <div className="text-amber-400 text-xs font-bold">
+              You're offline
+            </div>
+            <div className="text-amber-400/70 text-[11px]">
+              Showing last cached data. Check-in and walk-in still work offline.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="text-lg font-bold text-white">
           Welcome, {user?.name?.split(" ")[0]}! 👋
@@ -968,7 +1044,7 @@ function WalkInDesk() {
   }, [tab, showToast]);
 
   const handleRegister = async () => {
-    if (loading) return; // guard against rapid double-clicks or Enter+click
+    if (loading) return;
     setErrorMsg("");
     if (!name.trim() || name.trim().split(" ").length < 2) {
       setErrorMsg("Please enter a full name (first and last).");
@@ -976,22 +1052,17 @@ function WalkInDesk() {
     }
     setLoading(true);
     try {
-      // offlineWalkInRegister handles BOTH paths internally:
-      //   - Online  → calls walkInService.register once and returns the result
-      //   - Offline → enqueues to IndexedDB and returns a queued result
-      // DO NOT call walkInService.register separately — that was the duplicate bug.
       const regRes = await offlineWalkInRegister({
         name: name.trim(),
         phone: phone.trim() || undefined,
         passType,
       });
 
-      // Online path — walkId came back from the server via offlineWalkInRegister
       setSuccess({
         walkId: regRes.queued ? "QUEUED" : (regRes.walkId ?? "—"),
         name: name.trim(),
         passType,
-        amount: getWalkInPrice(passType), // ← use the live price from gymStore
+        amount: getWalkInPrice(passType),
         checkIn: new Date().toISOString(),
         isCheckedOut: false,
       } as any);
@@ -1006,8 +1077,6 @@ function WalkInDesk() {
       const err = e as {
         response?: { status?: number; data?: { message?: string } };
       };
-      // 409 = name already registered today — show server message directly
-      // (it already includes the WALK-XXX id so staff knows which entry to check)
       setErrorMsg(
         err.response?.data?.message ||
           "Failed to register walk-in. Please try again.",
