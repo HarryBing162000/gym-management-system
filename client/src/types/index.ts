@@ -6,6 +6,7 @@ export interface User {
   username?: string;
   role: "owner" | "staff" | "member";
   gymId?: string;
+  impersonated?: boolean;
 }
 
 // =================== AUTH ===================

@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import User from "../models/User";
+import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
 import { cloudinary } from "../middleware/upload";
 import { AuthRequest } from "../middleware/authMiddleware";
@@ -204,6 +205,12 @@ export const loginOwner = async (req: Request, res: Response) => {
 
     // ── Success — clear any failed attempts ───────────────────────────────────
     clearLock(lockKey);
+
+    // ── Update lastLoginAt on GymClient ──────────────────────────────────────
+    await GymClient.findOneAndUpdate(
+      { ownerId: user._id },
+      { lastLoginAt: new Date() },
+    ).catch(() => {}); // fire-and-forget — never crash login
 
     const token = generateToken(user._id.toString(), user.role, user.name);
 
@@ -543,7 +550,7 @@ export const getGymInfo = async (_req: Request, res: Response) => {
               couple: 250,
             },
             closingTime: settings.closingTime ?? "22:00",
-            timezone: settings.timezone ?? "Asia/Manila", // ← ADD
+            timezone: settings.timezone ?? "Asia/Manila",
           }
         : {
             gymName: process.env.GYM_NAME || "Gym",
@@ -552,7 +559,7 @@ export const getGymInfo = async (_req: Request, res: Response) => {
             plans: [],
             walkInPrices: { regular: 150, student: 100, couple: 250 },
             closingTime: "22:00",
-            timezone: "Asia/Manila", // ← ADD
+            timezone: "Asia/Manila",
           },
     });
   } catch (err: any) {
@@ -839,7 +846,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       student?: number;
       couple?: number;
       closingTime?: string;
-      timezone?: string; // ← ADD
+      timezone?: string;
     };
 
     const settings = await Settings.findOne({});
@@ -877,7 +884,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       message: "Walk-in prices updated.",
       walkInPrices: settings.walkInPrices,
       closingTime: settings.closingTime ?? "22:00",
-      timezone: settings.timezone ?? "Asia/Manila", // ← ADD
+      timezone: settings.timezone ?? "Asia/Manila",
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

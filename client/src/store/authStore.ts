@@ -10,6 +10,7 @@ interface AuthState {
   _hasHydrated: boolean;
   setAuth: (user: User, token: string) => void;
   logout: () => void;
+  clearSession: () => void;
   setHasHydrated: (state: boolean) => void;
 }
 
@@ -44,6 +45,13 @@ export const useAuthStore = create<AuthState>()(
         }
 
         // Clear state AFTER the request is fired (fire-and-forget)
+        set({ user: null, token: null, isAuthenticated: false });
+      },
+
+      // Wipes auth state synchronously without firing the action-log POST.
+      // Used by End Session in impersonation — logout() races with navigate()
+      // and can redirect to /login before SuperAdminRoute renders the dashboard.
+      clearSession: () => {
         set({ user: null, token: null, isAuthenticated: false });
       },
 

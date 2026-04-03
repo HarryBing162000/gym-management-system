@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useToastStore } from "../store/toastStore";
@@ -101,6 +101,16 @@ export default function LoginPage() {
     role: "owner" | "staff";
     destination: string;
   } | null>(null);
+
+  // ── Show message from forced logout (e.g. gym suspended, account deactivated)
+  // api.ts writes to sessionStorage before redirecting — we read and clear it here.
+  useEffect(() => {
+    const reason = sessionStorage.getItem("gms:logout-reason");
+    if (reason) {
+      setErrorMsg(reason);
+      sessionStorage.removeItem("gms:logout-reason");
+    }
+  }, []);
 
   const gymName = settings?.gymName || "Gym Management System";
   const logoUrl = settings?.logoUrl || null;

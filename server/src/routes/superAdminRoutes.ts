@@ -1,9 +1,6 @@
 /**
  * superAdminRoutes.ts
  * GMS — Super Admin Routes
- *
- * All routes under /api/superadmin
- * Login is public. Everything else requires protectSuperAdmin.
  */
 
 import { Router } from "express";
@@ -20,6 +17,9 @@ import {
   hardDeleteGym,
   resetOwnerPassword,
   resendInvite,
+  impersonateGym,
+  exchangeImpersonate,
+  getAuditLog,
 } from "../controllers/superAdminController";
 
 const router = Router();
@@ -27,7 +27,10 @@ const router = Router();
 // ─── Public ───────────────────────────────────────────────────────────────────
 router.post("/login", superAdminLogin);
 
-// ─── Protected — all require valid super admin JWT ────────────────────────────
+// Exchange endpoint — public, impersonation token IS the credential
+router.post("/exchange-impersonate", exchangeImpersonate);
+
+// ─── Protected ────────────────────────────────────────────────────────────────
 router.use(protectSuperAdmin);
 
 router.get("/gyms", listGyms);
@@ -40,5 +43,7 @@ router.delete("/gyms/:id", deleteGym);
 router.delete("/gyms/:id/hard-delete", hardDeleteGym);
 router.post("/gyms/:id/reset-password", resetOwnerPassword);
 router.post("/gyms/:id/resend-invite", resendInvite);
+router.post("/gyms/:id/impersonate", impersonateGym);
+router.get("/audit-log", getAuditLog);
 
 export default router;

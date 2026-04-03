@@ -13,8 +13,10 @@ import StaffDashboard from "./pages/StaffDashboard";
 import KioskPage from "./pages/KioskPage";
 import SuperAdminLoginPage from "./pages/SuperAdminLoginPage";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
+import SuperAdminAuditLogPage from "./pages/SuperAdminAuditLogPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ImpersonatePage from "./pages/ImpersonatePage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -87,6 +89,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/kiosk" element={<KioskPage />} />
 
+          <Route path="/impersonate" element={<ImpersonatePage />} />
           {/* Owner only */}
           <Route
             path="/dashboard"
@@ -109,11 +112,21 @@ function App() {
 
           {/* Super Admin */}
           <Route path="/superadmin" element={<SuperAdminLoginPage />} />
+
           <Route
             path="/superadmin/dashboard"
             element={
               <SuperAdminRoute>
                 <SuperAdminDashboard />
+              </SuperAdminRoute>
+            }
+          />
+
+          <Route
+            path="/superadmin/audit-log"
+            element={
+              <SuperAdminRoute>
+                <SuperAdminAuditLogPage />
               </SuperAdminRoute>
             }
           />

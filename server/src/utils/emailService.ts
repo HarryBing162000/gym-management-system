@@ -1,29 +1,42 @@
 /**
  * emailService.ts
- * GMS — Resend Email Service
+ * LakasGMS — Nodemailer + Gmail SMTP Email Service
  *
- * Wraps Resend SDK for two transactional emails:
- *   1. setPasswordEmail  — sent when Super Admin creates an owner account
- *   2. resetPasswordEmail — sent when owner requests forgot-password
+ * Replaces Resend SDK — Gmail allows sending to ANY email address.
+ * Resend free tier was restricted to verified emails only.
  *
- * Sender: onboarding@resend.dev (Resend default — works without custom domain)
- * Replace with noreply@yourdomain.com once you add a custom domain.
+ * Sender: lakasgmsm@gmail.com (Gmail App Password auth)
  *
- * Usage:
- *   await sendSetPasswordEmail({ to: "owner@gym.com", gymName: "IronCore", token: "..." })
- *   await sendResetPasswordEmail({ to: "owner@gym.com", token: "..." })
+ * When you get a custom domain later:
+ *   1. Add domain to Resend
+ *   2. Swap back to Resend SDK
+ *   3. Change FROM to noreply@yourdomain.com
+ *
+ * Env vars required (add to Render):
+ *   GMAIL_USER=lakasgmsm@gmail.com
+ *   GMAIL_APP_PASSWORD=mmcl nkjf lpbv hkgs
+ *
+ * Function signatures are identical to the old Resend version —
+ * no other files need to change.
  */
 
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// ─── Sender ───────────────────────────────────────────────────────────────────
-// Using Resend's shared domain for now.
-// When you add a custom domain, change this to: noreply@yourdomain.com
-const FROM = "GMS <onboarding@resend.dev>";
+import nodemailer from "nodemailer";
 
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+
+// ─── Transporter ──────────────────────────────────────────────────────────────
+// Created once, reused for all emails. Gmail SMTP on port 587 with STARTTLS.
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false, // STARTTLS — upgrades to TLS after connection
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
+
+const FROM = `LakasGMS <${process.env.GMAIL_USER}>`;
 
 // ─── Set Password Email ───────────────────────────────────────────────────────
 // Sent by Super Admin when creating a new owner account.
@@ -42,7 +55,7 @@ export const sendSetPasswordEmail = async ({
 }): Promise<void> => {
   const link = `${CLIENT_URL}/set-password?token=${token}`;
 
-  await resend.emails.send({
+  await transporter.sendMail({
     from: FROM,
     to,
     subject: `You've been invited to manage ${gymName}`,
@@ -55,7 +68,7 @@ export const sendSetPasswordEmail = async ({
             <!-- Header -->
             <div style="background: linear-gradient(135deg, #FF6B1A, #FFB800); padding: 32px 40px;">
               <h1 style="color: #000; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">
-                Gym Management System
+                LakasGMS
               </h1>
               <p style="color: rgba(0,0,0,0.6); margin: 4px 0 0; font-size: 13px;">
                 You have been invited as a gym owner
@@ -95,7 +108,7 @@ export const sendSetPasswordEmail = async ({
             <!-- Footer -->
             <div style="padding: 20px 40px; border-top: 1px solid rgba(255,255,255,0.07);">
               <p style="color: rgba(255,255,255,0.2); font-size: 11px; margin: 0;">
-                Gym Management System · Sent by your system administrator
+                LakasGMS · Sent by your system administrator
               </p>
             </div>
 
@@ -121,10 +134,10 @@ export const sendResetPasswordEmail = async ({
 }): Promise<void> => {
   const link = `${CLIENT_URL}/reset-password?token=${token}`;
 
-  await resend.emails.send({
+  await transporter.sendMail({
     from: FROM,
     to,
-    subject: "Reset your GMS password",
+    subject: "Reset your LakasGMS password",
     html: `
       <!DOCTYPE html>
       <html>
@@ -134,7 +147,7 @@ export const sendResetPasswordEmail = async ({
             <!-- Header -->
             <div style="background: linear-gradient(135deg, #FF6B1A, #FFB800); padding: 32px 40px;">
               <h1 style="color: #000; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">
-                Gym Management System
+                LakasGMS
               </h1>
               <p style="color: rgba(0,0,0,0.6); margin: 4px 0 0; font-size: 13px;">
                 Password reset request
@@ -173,7 +186,7 @@ export const sendResetPasswordEmail = async ({
             <!-- Footer -->
             <div style="padding: 20px 40px; border-top: 1px solid rgba(255,255,255,0.07);">
               <p style="color: rgba(255,255,255,0.2); font-size: 11px; margin: 0;">
-                Gym Management System · If you didn't request this, no action is needed.
+                LakasGMS · If you didn't request this, no action is needed.
               </p>
             </div>
 

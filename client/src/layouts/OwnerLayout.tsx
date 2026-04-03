@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useGymStore } from "../store/gymStore";
 import SyncBadge from "../components/SyncBadge";
+import ConfirmModal from "../components/ConfirmModal";
 
 // ─── useClock hook ────────────────────────────────────────────────────────────
 // Ticks every second. Returns live time string + closing status.
@@ -188,7 +189,7 @@ export default function OwnerLayout({
   activePage,
   onPageChange,
 }: OwnerLayoutProps) {
-  const { user, logout } = useAuthStore();
+  const { user, logout, clearSession } = useAuthStore();
   const { settings } = useGymStore();
   const { timeStr, dateStr, closingWarning, closingLabel } = useClock(
     settings?.closingTime,
@@ -205,6 +206,28 @@ export default function OwnerLayout({
 
   const { showToast } = useToastStore();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // ── Impersonation support banner ──────────────────────────────────────────
+  // Initialize directly from sessionStorage — no effect needed since
+  // sessionStorage is synchronous and available on first render.
+  const [impersonatingGym, setImpersonatingGym] = useState<string | null>(() =>
+    sessionStorage.getItem("gms:impersonating"),
+  );
+  const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
+
+  const handleEndSession = () => {
+    sessionStorage.removeItem("gms:impersonating");
+    setImpersonatingGym(null);
+    // clearSession wipes authStore synchronously. We must use
+    // window.location.href instead of navigate() — navigate() runs inside
+    // the same React render cycle and ProtectedRoute catches isAuthenticated:false
+    // before the navigation completes, redirecting to /login.
+    // window.location.href is a full page load that bypasses the render cycle
+    // entirely — the browser loads /superadmin/dashboard fresh and
+    // SuperAdminRoute reads superAdminStore (still valid) directly.
+    clearSession();
+    window.location.href = "/superadmin/dashboard";
+  };
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -307,7 +330,7 @@ export default function OwnerLayout({
               />
             </div>
           ) : (
-            <div className="text-lg font-black tracking-widest text-[#FF6B1A] uppercase">
+            <div className="text-lg font-black text-center tracking-widest text-[#FF6B1A] uppercase">
               {gymName}
             </div>
           )}
@@ -510,6 +533,25 @@ export default function OwnerLayout({
           </div>
         )}
 
+        {/* Impersonation support banner */}
+        {impersonatingGym && (
+          <div className="sticky top-[73px] z-20 bg-[#FF6B1A]/10 border-b border-[#FF6B1A]/30 px-4 sm:px-6 py-2 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] animate-pulse shrink-0" />
+              <span className="text-xs font-semibold text-[#FF6B1A]">
+                Support session —{" "}
+                <span className="font-bold">{impersonatingGym}</span>
+              </span>
+            </div>
+            <button
+              onClick={() => setShowEndSessionConfirm(true)}
+              className="text-[10px] font-bold text-[#FF6B1A] border border-[#FF6B1A]/40 px-2.5 py-1 rounded-full hover:bg-[#FF6B1A]/20 transition-all cursor-pointer shrink-0"
+            >
+              End Session
+            </button>
+          </div>
+        )}
+
         {/* Page Content */}
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">{children}</main>
       </div>
@@ -519,6 +561,20 @@ export default function OwnerLayout({
         <LogoutModal
           onConfirm={confirmLogout}
           onCancel={() => setShowLogoutModal(false)}
+        />
+      )}
+
+      {showEndSessionConfirm && (
+        <ConfirmModal
+          title="End support session?"
+          message="You will be returned to the Super Admin dashboard. The owner session will be cleared."
+          confirmLabel="End Session"
+          variant="warning"
+          onConfirm={() => {
+            setShowEndSessionConfirm(false);
+            handleEndSession();
+          }}
+          onCancel={() => setShowEndSessionConfirm(false)}
         />
       )}
     </div>

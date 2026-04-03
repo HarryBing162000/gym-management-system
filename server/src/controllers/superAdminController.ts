@@ -2,20 +2,15 @@
  * superAdminController.ts
  * GMS — Super Admin Controller
  *
- * All routes require protectSuperAdmin middleware.
- * Credentials come from environment variables — no DB record for super admin.
- *
- * Routes:
- *   POST   /api/superadmin/login
- *   GET    /api/superadmin/gyms
- *   POST   /api/superadmin/gyms
- *   GET    /api/superadmin/gyms/:id
- *   PATCH  /api/superadmin/gyms/:id
- *   PATCH  /api/superadmin/gyms/:id/suspend
- *   PATCH  /api/superadmin/gyms/:id/reactivate
- *   DELETE /api/superadmin/gyms/:id
- *   POST   /api/superadmin/gyms/:id/reset-password
- *   POST   /api/superadmin/gyms/:id/resend-invite
+ * Security hardening applied:
+ * - Rate limiting on login (5 attempts → 15-min lockout by IP)
+ * - Rate limiting on exchange-impersonate (10/min by IP)
+ * - Single-use impersonation tokens (jti + in-memory used-set)
+ * - Timing-safe credential comparison (crypto.timingSafeEqual)
+ * - x-forwarded-for sanitized (first IP only)
+ * - Settings cleanup on hard delete (by ownerId, not gymName)
+ * - billingStatus validated against enum before DB write
+ * - Audit log persisted to MongoDB (SuperAdminAuditLog collection)
  */
 
 import { Request, Response } from "express";
@@ -24,30 +19,143 @@ import crypto from "crypto";
 import User from "../models/User";
 import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
+import SuperAdminAuditLog from "../models/SuperAdminAuditLog";
 import { sendSetPasswordEmail } from "../utils/emailService";
 import { SuperAdminRequest } from "../middleware/superAdminMiddleware";
 
+// ─── Rate limiter — Super Admin login (by IP) ─────────────────────────────────
+const SA_MAX_ATTEMPTS = 5;
+const SA_LOCK_MS = 15 * 60 * 1000;
+
+interface LockEntry {
+  attempts: number;
+  lockedUntil: number | null;
+}
+const saAttempts = new Map<string, LockEntry>();
+
+function getSaEntry(ip: string): LockEntry {
+  if (!saAttempts.has(ip))
+    saAttempts.set(ip, { attempts: 0, lockedUntil: null });
+  return saAttempts.get(ip)!;
+}
+function checkSaLocked(ip: string): { locked: boolean; minutesLeft: number } {
+  const e = getSaEntry(ip);
+  if (e.lockedUntil === null) return { locked: false, minutesLeft: 0 };
+  const rem = e.lockedUntil - Date.now();
+  if (rem <= 0) {
+    e.attempts = 0;
+    e.lockedUntil = null;
+    return { locked: false, minutesLeft: 0 };
+  }
+  return { locked: true, minutesLeft: Math.ceil(rem / 60000) };
+}
+function recordSaFailure(ip: string): LockEntry {
+  const e = getSaEntry(ip);
+  if (e.lockedUntil !== null && Date.now() > e.lockedUntil) {
+    e.attempts = 0;
+    e.lockedUntil = null;
+  }
+  e.attempts += 1;
+  if (e.attempts >= SA_MAX_ATTEMPTS) e.lockedUntil = Date.now() + SA_LOCK_MS;
+  return e;
+}
+function clearSaLock(ip: string): void {
+  saAttempts.delete(ip);
+}
+
+// ─── Rate limiter — exchange-impersonate (by IP, 10/min) ──────────────────────
+const EXCHANGE_MAX = 10;
+const EXCHANGE_WINDOW_MS = 60 * 1000;
+interface ExchangeEntry {
+  count: number;
+  windowStart: number;
+}
+const exchangeAttempts = new Map<string, ExchangeEntry>();
+
+function checkExchangeLimit(ip: string): boolean {
+  const now = Date.now();
+  const e = exchangeAttempts.get(ip);
+  if (!e || now - e.windowStart > EXCHANGE_WINDOW_MS) {
+    exchangeAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  e.count += 1;
+  return e.count > EXCHANGE_MAX;
+}
+
+// ─── Single-use impersonation tokens ─────────────────────────────────────────
+// Token string → used flag. Auto-cleared after 20 min (token already expired).
+const usedTokens = new Set<string>();
+function markUsed(token: string): void {
+  usedTokens.add(token);
+  setTimeout(() => usedTokens.delete(token), 20 * 60 * 1000);
+}
+function isUsed(token: string): boolean {
+  return usedTokens.has(token);
+}
+
+// ─── Super Admin audit log (MongoDB — persistent) ────────────────────────────
+// Replaced in-memory array with MongoDB writes. Survives server restarts.
+// logSa is fire-and-forget — never blocks or throws on the calling route.
+function logSa(
+  action: string,
+  detail: string,
+  ip: string,
+  gymId?: string,
+): void {
+  SuperAdminAuditLog.create({
+    action,
+    detail,
+    ip,
+    ...(gymId ? { gymId } : {}),
+    timestamp: new Date(),
+  }).catch((err) => {
+    // Non-critical — log to console but never crash the route
+    console.error("[SuperAdminAuditLog] Write failed:", err?.message);
+  });
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const generateSetPasswordToken = (userId: string): string => {
-  // Signed with JWT_SECRET (owner-side secret) so the set-password
-  // endpoint can verify it without knowing about super admin at all.
-  return jwt.sign(
+function getIp(req: Request): string {
+  // x-forwarded-for can contain multiple IPs ("client, proxy1, proxy2")
+  // or be spoofed by a client to bypass rate limiting.
+  // Always take the first entry only — that is the original client IP
+  // as set by Render's load balancer.
+  const forwarded = req.headers["x-forwarded-for"] as string | undefined;
+  const firstIp = forwarded ? forwarded.split(",")[0].trim() : null;
+  return firstIp || req.socket.remoteAddress || "unknown";
+}
+
+// Timing-safe string comparison — prevents timing attacks on credential check
+function safeEqual(a: string, b: string): boolean {
+  try {
+    const aBuf = Buffer.from(a);
+    const bBuf = Buffer.from(b);
+    if (aBuf.length !== bBuf.length) {
+      crypto.timingSafeEqual(aBuf, aBuf); // consume time anyway
+      return false;
+    }
+    return crypto.timingSafeEqual(aBuf, bBuf);
+  } catch {
+    return false;
+  }
+}
+
+const generateSetPasswordToken = (userId: string): string =>
+  jwt.sign(
     { id: userId, purpose: "set_password" },
     process.env.JWT_SECRET as string,
     { expiresIn: "24h" },
   );
-};
 
-const generateResetToken = (userId: string): string => {
-  return jwt.sign(
+const generateResetToken = (userId: string): string =>
+  jwt.sign(
     { id: userId, purpose: "reset_password" },
     process.env.JWT_SECRET as string,
     { expiresIn: "1h" },
   );
-};
 
-// ─── Generate GymClient ID (GYM-001, GYM-002...) ─────────────────────────────
 const generateGymClientId = async (): Promise<string> => {
   const last = await GymClient.findOne()
     .sort({ createdAt: -1 })
@@ -58,29 +166,74 @@ const generateGymClientId = async (): Promise<string> => {
   return `GYM-${String(num + 1).padStart(3, "0")}`;
 };
 
+// ─── GET /api/superadmin/audit-log ────────────────────────────────────────────
+// Returns latest 200 entries from MongoDB, newest first.
+// Optional query params: ?action=login&gymId=<id>&limit=100
+export const getAuditLog = async (req: SuperAdminRequest, res: Response) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    const filter: Record<string, any> = {};
+    if (req.query.action) filter.action = req.query.action;
+    if (req.query.gymId) filter.gymId = req.query.gymId;
+
+    const log = await SuperAdminAuditLog.find(filter)
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.status(200).json({ success: true, log, total: log.length });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // ─── POST /api/superadmin/login ───────────────────────────────────────────────
 export const superAdminLogin = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body as {
-      email: string;
-      password: string;
-    };
-
+    const { email, password } = req.body as { email: string; password: string };
     if (!email || !password) {
       return res
         .status(400)
         .json({ success: false, message: "Email and password are required." });
     }
 
-    // Credentials live in env — no DB lookup needed
-    const adminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const adminPassword = process.env.SUPER_ADMIN_PASSWORD;
-
-    if (email !== adminEmail || password !== adminPassword) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid credentials." });
+    const ip = getIp(req);
+    const lockStatus = checkSaLocked(ip);
+    if (lockStatus.locked) {
+      return res.status(429).json({
+        success: false,
+        message: `Too many failed attempts. Try again in ${lockStatus.minutesLeft} minute${lockStatus.minutesLeft !== 1 ? "s" : ""}.`,
+      });
     }
+
+    const adminEmail = process.env.SUPER_ADMIN_EMAIL ?? "";
+    const adminPassword = process.env.SUPER_ADMIN_PASSWORD ?? "";
+
+    const emailMatch = safeEqual(email, adminEmail);
+    const passwordMatch = safeEqual(password, adminPassword);
+
+    if (!emailMatch || !passwordMatch) {
+      const entry = recordSaFailure(ip);
+      const attemptsLeft = SA_MAX_ATTEMPTS - entry.attempts;
+      if (entry.lockedUntil !== null) {
+        logSa(
+          "login_locked",
+          `IP ${ip} locked after ${SA_MAX_ATTEMPTS} failed attempts`,
+          ip,
+        );
+        return res.status(429).json({
+          success: false,
+          message: "Too many failed attempts. Locked for 15 minutes.",
+        });
+      }
+      return res.status(401).json({
+        success: false,
+        message: `Invalid credentials. ${attemptsLeft} attempt${attemptsLeft !== 1 ? "s" : ""} remaining.`,
+      });
+    }
+
+    clearSaLock(ip);
+    logSa("login", `Super Admin logged in from ${ip}`, ip);
 
     const token = jwt.sign(
       { email: adminEmail, role: "superadmin" },
@@ -88,11 +241,9 @@ export const superAdminLogin = async (req: Request, res: Response) => {
       { expiresIn: "12h" },
     );
 
-    return res.status(200).json({
-      success: true,
-      message: "Super Admin login successful.",
-      token,
-    });
+    return res
+      .status(200)
+      .json({ success: true, message: "Super Admin login successful.", token });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -104,7 +255,6 @@ export const listGyms = async (_req: SuperAdminRequest, res: Response) => {
     const gyms = await GymClient.find({ status: { $ne: "deleted" } })
       .sort({ createdAt: -1 })
       .lean();
-
     return res.status(200).json({ success: true, gyms });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -112,7 +262,6 @@ export const listGyms = async (_req: SuperAdminRequest, res: Response) => {
 };
 
 // ─── POST /api/superadmin/gyms ────────────────────────────────────────────────
-// Creates owner User + GymClient + Settings + sends set-password email
 export const createGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const {
@@ -133,7 +282,6 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       notes?: string;
     };
 
-    // Validate required fields
     if (!gymName?.trim() || !ownerName?.trim() || !ownerEmail?.trim()) {
       return res.status(400).json({
         success: false,
@@ -141,7 +289,6 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       });
     }
 
-    // Check email not already in use
     const existingUser = await User.findOne({
       email: ownerEmail.toLowerCase().trim(),
     });
@@ -162,12 +309,7 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       });
     }
 
-    // Generate human-readable gym client ID (GYM-001, GYM-002...)
     const gymClientId = await generateGymClientId();
-
-    // Create owner User with a random placeholder password.
-    // isVerified: false — they cannot log in until they set their password.
-    // The placeholder is never usable because it's a random hash they don't know.
     const placeholderPassword = crypto.randomBytes(32).toString("hex");
     const owner = await User.create({
       name: ownerName.trim(),
@@ -178,10 +320,8 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       isVerified: false,
     });
 
-    // Create GymClient record.
-    // If this fails, roll back the User so the email is free to register again.
     const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + 30); // 30-day trial
+    trialEndsAt.setDate(trialEndsAt.getDate() + 30);
 
     let gymClient;
     try {
@@ -198,13 +338,10 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
         notes: notes?.trim(),
       });
     } catch (gymErr) {
-      // Rollback — delete the orphaned User so the email can be re-used
       await User.findByIdAndDelete(owner._id);
       throw gymErr;
     }
 
-    // Create initial Settings document for this gym
-    // Each gym needs its own Settings — seeded with defaults
     await Settings.create({
       gymName: gymName.trim(),
       gymAddress: gymAddress?.trim() || "",
@@ -234,9 +371,7 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       walkInPrices: { regular: 150, student: 100, couple: 250 },
     });
 
-    // Generate set-password token and send invite email
     const setPasswordToken = generateSetPasswordToken(owner._id.toString());
-
     let emailSent = true;
     let emailError = "";
     try {
@@ -247,12 +382,16 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
         token: setPasswordToken,
       });
     } catch (emailErr: any) {
-      // Email failed — but gym was created successfully.
-      // Log the error and return it in the response so Super Admin knows.
       emailSent = false;
       emailError = emailErr?.message ?? "Unknown email error";
       console.error("[createGym] Resend error:", emailError);
     }
+
+    logSa(
+      "gym_created",
+      `Created "${gymName}" (${gymClientId}) for ${ownerEmail}`,
+      getIp(req),
+    );
 
     return res.status(201).json({
       success: true,
@@ -283,17 +422,13 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
 export const getGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const gym = await GymClient.findById(req.params.id).lean();
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
-
-    // Attach owner info
     const owner = await User.findById(gym.ownerId)
       .select("name email isActive isVerified createdAt")
       .lean();
-
     return res.status(200).json({ success: true, gym, owner });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -301,7 +436,6 @@ export const getGym = async (req: SuperAdminRequest, res: Response) => {
 };
 
 // ─── PATCH /api/superadmin/gyms/:id ──────────────────────────────────────────
-// Edit gym info and/or billing status and/or notes
 export const updateGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const {
@@ -321,52 +455,71 @@ export const updateGym = async (req: SuperAdminRequest, res: Response) => {
     };
 
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
+
+    // Validate billingStatus against allowed values before writing
+    const VALID_BILLING = ["trial", "paid", "overdue", "cancelled"];
+    if (billingStatus && !VALID_BILLING.includes(billingStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid billingStatus. Must be one of: ${VALID_BILLING.join(", ")}`,
+      });
     }
 
+    const prevBilling = gym.billingStatus;
     if (gymName?.trim()) gym.gymName = gymName.trim();
     if (gymAddress !== undefined) gym.gymAddress = gymAddress.trim();
     if (contactPhone !== undefined) gym.contactPhone = contactPhone.trim();
     if (billingStatus) gym.billingStatus = billingStatus as any;
     if (notes !== undefined) gym.notes = notes.trim();
     if (billingRenewsAt) gym.billingRenewsAt = new Date(billingRenewsAt);
-
     await gym.save();
 
-    return res.status(200).json({
-      success: true,
-      message: "Gym updated.",
-      gym,
-    });
+    if (billingStatus && billingStatus !== prevBilling) {
+      logSa(
+        "billing_updated",
+        `"${gym.gymName}" billing: ${prevBilling} → ${billingStatus}${billingRenewsAt ? ` | renews: ${billingRenewsAt}` : ""}`,
+        getIp(req),
+      );
+    }
+
+    return res
+      .status(200)
+      .json({ success: true, message: "Gym updated.", gym });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
 // ─── DELETE /api/superadmin/gyms/:id/hard-delete ─────────────────────────────
-// Permanently removes GymClient + User + Settings from ALL collections.
-// Use this during testing/development to fully clean up a gym.
-// In production, prefer the soft-delete (deleteGym) instead.
 export const hardDeleteGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
 
     const gymName = gym.gymName;
     const ownerEmail = gym.contactEmail;
 
-    // Delete all three records atomically
+    // Delete all three documents atomically.
+    // Settings is matched by ownerId (not gymName) to avoid accidentally
+    // deleting the wrong gym if two gyms share the same name.
     await Promise.all([
       User.findByIdAndDelete(gym.ownerId),
       GymClient.findByIdAndDelete(gym._id),
+      Settings.findOneAndDelete({ ownerId: gym.ownerId }),
     ]);
+
+    logSa(
+      "gym_hard_deleted",
+      `HARD DELETE: "${gymName}" (${ownerEmail}) — all records purged`,
+      getIp(req),
+    );
 
     return res.status(200).json({
       success: true,
@@ -381,27 +534,28 @@ export const hardDeleteGym = async (req: SuperAdminRequest, res: Response) => {
 export const suspendGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
-    if (gym.status === "suspended") {
+    if (gym.status === "suspended")
       return res
         .status(400)
         .json({ success: false, message: "Gym is already suspended." });
-    }
 
     gym.status = "suspended";
     await gym.save();
-
-    // Also deactivate the owner User so they can't log in
     await User.findByIdAndUpdate(gym.ownerId, { isActive: false });
 
-    return res.status(200).json({
-      success: true,
-      message: `"${gym.gymName}" has been suspended.`,
-    });
+    logSa(
+      "gym_suspended",
+      `"${gym.gymName}" suspended`,
+      getIp(req),
+      gym._id.toString(),
+    );
+    return res
+      .status(200)
+      .json({ success: true, message: `"${gym.gymName}" has been suspended.` });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -411,18 +565,21 @@ export const suspendGym = async (req: SuperAdminRequest, res: Response) => {
 export const reactivateGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
 
     gym.status = "active";
     await gym.save();
-
-    // Re-enable the owner User
     await User.findByIdAndUpdate(gym.ownerId, { isActive: true });
 
+    logSa(
+      "gym_reactivated",
+      `"${gym.gymName}" reactivated`,
+      getIp(req),
+      gym._id.toString(),
+    );
     return res.status(200).json({
       success: true,
       message: `"${gym.gymName}" has been reactivated.`,
@@ -433,54 +590,50 @@ export const reactivateGym = async (req: SuperAdminRequest, res: Response) => {
 };
 
 // ─── DELETE /api/superadmin/gyms/:id ─────────────────────────────────────────
-// Soft delete — marks gym as deleted, deactivates owner
 export const deleteGym = async (req: SuperAdminRequest, res: Response) => {
   try {
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
 
     gym.status = "deleted";
     await gym.save();
-
-    // Deactivate owner — they can no longer log in
     await User.findByIdAndUpdate(gym.ownerId, { isActive: false });
 
-    return res.status(200).json({
-      success: true,
-      message: `"${gym.gymName}" has been deleted.`,
-    });
+    logSa(
+      "gym_deleted",
+      `"${gym.gymName}" soft-deleted`,
+      getIp(req),
+      gym._id.toString(),
+    );
+    return res
+      .status(200)
+      .json({ success: true, message: `"${gym.gymName}" has been deleted.` });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
 // ─── POST /api/superadmin/gyms/:id/reset-password ────────────────────────────
-// Super Admin manually triggers a password reset for an owner
 export const resetOwnerPassword = async (
   req: SuperAdminRequest,
   res: Response,
 ) => {
   try {
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
-
     const owner = await User.findById(gym.ownerId);
-    if (!owner) {
+    if (!owner)
       return res
         .status(404)
         .json({ success: false, message: "Owner user not found." });
-    }
 
     const resetToken = generateResetToken(owner._id.toString());
-
     try {
       await sendSetPasswordEmail({
         to: owner.email!,
@@ -490,13 +643,16 @@ export const resetOwnerPassword = async (
       });
     } catch (emailErr: any) {
       const msg = emailErr?.message ?? "Unknown error";
-      console.error("[resetOwnerPassword] Resend error:", msg);
-      return res.status(500).json({
-        success: false,
-        message: `Failed to send email: ${msg}. Check your Resend API key and domain settings.`,
-      });
+      return res
+        .status(500)
+        .json({ success: false, message: `Failed to send email: ${msg}.` });
     }
 
+    logSa(
+      "password_reset",
+      `Reset sent to ${owner.email} for "${gym.gymName}"`,
+      getIp(req),
+    );
     return res.status(200).json({
       success: true,
       message: `Password reset email sent to ${owner.email}.`,
@@ -507,32 +663,25 @@ export const resetOwnerPassword = async (
 };
 
 // ─── POST /api/superadmin/gyms/:id/resend-invite ──────────────────────────────
-// Resend the set-password invite if owner never clicked the first one
 export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
   try {
     const gym = await GymClient.findById(req.params.id);
-    if (!gym) {
+    if (!gym)
       return res
         .status(404)
         .json({ success: false, message: "Gym not found." });
-    }
-
     const owner = await User.findById(gym.ownerId);
-    if (!owner) {
+    if (!owner)
       return res
         .status(404)
         .json({ success: false, message: "Owner user not found." });
-    }
-
-    if (owner.isVerified) {
+    if (owner.isVerified)
       return res.status(400).json({
         success: false,
         message: "Owner has already set their password.",
       });
-    }
 
     const token = generateSetPasswordToken(owner._id.toString());
-
     try {
       await sendSetPasswordEmail({
         to: owner.email!,
@@ -542,16 +691,186 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
       });
     } catch (emailErr: any) {
       const msg = emailErr?.message ?? "Unknown error";
-      console.error("[resendInvite] Resend error:", msg);
-      return res.status(500).json({
+      return res
+        .status(500)
+        .json({ success: false, message: `Failed to send email: ${msg}.` });
+    }
+
+    logSa(
+      "invite_resent",
+      `Invite resent to ${owner.email} for "${gym.gymName}"`,
+      getIp(req),
+    );
+    return res
+      .status(200)
+      .json({ success: true, message: `Invite resent to ${owner.email}.` });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── POST /api/superadmin/gyms/:id/impersonate ───────────────────────────────
+export const impersonateGym = async (req: SuperAdminRequest, res: Response) => {
+  try {
+    const gym = await GymClient.findById(req.params.id);
+    if (!gym)
+      return res
+        .status(404)
+        .json({ success: false, message: "Gym not found." });
+    if (gym.status !== "active") {
+      return res.status(400).json({
         success: false,
-        message: `Failed to send email: ${msg}. Check your Resend API key and domain settings.`,
+        message: `Cannot impersonate a ${gym.status} gym. Reactivate it first.`,
       });
     }
 
+    const owner = await User.findById(gym.ownerId).select(
+      "_id name email role isActive",
+    );
+    if (!owner)
+      return res
+        .status(404)
+        .json({ success: false, message: "Owner user not found." });
+    if (!owner.isActive)
+      return res
+        .status(400)
+        .json({ success: false, message: "Owner account is inactive." });
+
+    const secret = process.env.IMPERSONATE_SECRET;
+    if (!secret)
+      return res.status(500).json({
+        success: false,
+        message: "IMPERSONATE_SECRET is not configured.",
+      });
+
+    // jti = unique token ID, used for single-use enforcement on exchange
+    const impersonateToken = jwt.sign(
+      {
+        purpose: "impersonate",
+        ownerId: owner._id.toString(),
+        gymName: gym.gymName,
+        jti: crypto.randomBytes(16).toString("hex"),
+      },
+      secret,
+      { expiresIn: "15m" },
+    );
+
+    logSa(
+      "impersonation_started",
+      `Token generated for "${gym.gymName}" (${owner.email})`,
+      getIp(req),
+      gym._id.toString(),
+    );
     return res.status(200).json({
       success: true,
-      message: `Invite resent to ${owner.email}.`,
+      impersonateToken,
+      gymName: gym.gymName,
+      ownerEmail: owner.email,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ─── POST /api/superadmin/exchange-impersonate ────────────────────────────────
+// Public — no auth middleware. Impersonation token IS the credential.
+// Single-use enforced. Rate limited 10/min per IP.
+export const exchangeImpersonate = async (req: Request, res: Response) => {
+  try {
+    const ip = getIp(req);
+    if (checkExchangeLimit(ip)) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many requests. Please wait a moment.",
+      });
+    }
+
+    const { token } = req.body as { token: string };
+    if (!token)
+      return res
+        .status(400)
+        .json({ success: false, message: "Token is required." });
+
+    // Single-use: reject immediately if already used
+    if (isUsed(token)) {
+      return res.status(401).json({
+        success: false,
+        message: "This impersonation link has already been used.",
+      });
+    }
+
+    const secret = process.env.IMPERSONATE_SECRET;
+    if (!secret)
+      return res.status(500).json({
+        success: false,
+        message: "IMPERSONATE_SECRET is not configured.",
+      });
+
+    let decoded: {
+      purpose: string;
+      ownerId: string;
+      gymName: string;
+      jti?: string;
+    };
+    try {
+      decoded = jwt.verify(token, secret) as any;
+    } catch {
+      return res.status(401).json({
+        success: false,
+        message: "Impersonation link has expired or is invalid.",
+      });
+    }
+
+    if (decoded.purpose !== "impersonate") {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid token purpose." });
+    }
+
+    // Mark as used — any subsequent attempt with same token is rejected
+    markUsed(token);
+
+    const owner = await User.findById(decoded.ownerId).select(
+      "_id name email role isActive",
+    );
+    if (!owner)
+      return res
+        .status(404)
+        .json({ success: false, message: "Owner account not found." });
+    if (!owner.isActive)
+      return res
+        .status(403)
+        .json({ success: false, message: "Owner account is inactive." });
+
+    // Issue a 4-hour session token for impersonation support sessions.
+    // - 15m was too short (caused mid-session auto-logout)
+    // - 7d was too long (full owner access for a week if token leaks)
+    // - 4h is a safe middle ground for real support work
+    // impersonated: true is stored in authStore.user so the 401 interceptor
+    // can show a friendly "support session ended" message instead of a
+    // generic forced-logout.
+    const sessionToken = jwt.sign(
+      {
+        id: owner._id.toString(),
+        role: owner.role,
+        name: owner.name,
+        impersonated: true,
+      },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "4h" },
+    );
+
+    return res.status(200).json({
+      success: true,
+      token: sessionToken,
+      user: {
+        id: owner._id,
+        name: owner.name,
+        email: owner.email,
+        role: owner.role,
+        impersonated: true,
+      },
+      gymName: decoded.gymName,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });

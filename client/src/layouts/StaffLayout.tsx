@@ -397,7 +397,7 @@ export default function StaffLayout({
               />
             </div>
           ) : (
-            <div className="text-lg font-black tracking-widest text-[#FF6B1A] uppercase">
+            <div className="text-lg font-black text-center tracking-widest text-[#FF6B1A] uppercase">
               ⚡ {gymName}
             </div>
           )}
