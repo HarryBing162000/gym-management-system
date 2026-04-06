@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import User from "../models/User";
 import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
@@ -133,7 +134,7 @@ export const registerStaff = async (req: AuthRequest, res: Response) => {
       username,
       password,
       role: "staff",
-      ownerId: req.user!.id, // links staff to their owner's gym
+      ownerId: new mongoose.Types.ObjectId(req.user!.id), // links staff to their owner's gym
     });
     const token = generateToken(user._id.toString(), user.role, user.name);
 
@@ -215,6 +216,7 @@ export const loginOwner = async (req: Request, res: Response) => {
     const token = generateToken(user._id.toString(), user.role, user.name);
 
     await logAction({
+      ownerId: user._id.toString(),
       action: "login",
       performedBy: {
         userId: user._id.toString(),
@@ -298,6 +300,7 @@ export const loginStaff = async (req: Request, res: Response) => {
     const token = generateToken(user._id.toString(), user.role, user.name);
 
     await logAction({
+      ownerId: (user as any).ownerId?.toString() ?? user._id.toString(),
       action: "login",
       performedBy: {
         userId: user._id.toString(),
@@ -324,9 +327,9 @@ export const loginStaff = async (req: Request, res: Response) => {
 };
 
 // =================== LIST STAFF ===================
-export const listStaff = async (req: Request, res: Response) => {
+export const listStaff = async (req: AuthRequest, res: Response) => {
   try {
-    const staff = await User.find({ role: "staff" })
+    const staff = await User.find({ role: "staff", ownerId: req.user!.id })
       .select("name username isActive createdAt")
       .sort({ createdAt: -1 });
     return res.status(200).json({ success: true, staff });
@@ -336,10 +339,10 @@ export const listStaff = async (req: Request, res: Response) => {
 };
 
 // =================== DEACTIVATE STAFF ===================
-export const deactivateStaff = async (req: Request, res: Response) => {
+export const deactivateStaff = async (req: AuthRequest, res: Response) => {
   try {
     const user = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "staff" },
+      { _id: req.params.id, role: "staff", ownerId: req.user!.id },
       { isActive: false },
       { returnDocument: "after" },
     ).select("name username isActive");
@@ -354,10 +357,10 @@ export const deactivateStaff = async (req: Request, res: Response) => {
 };
 
 // =================== REACTIVATE STAFF ===================
-export const reactivateStaff = async (req: Request, res: Response) => {
+export const reactivateStaff = async (req: AuthRequest, res: Response) => {
   try {
     const user = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "staff" },
+      { _id: req.params.id, role: "staff", ownerId: req.user!.id },
       { isActive: true },
       { returnDocument: "after" },
     ).select("name username isActive");
@@ -422,6 +425,7 @@ export const updatePassword = async (req: AuthRequest, res: Response) => {
     await user.save();
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -476,6 +480,7 @@ export const updateEmail = async (req: AuthRequest, res: Response) => {
     await user.save();
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -501,12 +506,13 @@ export const updateGym = async (req: AuthRequest, res: Response) => {
     const { gymName, gymAddress }: UpdateGymInput = req.body;
 
     const settings = await Settings.findOneAndUpdate(
-      {},
+      { ownerId: req.user!.id },
       { gymName, gymAddress },
       { upsert: true, new: true, runValidators: true },
     );
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -531,9 +537,11 @@ export const updateGym = async (req: AuthRequest, res: Response) => {
 };
 
 // =================== GET GYM INFO ===================
-export const getGymInfo = async (_req: Request, res: Response) => {
+export const getGymInfo = async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({
+      ownerId: (req as AuthRequest).user?.id,
+    });
     const activePlans = settings?.plans?.filter((p) => p.isActive) ?? [];
 
     return res.status(200).json({
@@ -580,18 +588,19 @@ export const uploadLogoController = async (req: AuthRequest, res: Response) => {
       path: string;
       filename: string;
     };
-    const currentSettings = await Settings.findOne({});
+    const currentSettings = await Settings.findOne({ ownerId: req.user!.id });
     if (currentSettings?.logoPublicId) {
       await cloudinary.uploader.destroy(currentSettings.logoPublicId);
     }
 
     const settings = await Settings.findOneAndUpdate(
-      {},
+      { ownerId: req.user!.id },
       { logoUrl: file.path, logoPublicId: file.filename },
       { upsert: true, new: true, runValidators: true },
     );
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -614,7 +623,7 @@ export const uploadLogoController = async (req: AuthRequest, res: Response) => {
 // =================== DELETE LOGO ===================
 export const deleteLogo = async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({ ownerId: req.user!.id });
     if (!settings?.logoPublicId)
       return res
         .status(404)
@@ -622,12 +631,13 @@ export const deleteLogo = async (req: AuthRequest, res: Response) => {
 
     await cloudinary.uploader.destroy(settings.logoPublicId);
     await Settings.findOneAndUpdate(
-      {},
+      { ownerId: req.user!.id },
       { logoUrl: null, logoPublicId: null },
       { new: true },
     );
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -647,9 +657,9 @@ export const deleteLogo = async (req: AuthRequest, res: Response) => {
 
 // =================== PLAN MANAGEMENT ===================
 
-export const getPlans = async (_req: AuthRequest, res: Response) => {
+export const getPlans = async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({ ownerId: req.user!.id });
     return res
       .status(200)
       .json({ success: true, plans: settings?.plans ?? [] });
@@ -681,7 +691,7 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
         message: "Duration must be between 1 and 24 months.",
       });
 
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({ ownerId: req.user!.id });
     if (!settings)
       return res
         .status(500)
@@ -706,6 +716,7 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -735,7 +746,7 @@ export const updatePlan = async (req: AuthRequest, res: Response) => {
       name?: string;
     };
 
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({ ownerId: req.user!.id });
     if (!settings)
       return res
         .status(500)
@@ -770,6 +781,7 @@ export const updatePlan = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -793,7 +805,7 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
   try {
     const { planId } = req.params;
 
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({ ownerId: req.user!.id });
     if (!settings)
       return res
         .status(500)
@@ -819,6 +831,7 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -849,7 +862,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       timezone?: string;
     };
 
-    const settings = await Settings.findOne({});
+    const settings = await Settings.findOne({ ownerId: req.user!.id });
     if (!settings)
       return res
         .status(500)
@@ -870,6 +883,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
+      ownerId: req.user!.id,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -952,6 +966,7 @@ export const setPassword = async (req: Request, res: Response) => {
     );
 
     await logAction({
+      ownerId: user._id.toString(),
       action: "login",
       performedBy: {
         userId: user._id.toString(),

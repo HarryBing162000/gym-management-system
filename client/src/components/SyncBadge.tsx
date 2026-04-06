@@ -1,6 +1,6 @@
 /**
  * SyncBadge.tsx
- * GMS -- Offline Sync Status Badge
+ * LakasGMS — Offline Sync Status Badge
  *
  * Mounts in OwnerLayout and StaffLayout topbars.
  * Font and design matches system conventions:

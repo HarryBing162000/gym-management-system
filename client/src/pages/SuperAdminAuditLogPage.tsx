@@ -1,6 +1,6 @@
 /**
  * SuperAdminAuditLogPage.tsx
- * GMS — Super Admin Audit Log Viewer
+ * LakasGMS — Super Admin Audit Log Viewer
  *
  * Dedicated page at /superadmin/audit-log
  * Protected by SuperAdminRoute — requires valid superAdminStore token.
@@ -320,7 +320,7 @@ export default function SuperAdminAuditLogPage() {
               Super Admin Audit Log
             </div>
             <div className="text-white/30 text-xs">
-              All actions performed in the GMS Control Panel — persisted to
+              All actions performed in the LakasGMS Control Panel — persisted to
               MongoDB.
             </div>
           </div>

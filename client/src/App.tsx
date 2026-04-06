@@ -75,9 +75,9 @@ function App() {
 
   useEffect(() => {
     if (settings?.gymName) {
-      document.title = `${settings.gymName} — GMS`;
+      document.title = `${settings.gymName} — LakasGMS`;
     } else {
-      document.title = "Gym Management System";
+      document.title = "LakasGMS";
     }
   }, [settings?.gymName]);
 

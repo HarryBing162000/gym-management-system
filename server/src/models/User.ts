@@ -1,6 +1,6 @@
 /**
  * User.ts
- *  GMS — Authentication User Model
+ * LakasGMS — Authentication User Model
  *
  * Stores owner and staff accounts ONLY.
  * Gym members are stored in the Member model (separate collection).
@@ -92,12 +92,13 @@ const UserSchema = new Schema<IUser>(
       trim: true,
     },
 
-    // Staff only — set at creation time, null for owners.
+    // Staff only — set at creation time, absent for owners.
     // Enables protect middleware to trace staff back to their gym's GymClient.
+    // Owners have no ownerId in the DB — their ownerId is derived at runtime
+    // in protect middleware as decoded.id (their own User._id).
     ownerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null,
     },
   },
   { timestamps: true },

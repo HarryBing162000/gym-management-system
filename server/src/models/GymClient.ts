@@ -1,6 +1,6 @@
 /**
  * GymClient.ts
- * GMS — Super Admin: Gym Client Model
+ * LakasGMS — Super Admin: Gym Client Model
  *
  * One document per gym that has been onboarded by Super Admin.
  * Tracks the owner user reference, billing status, and admin notes.

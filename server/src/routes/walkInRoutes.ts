@@ -57,7 +57,7 @@ router.post(
   requireRole("owner"),
   async (req, res) => {
     try {
-      const result = await runAutoCheckout();
+      const result = await runAutoCheckout((req as any).user?.ownerId);
       return res.status(200).json({
         success: true,
         message:

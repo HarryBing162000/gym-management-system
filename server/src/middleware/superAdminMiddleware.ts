@@ -1,6 +1,6 @@
 /**
  * superAdminMiddleware.ts
- * GMS — Super Admin Auth Middleware
+ * LakasGMS — Super Admin Auth Middleware
  *
  * Verifies the super admin JWT using SUPER_JWT_SECRET — completely
  * separate from the owner/staff JWT_SECRET. A super admin token

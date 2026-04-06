@@ -1,6 +1,6 @@
 /**
  * offlineService.ts
- * GMS — Offline-Aware Action Wrappers
+ * LakasGMS — Offline-Aware Action Wrappers
  *
  * Wraps write actions that must work offline:
  *   - Member check-in

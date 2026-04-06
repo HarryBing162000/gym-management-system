@@ -1,6 +1,6 @@
 /**
  * ConfirmModal.tsx
- * GMS — Shared confirmation modal for destructive / important actions.
+ * LakasGMS — Shared confirmation modal for destructive / important actions.
  *
  * Use for:
  *   - Deactivate member        (danger)

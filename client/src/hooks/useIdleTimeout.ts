@@ -1,6 +1,6 @@
 /**
  * useIdleTimeout.ts
- * GMS — Super Admin Idle Timeout Hook
+ * LakasGMS — Super Admin Idle Timeout Hook
  *
  * Watches mouse, keyboard, click, and scroll events.
  * If none fire within `idleMinutes`, the `onIdle` callback is called.

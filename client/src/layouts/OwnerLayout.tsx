@@ -292,7 +292,7 @@ export default function OwnerLayout({
     .slice(0, 2)
     .toUpperCase();
 
-  const gymName = settings?.gymName || "GMS";
+  const gymName = settings?.gymName || "LakasGMS";
   const logoUrl = settings?.logoUrl || null;
 
   // Overview = first 4, Manage = last 3 (Staff, Reports, Action Log)

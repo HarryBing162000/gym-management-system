@@ -1,6 +1,6 @@
 /**
  * toastStore.ts
- * IronCore GMS — Global Toast Notification Store
+ * LakasGMS — Global Toast Notification Store
  *
  * Usage anywhere in the app:
  *   const { showToast } = useToastStore();

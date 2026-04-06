@@ -1,6 +1,6 @@
 /**
  * PlansManager.tsx
- * IronCore GMS — Plan Management Component
+ * LakasGMS — Plan Management Component
  *
  * Drop this into your SettingsPage to let the owner:
  *   - View all plans (active + inactive)

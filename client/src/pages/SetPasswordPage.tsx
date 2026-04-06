@@ -1,6 +1,6 @@
 /**
  * SetPasswordPage.tsx
- * GMS — Set / Reset Password
+ * LakasGMS — Set / Reset Password
  *
  * Handles two flows from email links:
  *   /set-password?token=...   → owner first-time password setup (invite)
@@ -31,7 +31,7 @@ export default function SetPasswordPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [done, setDone] = useState(false);
 
-  const gymName = settings?.gymName || "GMS";
+  const gymName = settings?.gymName || "LakasGMS";
 
   const handleSubmit = async () => {
     setErrorMsg("");
@@ -148,7 +148,7 @@ export default function SetPasswordPage() {
             <h1 className="text-xl font-black tracking-widest text-[#FF6B1A] uppercase">
               ⚡ {gymName}
             </h1>
-            <p className="text-xs text-white/40 mt-1">Gym Management System</p>
+            <p className="text-xs text-white/40 mt-1">LakasGMS</p>
             <div className="mt-4">
               <div className="text-white font-bold text-base">
                 {isReset ? "Reset Your Password" : "Set Your Password"}

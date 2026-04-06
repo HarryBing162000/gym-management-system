@@ -1,6 +1,6 @@
 /**
  * SuperAdminAuditLog.ts
- * GMS — Super Admin Audit Log Model
+ * LakasGMS — Super Admin Audit Log Model
  *
  * Persists all Super Admin actions to MongoDB.
  * Replaces the previous in-memory array which reset on every server restart.

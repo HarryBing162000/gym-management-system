@@ -1,6 +1,6 @@
 /**
  * ForgotPasswordPage.tsx
- * GMS — Forgot Password
+ * LakasGMS — Forgot Password
  *
  * Owner enters their email → backend sends reset link via Resend.
  * Linked from LoginPage with a small "Forgot password?" link.
@@ -74,7 +74,7 @@ export default function ForgotPasswordPage() {
             <h1 className="text-xl font-black tracking-widest text-[#FF6B1A] uppercase">
               ⚡ {gymName}
             </h1>
-            <p className="text-xs text-white/40 mt-1">Gym Management System</p>
+            <p className="text-xs text-white/40 mt-1">LakasGMS</p>
           </div>
 
           {sent ? (

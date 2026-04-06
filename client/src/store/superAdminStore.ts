@@ -1,6 +1,6 @@
 /**
  * superAdminStore.ts
- * GMS — Super Admin Zustand Store
+ * LakasGMS — Super Admin Zustand Store
  *
  * Separate from authStore — super admin token never mixes
  * with owner/staff tokens.

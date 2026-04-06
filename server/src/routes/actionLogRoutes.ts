@@ -8,20 +8,18 @@ const router = Router();
 // Helper — convert a YYYY-MM-DD date string to Manila start/end of day in UTC
 const toManilaStart = (dateStr: string): Date => {
   const [y, m, d] = dateStr.split("-").map(Number);
-  // Manila is UTC+8, so midnight Manila = 16:00 UTC previous day
   return new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
 };
 const toManilaEnd = (dateStr: string): Date => {
   const [y, m, d] = dateStr.split("-").map(Number);
-  // End of Manila day = 15:59:59.999 UTC
   return new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
 };
 
 // GET /api/action-logs
-// Owner → all logs with full filtering | Staff → only their own
+// Owner → all logs for their gym | Staff → only their own logs within their gym
 router.get("/", protect, async (req: AuthRequest, res: Response) => {
   try {
-    const { role, id: userId } = req.user!;
+    const { role, id: userId, ownerId } = req.user!;
 
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const page = Math.max(parseInt(req.query.page as string) || 1, 1);
@@ -32,19 +30,20 @@ router.get("/", protect, async (req: AuthRequest, res: Response) => {
     const byRole = req.query.role as string | undefined;
     const byStaffId = req.query.staffId as string | undefined;
 
-    const filter: Record<string, unknown> = {};
+    // Always scope to the gym — ownerId is the gym owner's User._id
+    const filter: Record<string, unknown> = { ownerId };
 
     // Staff can only ever see their own logs — enforced server-side
     if (role === "staff") {
       filter["performedBy.userId"] = userId;
     } else {
+      // Owner can filter by role or specific staff member
       if (byRole) filter["performedBy.role"] = byRole;
       if (byStaffId) filter["performedBy.userId"] = byStaffId;
     }
 
     if (action) filter.action = action;
 
-    // Use Manila timezone-aware date boundaries
     if (from || to) {
       const tsFilter: Record<string, unknown> = {};
       if (from) tsFilter["$gte"] = toManilaStart(from);
@@ -72,6 +71,7 @@ router.get("/", protect, async (req: AuthRequest, res: Response) => {
 router.post("/logout", protect, async (req: AuthRequest, res: Response) => {
   try {
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "logout",
       performedBy: {
         userId: req.user!.id,

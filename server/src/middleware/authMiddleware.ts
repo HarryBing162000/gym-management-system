@@ -8,6 +8,8 @@ export interface AuthRequest extends Request {
     id: string;
     role: "owner" | "staff";
     name: string;
+    ownerId: string; // always the gym owner's User._id
+    // owner → same as id; staff → their User.ownerId
   };
 }
 
@@ -98,7 +100,21 @@ export const protect = async (
       }
     }
 
-    req.user = { id: decoded.id, role: decoded.role, name: decoded.name };
+    // ownerId = the gym owner's User._id.
+    // For owners: same as their own id.
+    // For staff: their User.ownerId field (set at creation).
+    // Every controller uses req.user.ownerId to scope DB queries to one gym.
+    const ownerId =
+      decoded.role === "owner"
+        ? decoded.id
+        : ((user as any).ownerId?.toString() ?? decoded.id);
+
+    req.user = {
+      id: decoded.id,
+      role: decoded.role,
+      name: decoded.name,
+      ownerId,
+    };
     return next();
   } catch (err) {
     return res.status(401).json({

@@ -1,6 +1,6 @@
 /**
  * Payment.ts
- * IronCore GMS — Payment Model
+ * LakasGMS — Payment Model
  *
  * Tracks all membership payments:
  *   - Auto-created on new member registration
@@ -20,6 +20,7 @@ export type PaymentType =
   | "balance_settlement";
 
 export interface IPayment extends Document {
+  ownerId: mongoose.Types.ObjectId; // ref → User (owner) — gym scoping
   // Member reference
   gymId: string;
   memberName: string;
@@ -44,6 +45,12 @@ export interface IPayment extends Document {
 
 const PaymentSchema = new Schema<IPayment>(
   {
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     gymId: {
       type: String,
       required: true,
@@ -111,6 +118,7 @@ const PaymentSchema = new Schema<IPayment>(
 );
 
 // Indexes for common queries
+PaymentSchema.index({ ownerId: 1, createdAt: -1 });
 PaymentSchema.index({ createdAt: -1 });
 PaymentSchema.index({ gymId: 1, createdAt: -1 });
 PaymentSchema.index({ method: 1, createdAt: -1 });

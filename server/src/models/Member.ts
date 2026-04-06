@@ -1,6 +1,6 @@
 /**
  * Member.ts
- * IronCore GMS — Gym Member Model
+ * LakasGMS — Gym Member Model
  *
  * Separate from the User model (which handles owner/staff auth).
  * Members are gym clients — they have membership data, not login accounts.
@@ -12,6 +12,7 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export interface IMember extends Document {
+  ownerId: mongoose.Types.ObjectId; // ref → User (owner) — gym scoping
   gymId: string; // e.g. "GYM-1001" — public identifier
   name: string;
   email?: string; // optional
@@ -30,6 +31,12 @@ export interface IMember extends Document {
 
 const MemberSchema = new Schema<IMember>(
   {
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "Owner ID is required"],
+      index: true,
+    },
     gymId: {
       type: String,
       required: [true, "GYM-ID is required"],
@@ -98,14 +105,17 @@ const MemberSchema = new Schema<IMember>(
 );
 
 // ── Indexes ────────────────────────────────────────────────────────────────────
+// Primary scoping index — every query filters by ownerId first
+MemberSchema.index({ ownerId: 1, createdAt: -1 });
+
 // Compound text index for search by name or email
 MemberSchema.index({ name: "text", email: "text" });
 
 // Index for expiry queries (at-risk members, expired reports)
-MemberSchema.index({ expiresAt: 1, status: 1 });
+MemberSchema.index({ ownerId: 1, expiresAt: 1, status: 1 });
 
 // Index for check-in status queries
-MemberSchema.index({ checkedIn: 1, isActive: 1 });
+MemberSchema.index({ ownerId: 1, checkedIn: 1, isActive: 1 });
 
 export default (mongoose.models.Member as mongoose.Model<IMember>) ||
   mongoose.model<IMember>("Member", MemberSchema);

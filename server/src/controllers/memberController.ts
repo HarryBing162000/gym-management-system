@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/authMiddleware";
 import Member from "../models/Member";
 import { logAction } from "../utils/logAction";
@@ -25,8 +26,8 @@ const MEMBER_SAFE_FIELDS = {
   createdAt: 1,
 };
 
-const generateGymId = async (): Promise<string> => {
-  const lastMember = await Member.findOne({})
+const generateGymId = async (ownerId: string): Promise<string> => {
+  const lastMember = await Member.findOne({ ownerId })
     .sort({ createdAt: -1 })
     .select("gymId");
   if (!lastMember?.gymId) return "GYM-1001";
@@ -34,9 +35,11 @@ const generateGymId = async (): Promise<string> => {
   return `GYM-${String(lastNum + 1).padStart(4, "0")}`;
 };
 
-const autoExpireMembers = async (): Promise<void> => {
+// FIX: scoped to ownerId — only expires members belonging to this gym,
+// not every member in the entire database across all gyms.
+const autoExpireMembers = async (ownerId: string): Promise<void> => {
   await Member.updateMany(
-    { status: "active", expiresAt: { $lt: new Date() } },
+    { ownerId, status: "active", expiresAt: { $lt: new Date() } },
     { $set: { status: "expired" } },
   );
 };
@@ -44,7 +47,8 @@ const autoExpireMembers = async (): Promise<void> => {
 // ─── GET /api/members ─────────────────────────────────────────────────────────
 export const getMembers = async (req: AuthRequest, res: Response) => {
   try {
-    await autoExpireMembers();
+    // FIX: pass ownerId so only this gym's members are expired
+    await autoExpireMembers(req.user!.ownerId);
 
     const {
       status,
@@ -59,7 +63,10 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
-    const filter: Record<string, unknown> = { isActive: true };
+    const filter: Record<string, unknown> = {
+      isActive: true,
+      ownerId: req.user!.ownerId,
+    };
 
     if (status && ["active", "inactive", "expired"].includes(status))
       filter.status = status;
@@ -104,21 +111,24 @@ export const getMembers = async (req: AuthRequest, res: Response) => {
 };
 
 // ─── GET /api/members/stats ───────────────────────────────────────────────────
-export const getMemberStats = async (_req: AuthRequest, res: Response) => {
+export const getMemberStats = async (req: AuthRequest, res: Response) => {
   try {
-    await autoExpireMembers();
+    const ownerId = req.user!.ownerId;
+    // FIX: pass ownerId so only this gym's members are expired
+    await autoExpireMembers(ownerId);
     const now = new Date();
     const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const [total, checkedIn, expiringSoon, withBalance] = await Promise.all([
-      Member.countDocuments({ isActive: true }),
-      Member.countDocuments({ isActive: true, checkedIn: true }),
+      Member.countDocuments({ ownerId, isActive: true }),
+      Member.countDocuments({ ownerId, isActive: true, checkedIn: true }),
       Member.countDocuments({
+        ownerId,
         isActive: true,
         status: "active",
         expiresAt: { $gte: now, $lte: in7Days },
       }),
-      Member.countDocuments({ isActive: true, balance: { $gt: 0 } }),
+      Member.countDocuments({ ownerId, isActive: true, balance: { $gt: 0 } }),
     ]);
 
     return res
@@ -131,13 +141,16 @@ export const getMemberStats = async (_req: AuthRequest, res: Response) => {
 };
 
 // ─── GET /api/members/at-risk ─────────────────────────────────────────────────
-export const getAtRiskMembers = async (_req: AuthRequest, res: Response) => {
+export const getAtRiskMembers = async (req: AuthRequest, res: Response) => {
   try {
-    await autoExpireMembers();
+    const ownerId = req.user!.ownerId;
+    // FIX: pass ownerId so only this gym's members are expired
+    await autoExpireMembers(ownerId);
     const now = new Date();
     const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const expiring = await Member.find({
+      ownerId,
       isActive: true,
       status: "active",
       expiresAt: { $gte: now, $lte: in7Days },
@@ -146,7 +159,11 @@ export const getAtRiskMembers = async (_req: AuthRequest, res: Response) => {
       .sort({ expiresAt: 1 })
       .limit(10);
 
-    const overdue = await Member.find({ isActive: true, status: "expired" })
+    const overdue = await Member.find({
+      ownerId,
+      isActive: true,
+      status: "expired",
+    })
       .select(MEMBER_SAFE_FIELDS)
       .sort({ expiresAt: -1 })
       .limit(5);
@@ -186,6 +203,7 @@ export const getMemberByGymId = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
     const member = await Member.findOne({
+      ownerId: req.user!.ownerId,
       gymId: String(gymId).toUpperCase(),
     }).select(MEMBER_SAFE_FIELDS);
     if (!member)
@@ -205,8 +223,11 @@ export const createMember = async (req: AuthRequest, res: Response) => {
     const { name, email, phone, plan, status, expiresAt }: CreateMemberInput =
       req.body;
 
+    const ownerId = req.user!.ownerId;
+
     const escapedName = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const nameExists = await Member.findOne({
+      ownerId,
       name: { $regex: `^${escapedName}$`, $options: "i" },
     }).select("gymId name");
     if (nameExists) {
@@ -217,50 +238,49 @@ export const createMember = async (req: AuthRequest, res: Response) => {
     }
 
     if (email) {
-      const emailExists = await Member.findOne({ email }).select("gymId name");
+      const emailExists = await Member.findOne({ ownerId, email }).select(
+        "gymId name",
+      );
       if (emailExists)
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message:
-              "This email is already registered. Please use a different email.",
-          });
+        return res.status(409).json({
+          success: false,
+          message:
+            "This email is already registered. Please use a different email.",
+        });
     }
 
     if (phone) {
       const normalizedPhone = phone.replace(/\s/g, "");
+      const escaped = normalizedPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const phoneExists = await Member.findOne({
-        phone: {
-          $regex: normalizedPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        },
+        ownerId,
+        phone: { $regex: escaped },
       }).select("gymId name");
       if (phoneExists)
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
-          });
+        return res.status(409).json({
+          success: false,
+          message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
+        });
     }
 
     let gymId = "";
     let attempts = 0;
     while (true) {
-      gymId = await generateGymId();
-      const collision = await Member.findOne({ gymId });
+      gymId = await generateGymId(ownerId);
+      // FIX: scope collision check to this gym only — gymId sequences are
+      // per-gym, so two gyms can have GYM-1001 without conflict.
+      const collision = await Member.findOne({ ownerId, gymId });
       if (!collision) break;
       attempts++;
       if (attempts > 5)
-        return res
-          .status(500)
-          .json({
-            success: false,
-            message: "Failed to generate unique GYM-ID. Please try again.",
-          });
+        return res.status(500).json({
+          success: false,
+          message: "Failed to generate unique GYM-ID. Please try again.",
+        });
     }
 
     const createPayload: Record<string, unknown> = {
+      ownerId: new mongoose.Types.ObjectId(ownerId),
       gymId,
       name,
       plan,
@@ -275,6 +295,7 @@ export const createMember = async (req: AuthRequest, res: Response) => {
     const member = await Member.create(createPayload);
 
     await logAction({
+      ownerId,
       action: "member_created",
       performedBy: {
         userId: req.user!.id,
@@ -288,6 +309,7 @@ export const createMember = async (req: AuthRequest, res: Response) => {
 
     try {
       await autoLogPayment({
+        ownerId,
         gymId: member.gymId,
         memberName: member.name,
         plan: member.plan,
@@ -324,12 +346,10 @@ export const createMember = async (req: AuthRequest, res: Response) => {
       "code" in err &&
       (err as { code: number }).code === 11000
     ) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "A member with this information already exists.",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "A member with this information already exists.",
+      });
     }
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -341,16 +361,15 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
     const updates: UpdateMemberInput = req.body;
+    const ownerId = req.user!.ownerId;
 
     const blocked = ["gymId", "_id"] as const;
     for (const field of blocked) {
       if (field in updates)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: `Field "${field}" cannot be updated.`,
-          });
+        return res.status(400).json({
+          success: false,
+          message: `Field "${field}" cannot be updated.`,
+        });
     }
 
     const currentGymId = String(gymId).toUpperCase();
@@ -360,47 +379,43 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
         .trim()
         .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const nameExists = await Member.findOne({
+        ownerId,
         name: { $regex: `^${escapedName}$`, $options: "i" },
         gymId: { $ne: currentGymId },
       }).select("gymId name");
       if (nameExists)
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message: `A member named "${nameExists.name}" already exists (${nameExists.gymId}).`,
-          });
+        return res.status(409).json({
+          success: false,
+          message: `A member named "${nameExists.name}" already exists (${nameExists.gymId}).`,
+        });
     }
 
     if (updates.email) {
       const emailExists = await Member.findOne({
+        ownerId,
         email: updates.email,
         gymId: { $ne: currentGymId },
       }).select("gymId name");
       if (emailExists)
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message: "This email is already registered to another member.",
-          });
+        return res.status(409).json({
+          success: false,
+          message: "This email is already registered to another member.",
+        });
     }
 
     if (updates.phone) {
       const normalizedPhone = updates.phone.replace(/\s/g, "");
+      const escaped = normalizedPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const phoneExists = await Member.findOne({
-        phone: {
-          $regex: normalizedPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        },
+        ownerId,
+        phone: { $regex: escaped },
         gymId: { $ne: currentGymId },
       }).select("gymId name");
       if (phoneExists)
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
-          });
+        return res.status(409).json({
+          success: false,
+          message: `This phone number is already registered to ${phoneExists.name} (${phoneExists.gymId}).`,
+        });
     }
 
     const setPayload: Record<string, unknown> = {};
@@ -419,20 +434,19 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
     }
 
     if (Object.keys(setPayload).length === 0)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "No valid fields provided for update.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update.",
+      });
 
-    const oldMember = await Member.findOne({ gymId: currentGymId }).select(
-      "expiresAt",
-    );
+    const oldMember = await Member.findOne({
+      ownerId,
+      gymId: currentGymId,
+    }).select("expiresAt");
     const oldExpiresAt = oldMember?.expiresAt;
 
     const member = await Member.findOneAndUpdate(
-      { gymId: currentGymId },
+      { ownerId, gymId: currentGymId },
       { $set: setPayload },
       { returnDocument: "after", runValidators: true },
     ).select(MEMBER_SAFE_FIELDS);
@@ -448,7 +462,8 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       new Date(setPayload.expiresAt as Date) > new Date(oldExpiresAt);
 
     await logAction({
-      action: isRenewal ? "member_updated" : "member_updated",
+      ownerId,
+      action: "member_updated",
       performedBy: {
         userId: req.user!.id,
         name: req.user!.name,
@@ -464,6 +479,7 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
     if (isRenewal) {
       try {
         await autoLogPayment({
+          ownerId,
           gymId: member!.gymId,
           memberName: member!.name,
           plan: String(setPayload.plan ?? member!.plan),
@@ -484,9 +500,11 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    return res
-      .status(200)
-      .json({ success: true, message: "Member updated successfully.", member });
+    return res.status(200).json({
+      success: true,
+      message: "Member updated successfully.",
+      member,
+    });
   } catch (err: unknown) {
     if (
       typeof err === "object" &&
@@ -494,12 +512,10 @@ export const updateMember = async (req: AuthRequest, res: Response) => {
       "code" in err &&
       (err as { code: number }).code === 11000
     ) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "This information is already in use by another member.",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "This information is already in use by another member.",
+      });
     }
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -511,7 +527,7 @@ export const deactivateMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
     const member = await Member.findOneAndUpdate(
-      { gymId: String(gymId).toUpperCase() },
+      { ownerId: req.user!.ownerId, gymId: String(gymId).toUpperCase() },
       { $set: { isActive: false, status: "inactive", checkedIn: false } },
       { returnDocument: "after" },
     ).select(MEMBER_SAFE_FIELDS);
@@ -522,6 +538,7 @@ export const deactivateMember = async (req: AuthRequest, res: Response) => {
         .json({ success: false, message: `Member ${gymId} not found.` });
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "member_updated",
       performedBy: {
         userId: req.user!.id,
@@ -533,13 +550,11 @@ export const deactivateMember = async (req: AuthRequest, res: Response) => {
       detail: `${req.user!.name} deactivated member ${member.name} (${member.gymId})`,
     });
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: `Member ${gymId} has been deactivated.`,
-        member,
-      });
+    return res.status(200).json({
+      success: true,
+      message: `Member ${gymId} has been deactivated.`,
+      member,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     return res.status(500).json({ success: false, message });
@@ -551,8 +566,9 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
     const upperGymId = String(gymId).toUpperCase();
+    const ownerId = req.user!.ownerId;
 
-    const existing = await Member.findOne({ gymId: upperGymId });
+    const existing = await Member.findOne({ ownerId, gymId: upperGymId });
     if (!existing)
       return res
         .status(404)
@@ -562,12 +578,13 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
     const newStatus = isExpired ? "expired" : "active";
 
     const member = await Member.findOneAndUpdate(
-      { gymId: upperGymId },
+      { ownerId, gymId: upperGymId },
       { $set: { isActive: true, status: newStatus } },
       { returnDocument: "after" },
     ).select(MEMBER_SAFE_FIELDS);
 
     await logAction({
+      ownerId,
       action: "member_updated",
       performedBy: {
         userId: req.user!.id,
@@ -594,39 +611,36 @@ export const reactivateMember = async (req: AuthRequest, res: Response) => {
 export const checkInMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
-
-    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    const member = await Member.findOne({
+      ownerId: req.user!.ownerId,
+      gymId: String(gymId).toUpperCase(),
+    });
     if (!member)
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
     if (!member.isActive || member.status === "inactive")
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: `${member.name}'s membership is inactive.`,
-        });
+      return res.status(403).json({
+        success: false,
+        message: `${member.name}'s membership is inactive.`,
+      });
     if (member.status === "expired")
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: `${member.name}'s membership has expired.`,
-        });
+      return res.status(403).json({
+        success: false,
+        message: `${member.name}'s membership has expired.`,
+      });
     if (member.checkedIn)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `${member.name} is already checked in.`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} is already checked in.`,
+      });
 
     member.checkedIn = true;
     member.lastCheckIn = new Date();
     await member.save();
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "check_in",
       performedBy: {
         userId: req.user!.id,
@@ -653,24 +667,25 @@ export const checkInMember = async (req: AuthRequest, res: Response) => {
 export const checkOutMember = async (req: AuthRequest, res: Response) => {
   try {
     const { gymId } = req.params;
-
-    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    const member = await Member.findOne({
+      ownerId: req.user!.ownerId,
+      gymId: String(gymId).toUpperCase(),
+    });
     if (!member)
       return res
         .status(404)
         .json({ success: false, message: `Member ${gymId} not found.` });
     if (!member.checkedIn)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `${member.name} is not currently checked in.`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `${member.name} is not currently checked in.`,
+      });
 
     member.checkedIn = false;
     await member.save();
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "check_out",
       performedBy: {
         userId: req.user!.id,

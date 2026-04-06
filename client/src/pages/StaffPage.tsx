@@ -1,6 +1,6 @@
 /**
  * StaffPage.tsx
- * IronCore GMS — Staff Management (Owner only)
+ * LakasGMS — Staff Management (Owner only)
  *
  * Lets the owner view, add, deactivate, and reactivate staff accounts.
  */

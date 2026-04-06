@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/authMiddleware";
 import Payment, { IPayment } from "../models/Payment";
 import Member from "../models/Member";
@@ -25,56 +26,104 @@ const FALLBACK_DURATIONS: Record<string, number> = {
   Student: 1,
 };
 
+// FIX: removed {} fallback — if ownerId is falsy we return null instead of
+// the first gym's settings, preventing cross-gym plan price leakage.
 const getPlanPrice = async (
   planName: string,
   settingsCache?: any,
+  ownerId?: string,
 ): Promise<number> => {
   const settings =
-    settingsCache ?? (await Settings.findOne({}).select("plans").lean());
+    settingsCache ??
+    (ownerId
+      ? await Settings.findOne({ ownerId }).select("plans").lean()
+      : null);
   const plan = settings?.plans?.find(
     (p: any) => p.name === planName && p.isActive,
   );
   return plan?.price ?? FALLBACK_PRICES[planName] ?? 0;
 };
 
+// FIX: removed {} fallback — same reason as getPlanPrice above.
 const getPlanDuration = async (
   planName: string,
   settingsCache?: any,
+  ownerId?: string,
 ): Promise<number> => {
   const settings =
-    settingsCache ?? (await Settings.findOne({}).select("plans").lean());
+    settingsCache ??
+    (ownerId
+      ? await Settings.findOne({ ownerId }).select("plans").lean()
+      : null);
   const plan = settings?.plans?.find(
     (p: any) => p.name === planName && p.isActive,
   );
   return plan?.durationMonths ?? FALLBACK_DURATIONS[planName] ?? 1;
 };
 
-const getDateRange = (range: string): { from: Date; to: Date } => {
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" });
+const getDateRange = (
+  range: string,
+  timezone: string,
+): { from: Date; to: Date } => {
   const now = new Date();
-  const manilaToday = fmt.format(now);
-  const [y, m, d] = manilaToday.split("-").map(Number);
-  const manilaStartOfDay = new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
-  const manilaEndOfDay = new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone });
+  const todayStr = fmt.format(now);
+  const [y, m, d] = todayStr.split("-").map(Number);
 
-  if (range === "today") return { from: manilaStartOfDay, to: manilaEndOfDay };
+  // Compute timezone offset in ms (handles half-hour zones like UTC+5:30)
+  const utcMs = new Date(
+    now.toLocaleString("en-US", { timeZone: "UTC" }),
+  ).getTime();
+  const tzMs = new Date(
+    now.toLocaleString("en-US", { timeZone: timezone }),
+  ).getTime();
+  const offsetMs = tzMs - utcMs;
+
+  // Midnight in the target timezone as a UTC Date
+  const startOfDay = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - offsetMs);
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+  if (range === "today") return { from: startOfDay, to: endOfDay };
   if (range === "week") {
     const dow = now.toLocaleDateString("en-PH", {
-      timeZone: "Asia/Manila",
+      timeZone: timezone,
       weekday: "short",
     });
     const dayOffset = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(
       dow,
     );
-    const from = new Date(Date.UTC(y, m - 1, d - dayOffset, -8, 0, 0, 0));
-    return { from, to: manilaEndOfDay };
+    const from = new Date(
+      Date.UTC(y, m - 1, d - dayOffset, 0, 0, 0, 0) - offsetMs,
+    );
+    return { from, to: endOfDay };
   }
   if (range === "month") {
-    const from = new Date(Date.UTC(y, m - 1, 1, -8, 0, 0, 0));
-    return { from, to: manilaEndOfDay };
+    const from = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0) - offsetMs);
+    return { from, to: endOfDay };
   }
-  const from = new Date(Date.UTC(y, m - 1, d - 30, -8, 0, 0, 0));
-  return { from, to: manilaEndOfDay };
+  const from = new Date(Date.UTC(y, m - 1, d - 30, 0, 0, 0, 0) - offsetMs);
+  return { from, to: endOfDay };
+};
+
+// FIX: helper that converts a YYYY-MM-DD date string to a UTC Date
+// representing midnight/end-of-day in the gym's actual timezone.
+// Replaces the old hardcoded toManilaStart/toManilaEnd (-8 offset).
+const buildTzDateBounds = (
+  dateStr: string,
+  timezone: string,
+): { start: Date; end: Date } => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const now = new Date();
+  const utcMs = new Date(
+    now.toLocaleString("en-US", { timeZone: "UTC" }),
+  ).getTime();
+  const tzMs = new Date(
+    now.toLocaleString("en-US", { timeZone: timezone }),
+  ).getTime();
+  const offsetMs = tzMs - utcMs;
+  const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - offsetMs);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
 };
 
 const buildSummary = (payments: IPayment[]) => {
@@ -115,7 +164,9 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
     const limitNum = Math.min(1000, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = {
+      ownerId: new mongoose.Types.ObjectId(req.user!.ownerId),
+    };
     if (method && ["cash", "online"].includes(method)) filter.method = method;
     if (
       type &&
@@ -130,18 +181,18 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
         { gymId: { $regex: safe, $options: "i" } },
       ];
     }
+
+    // FIX: date filter now reads the gym's actual timezone from Settings
+    // instead of hardcoding Manila's -8 UTC offset.
     if (from || to) {
-      const toManilaStart = (dateStr: string) => {
-        const [y, m, d] = dateStr.split("-").map(Number);
-        return new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
-      };
-      const toManilaEnd = (dateStr: string) => {
-        const [y, m, d] = dateStr.split("-").map(Number);
-        return new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
-      };
+      const settingsDoc = await Settings.findOne({ ownerId: req.user!.ownerId })
+        .select("timezone")
+        .lean();
+      const tz = (settingsDoc as any)?.timezone ?? "Asia/Manila";
+
       const dateFilter: Record<string, Date> = {};
-      if (from) dateFilter.$gte = toManilaStart(from);
-      if (to) dateFilter.$lte = toManilaEnd(to);
+      if (from) dateFilter.$gte = buildTzDateBounds(from, tz).start;
+      if (to) dateFilter.$lte = buildTzDateBounds(to, tz).end;
       filter.createdAt = dateFilter;
     }
 
@@ -204,20 +255,37 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
 // ─── GET /api/payments/summary ────────────────────────────────────────────────
 export const getPaymentSummary = async (req: AuthRequest, res: Response) => {
   try {
+    const ownerId = new mongoose.Types.ObjectId(req.user!.ownerId);
+
+    const settingsDoc = await Settings.findOne({ ownerId })
+      .select("timezone")
+      .lean();
+    const timezone = (settingsDoc as any)?.timezone ?? "Asia/Manila";
+
     const buildPeriod = async (from: Date, to: Date) => {
       const payments = await Payment.find({
+        ownerId,
         createdAt: { $gte: from, $lte: to },
       });
       return buildSummary(payments);
     };
 
     const [today, week, month] = await Promise.all([
-      buildPeriod(...(Object.values(getDateRange("today")) as [Date, Date])),
-      buildPeriod(...(Object.values(getDateRange("week")) as [Date, Date])),
-      buildPeriod(...(Object.values(getDateRange("month")) as [Date, Date])),
+      buildPeriod(
+        ...(Object.values(getDateRange("today", timezone)) as [Date, Date]),
+      ),
+      buildPeriod(
+        ...(Object.values(getDateRange("week", timezone)) as [Date, Date]),
+      ),
+      buildPeriod(
+        ...(Object.values(getDateRange("month", timezone)) as [Date, Date]),
+      ),
     ]);
 
-    const withBalance = await Member.countDocuments({ balance: { $gt: 0 } });
+    const withBalance = await Member.countDocuments({
+      ownerId: new mongoose.Types.ObjectId(req.user!.ownerId),
+      balance: { $gt: 0 },
+    });
 
     return res
       .status(200)
@@ -264,8 +332,10 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         .status(400)
         .json({ success: false, message: "Amount must be greater than zero." });
 
-    // Cache settings once for this request
-    const settingsCache = await Settings.findOne({}).select("plans").lean();
+    // Cache settings once for this request — scoped to this gym's ownerId
+    const settingsCache = await Settings.findOne({ ownerId: req.user!.ownerId })
+      .select("plans")
+      .lean();
 
     if (newPlan) {
       const validPlan = settingsCache?.plans?.some(
@@ -278,7 +348,10 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         });
     }
 
-    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    const member = await Member.findOne({
+      ownerId: req.user!.ownerId,
+      gymId: String(gymId).toUpperCase(),
+    });
     if (!member)
       return res
         .status(404)
@@ -289,8 +362,9 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         message: `${member.name} is deactivated. Reactivate the member first.`,
       });
 
-    // 10-second duplicate guard
+    // 10-second duplicate guard — scoped to ownerId
     const recentPayment = await Payment.findOne({
+      ownerId: req.user!.ownerId,
       gymId: member.gymId,
       type,
       createdAt: { $gte: new Date(Date.now() - 10000) },
@@ -306,10 +380,12 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
     if (newPlan && newPlan !== member.plan)
       member.plan = newPlan as typeof member.plan;
 
+    // FIX: pass ownerId as third arg so if settingsCache is null for any reason,
+    // getPlanPrice fetches THIS gym's settings — not the first gym's.
     const totalAmount =
       clientTotal != null && clientTotal > 0
         ? clientTotal
-        : await getPlanPrice(effectivePlan, settingsCache);
+        : await getPlanPrice(effectivePlan, settingsCache, req.user!.ownerId);
     const amountPaid =
       rawAmount != null
         ? Math.min(Number(rawAmount), totalAmount)
@@ -324,9 +400,14 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
     }
 
     if (renewExpiry) {
-      const months = await getPlanDuration(effectivePlan, settingsCache);
+      // FIX: pass ownerId as third arg for same reason as getPlanPrice above
+      const months = await getPlanDuration(
+        effectivePlan,
+        settingsCache,
+        req.user!.ownerId,
+      );
 
-      // FIX: Extend from the member's current expiry date if still active,
+      // Extend from the member's current expiry date if still active,
       // or from today if already expired — never blindly from today.
       const now = new Date();
       const currentExpiry = member.expiresAt ? new Date(member.expiresAt) : now;
@@ -340,6 +421,7 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
     await member.save();
 
     const payment = await Payment.create({
+      ownerId: new mongoose.Types.ObjectId(req.user!.ownerId),
       gymId: member.gymId,
       memberName: member.name,
       amount: amountPaid,
@@ -352,7 +434,7 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
       type: renewExpiry ? "renewal" : type,
       plan: effectivePlan,
       notes,
-      processedBy: req.user!.id,
+      processedBy: new mongoose.Types.ObjectId(req.user!.id),
     });
 
     const populated = await payment.populate(
@@ -367,6 +449,7 @@ export const createPayment = async (req: AuthRequest, res: Response) => {
         : "";
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "payment_created",
       performedBy: {
         userId: req.user!.id,
@@ -418,7 +501,10 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
         .status(400)
         .json({ success: false, message: "Method must be cash or online." });
 
-    const member = await Member.findOne({ gymId: String(gymId).toUpperCase() });
+    const member = await Member.findOne({
+      ownerId: req.user!.ownerId,
+      gymId: String(gymId).toUpperCase(),
+    });
     if (!member)
       return res
         .status(404)
@@ -429,8 +515,9 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
         message: `${member.name} has no outstanding balance.`,
       });
 
-    // 10-second duplicate guard
+    // 10-second duplicate guard — scoped to ownerId
     const recentSettle = await Payment.findOne({
+      ownerId: req.user!.ownerId,
       gymId: member.gymId,
       type: "balance_settlement",
       createdAt: { $gte: new Date(Date.now() - 10000) },
@@ -454,13 +541,13 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
 
     if (isFullySettled) {
       await Payment.updateMany(
-        { gymId: member.gymId, isPartial: true },
+        { ownerId: req.user!.ownerId, gymId: member.gymId, isPartial: true },
         { $set: { isPartial: false, balance: 0 } },
       );
     }
 
-    // FIX: totalAmount is the outstanding balance being settled, not the plan price
     const payment = await Payment.create({
+      ownerId: new mongoose.Types.ObjectId(req.user!.ownerId),
       gymId: member.gymId,
       memberName: member.name,
       amount: amountPaid,
@@ -474,7 +561,7 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
       notes: isFullySettled
         ? `Balance fully settled — ₱${amountPaid} paid`
         : `Partial settlement — ₱${amountPaid} paid, ₱${remainingBalance} remaining`,
-      processedBy: req.user!.id,
+      processedBy: new mongoose.Types.ObjectId(req.user!.id),
     });
 
     const populated = await payment.populate(
@@ -483,6 +570,7 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
     );
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "payment_created",
       performedBy: {
         userId: req.user!.id,
@@ -511,6 +599,7 @@ export const settleBalance = async (req: AuthRequest, res: Response) => {
 
 // ─── Internal — auto-log payment on register/renewal ─────────────────────────
 export const autoLogPayment = async ({
+  ownerId,
   gymId,
   memberName,
   plan,
@@ -520,6 +609,7 @@ export const autoLogPayment = async ({
   amountPaid,
   totalAmountOverride,
 }: {
+  ownerId: string;
   gymId: string;
   memberName: string;
   plan: string;
@@ -530,16 +620,23 @@ export const autoLogPayment = async ({
   totalAmountOverride?: number;
 }): Promise<void> => {
   try {
-    const settingsCache = await Settings.findOne({}).select("plans").lean();
+    // FIX: removed {} fallback — always fetch this gym's settings by ownerId.
+    // Previously Settings.findOne(ownerId ? { ownerId } : {}) could return
+    // the first gym's settings if ownerId was somehow falsy.
+    const settingsCache = await Settings.findOne({ ownerId })
+      .select("plans")
+      .lean();
+
     const totalAmount =
       totalAmountOverride != null && totalAmountOverride > 0
         ? totalAmountOverride
-        : await getPlanPrice(plan, settingsCache);
+        : await getPlanPrice(plan, settingsCache, ownerId);
     const paid =
       amountPaid != null ? Math.min(amountPaid, totalAmount) : totalAmount;
     const balance = Math.max(0, totalAmount - paid);
 
     await Payment.create({
+      ownerId: new mongoose.Types.ObjectId(ownerId),
       gymId,
       memberName,
       amount: paid,
@@ -550,10 +647,13 @@ export const autoLogPayment = async ({
       method,
       type,
       plan,
-      processedBy,
+      // FIX: cast processedBy to ObjectId so populate("processedBy") works
+      // correctly. Previously this was passed as a plain string, causing
+      // silent populate failures on auto-logged payments.
+      processedBy: new mongoose.Types.ObjectId(processedBy),
     });
 
-    const member = await Member.findOne({ gymId });
+    const member = await Member.findOne({ ownerId, gymId });
     if (member) {
       member.balance = (member.balance ?? 0) + balance;
       await member.save();

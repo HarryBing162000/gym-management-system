@@ -1,6 +1,6 @@
 /**
  * useClock.ts
- * GMS — Live Clock Hook
+ * LakasGMS — Live Clock Hook
  *
  * Ticks every second and returns:
  *   - timeStr: current time in gym's timezone (e.g. "10:30 PM")

@@ -1,6 +1,6 @@
 /**
  * SuperAdminLoginPage.tsx
- * GMS — Super Admin Login
+ * LakasGMS — Super Admin Login
  *
  * Hidden route: /superadmin
  * Not linked anywhere in the public UI.
@@ -94,7 +94,7 @@ export default function SuperAdminLoginPage() {
             {/* Header */}
             <div className="text-center mb-7">
               <h1 className="text-xl font-black tracking-widest text-white uppercase">
-                ⚡ GMS Control
+                ⚡ LakasGMS Control
               </h1>
               <p className="text-xs text-white/30 mt-1 tracking-wide">
                 System Administrator Access

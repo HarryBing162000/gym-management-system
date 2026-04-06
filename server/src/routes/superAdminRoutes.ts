@@ -1,6 +1,6 @@
 /**
  * superAdminRoutes.ts
- * GMS — Super Admin Routes
+ * LakasGMS — Super Admin Routes
  */
 
 import { Router } from "express";

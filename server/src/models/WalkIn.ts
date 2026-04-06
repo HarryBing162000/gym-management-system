@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export interface IWalkIn extends Document {
+  ownerId: mongoose.Types.ObjectId; // ref → User (owner) — gym scoping
   walkId: string; // WALK-001 format
   name: string;
   phone?: string;
@@ -15,6 +16,12 @@ export interface IWalkIn extends Document {
 
 const WalkInSchema = new Schema<IWalkIn>(
   {
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     walkId: {
       type: String,
       required: true,
@@ -61,11 +68,15 @@ const WalkInSchema = new Schema<IWalkIn>(
   { timestamps: true },
 );
 
-// Prevent duplicate walkIds (race condition guard at DB level)
-WalkInSchema.index({ walkId: 1 }, { unique: true });
+// Prevent duplicate walkIds within the same gym on the same day
+// (ownerId + date scoping — allows WALK-001 to exist across different gyms per day)
+WalkInSchema.index({ ownerId: 1, date: 1, walkId: 1 }, { unique: true });
 
-// Fast lookup for duplicate name check within same day
-WalkInSchema.index({ name: 1, date: 1 });
+// Primary scoping index — every query filters by ownerId first
+WalkInSchema.index({ ownerId: 1, date: 1, checkIn: -1 });
+
+// Fast lookup for duplicate name check within same day (scoped)
+WalkInSchema.index({ ownerId: 1, name: 1, date: 1 });
 
 // Fast lookup for today queries
 WalkInSchema.index({ date: 1, checkIn: -1 });

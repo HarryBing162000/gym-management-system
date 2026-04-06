@@ -1,6 +1,6 @@
 /**
  * syncManager.ts
- * GMS — Background Sync Manager
+ * LakasGMS — Background Sync Manager
  *
  * Watches navigator.onLine. When internet restores, drains the offline
  * queue in chronological order. Retries each action up to MAX_RETRIES

@@ -1,12 +1,9 @@
 /**
  * Settings.ts
- *  GMS — Gym Settings Model
+ * LakasGMS — Gym Settings Model
  *
- * Stores gym-level configuration that the owner can update at runtime.
- * Uses a singleton pattern — only one settings document ever exists.
- *
- * The plans array is the SINGLE SOURCE OF TRUTH for membership pricing.
- * All frontend pages and backend logic read from here — no hardcoded prices.
+ * One Settings document per gym, scoped by ownerId.
+ * Previously a singleton — now per-gym for multi-tenancy.
  *
  * Collection: "settings"
  */
@@ -18,7 +15,7 @@ export interface IPlan {
   price: number;
   durationMonths: number;
   isActive: boolean;
-  isDefault: boolean; // true for the 4 built-in plans — cannot be deleted
+  isDefault: boolean;
 }
 
 export interface IWalkInPrices {
@@ -28,14 +25,15 @@ export interface IWalkInPrices {
 }
 
 export interface ISettings extends Document {
+  ownerId: mongoose.Types.ObjectId; // ref → User (owner) — gym scoping
   gymName: string;
   gymAddress: string;
   logoUrl?: string;
   logoPublicId?: string;
   plans: IPlan[];
   walkInPrices: IWalkInPrices;
-  closingTime: string; // "HH:mm" 24h format — e.g. "22:00"
-  timezone: string; // IANA timezone — e.g. "Asia/Manila"
+  closingTime: string;
+  timezone: string;
   updatedAt: Date;
 }
 
@@ -58,66 +56,49 @@ const PlanSchema = new Schema<IPlan>(
       min: [1, "Duration must be at least 1 month"],
       max: [24, "Duration cannot exceed 24 months"],
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-    isDefault: {
-      type: Boolean,
-      default: false,
-    },
+    isActive: { type: Boolean, default: true },
+    isDefault: { type: Boolean, default: false },
   },
   { _id: true },
 );
 
 const SettingsSchema = new Schema<ISettings>(
   {
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "Owner ID is required"],
+      unique: true, // one Settings document per gym
+      index: true,
+    },
     gymName: {
       type: String,
       required: [true, "Gym name is required"],
+      default: "LakasGMS",
       trim: true,
       maxlength: [100, "Gym name too long"],
     },
     gymAddress: {
       type: String,
       required: [true, "Gym address is required"],
+      default: "Antique",
       trim: true,
       maxlength: [200, "Address too long"],
     },
-    logoUrl: {
-      type: String,
-      default: null,
-    },
-    logoPublicId: {
-      type: String,
-      default: null,
-    },
-    plans: {
-      type: [PlanSchema],
-      default: [],
-    },
+    logoUrl: { type: String, default: null },
+    logoPublicId: { type: String, default: null },
+    plans: { type: [PlanSchema], default: [] },
     walkInPrices: {
       regular: { type: Number, default: 150, min: 0 },
       student: { type: Number, default: 100, min: 0 },
       couple: { type: Number, default: 250, min: 0 },
     },
-    closingTime: {
-      type: String,
-      default: "22:00",
-      trim: true,
-    },
-    // IANA timezone string — replaces all Asia/Manila hardcodes.
-    // Existing gyms get "Asia/Manila" as default via migration or schema default.
-    timezone: {
-      type: String,
-      default: "Asia/Manila",
-      trim: true,
-    },
+    closingTime: { type: String, default: "22:00", trim: true },
+    timezone: { type: String, default: "Asia/Manila", trim: true },
   },
   { timestamps: true },
 );
 
-// ── Default plans — seeded on first boot ──────────────────────────────────────
 export const DEFAULT_PLANS: IPlan[] = [
   {
     name: "Monthly",

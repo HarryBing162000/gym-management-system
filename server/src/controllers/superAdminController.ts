@@ -2,15 +2,13 @@
  * superAdminController.ts
  * GMS — Super Admin Controller
  *
- * Security hardening applied:
+ * Security fixes applied:
  * - Rate limiting on login (5 attempts → 15-min lockout by IP)
  * - Rate limiting on exchange-impersonate (10/min by IP)
  * - Single-use impersonation tokens (jti + in-memory used-set)
- * - Timing-safe credential comparison (crypto.timingSafeEqual)
- * - x-forwarded-for sanitized (first IP only)
- * - Settings cleanup on hard delete (by ownerId, not gymName)
- * - billingStatus validated against enum before DB write
- * - Audit log persisted to MongoDB (SuperAdminAuditLog collection)
+ * - Timing-safe credential comparison
+ * - Settings cleanup on hard delete
+ * - In-memory Super Admin audit log (last 200 entries)
  */
 
 import { Request, Response } from "express";
@@ -19,7 +17,6 @@ import crypto from "crypto";
 import User from "../models/User";
 import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
-import SuperAdminAuditLog from "../models/SuperAdminAuditLog";
 import { sendSetPasswordEmail } from "../utils/emailService";
 import { SuperAdminRequest } from "../middleware/superAdminMiddleware";
 
@@ -94,25 +91,20 @@ function isUsed(token: string): boolean {
   return usedTokens.has(token);
 }
 
-// ─── Super Admin audit log (MongoDB — persistent) ────────────────────────────
-// Replaced in-memory array with MongoDB writes. Survives server restarts.
-// logSa is fire-and-forget — never blocks or throws on the calling route.
-function logSa(
-  action: string,
-  detail: string,
-  ip: string,
-  gymId?: string,
-): void {
-  SuperAdminAuditLog.create({
-    action,
-    detail,
-    ip,
-    ...(gymId ? { gymId } : {}),
-    timestamp: new Date(),
-  }).catch((err) => {
-    // Non-critical — log to console but never crash the route
-    console.error("[SuperAdminAuditLog] Write failed:", err?.message);
-  });
+// ─── Super Admin audit log (in-memory, last 200) ──────────────────────────────
+interface AuditEntry {
+  action: string;
+  detail: string;
+  ip: string;
+  timestamp: Date;
+}
+const auditLog: AuditEntry[] = [];
+function logSa(action: string, detail: string, ip: string): void {
+  auditLog.unshift({ action, detail, ip, timestamp: new Date() });
+  if (auditLog.length > 200) auditLog.pop();
+}
+export function getSaAuditLog(): AuditEntry[] {
+  return auditLog;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -167,24 +159,8 @@ const generateGymClientId = async (): Promise<string> => {
 };
 
 // ─── GET /api/superadmin/audit-log ────────────────────────────────────────────
-// Returns latest 200 entries from MongoDB, newest first.
-// Optional query params: ?action=login&gymId=<id>&limit=100
-export const getAuditLog = async (req: SuperAdminRequest, res: Response) => {
-  try {
-    const limit = Math.min(Number(req.query.limit) || 200, 500);
-    const filter: Record<string, any> = {};
-    if (req.query.action) filter.action = req.query.action;
-    if (req.query.gymId) filter.gymId = req.query.gymId;
-
-    const log = await SuperAdminAuditLog.find(filter)
-      .sort({ timestamp: -1 })
-      .limit(limit)
-      .lean();
-
-    return res.status(200).json({ success: true, log, total: log.length });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
+export const getAuditLog = async (_req: SuperAdminRequest, res: Response) => {
+  return res.status(200).json({ success: true, log: getSaAuditLog() });
 };
 
 // ─── POST /api/superadmin/login ───────────────────────────────────────────────
@@ -343,6 +319,7 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
     }
 
     await Settings.create({
+      ownerId: owner._id,
       gymName: gymName.trim(),
       gymAddress: gymAddress?.trim() || "",
       plans: [
@@ -547,12 +524,7 @@ export const suspendGym = async (req: SuperAdminRequest, res: Response) => {
     await gym.save();
     await User.findByIdAndUpdate(gym.ownerId, { isActive: false });
 
-    logSa(
-      "gym_suspended",
-      `"${gym.gymName}" suspended`,
-      getIp(req),
-      gym._id.toString(),
-    );
+    logSa("gym_suspended", `"${gym.gymName}" suspended`, getIp(req));
     return res
       .status(200)
       .json({ success: true, message: `"${gym.gymName}" has been suspended.` });
@@ -574,12 +546,7 @@ export const reactivateGym = async (req: SuperAdminRequest, res: Response) => {
     await gym.save();
     await User.findByIdAndUpdate(gym.ownerId, { isActive: true });
 
-    logSa(
-      "gym_reactivated",
-      `"${gym.gymName}" reactivated`,
-      getIp(req),
-      gym._id.toString(),
-    );
+    logSa("gym_reactivated", `"${gym.gymName}" reactivated`, getIp(req));
     return res.status(200).json({
       success: true,
       message: `"${gym.gymName}" has been reactivated.`,
@@ -602,12 +569,7 @@ export const deleteGym = async (req: SuperAdminRequest, res: Response) => {
     await gym.save();
     await User.findByIdAndUpdate(gym.ownerId, { isActive: false });
 
-    logSa(
-      "gym_deleted",
-      `"${gym.gymName}" soft-deleted`,
-      getIp(req),
-      gym._id.toString(),
-    );
+    logSa("gym_deleted", `"${gym.gymName}" soft-deleted`, getIp(req));
     return res
       .status(200)
       .json({ success: true, message: `"${gym.gymName}" has been deleted.` });
@@ -759,7 +721,6 @@ export const impersonateGym = async (req: SuperAdminRequest, res: Response) => {
       "impersonation_started",
       `Token generated for "${gym.gymName}" (${owner.email})`,
       getIp(req),
-      gym._id.toString(),
     );
     return res.status(200).json({
       success: true,

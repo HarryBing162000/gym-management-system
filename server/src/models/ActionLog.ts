@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Schema, Document, Types } from "mongoose";
 
 export type ActionType =
   | "member_created"
@@ -14,6 +14,7 @@ export type ActionType =
   | "logout";
 
 export interface IActionLog extends Document {
+  ownerId: Types.ObjectId; // ref → User (owner) — gym scoping
   action: ActionType;
   performedBy: {
     userId: string;
@@ -27,6 +28,12 @@ export interface IActionLog extends Document {
 }
 
 const ActionLogSchema = new Schema<IActionLog>({
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    index: true,
+  },
   action: {
     type: String,
     enum: [
@@ -55,6 +62,7 @@ const ActionLogSchema = new Schema<IActionLog>({
   timestamp: { type: Date, default: Date.now },
 });
 
+ActionLogSchema.index({ ownerId: 1, timestamp: -1 });
 ActionLogSchema.index({ timestamp: -1 });
 ActionLogSchema.index({ "performedBy.userId": 1, timestamp: -1 });
 

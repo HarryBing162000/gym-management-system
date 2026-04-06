@@ -1,6 +1,6 @@
 /**
  * MembersPage.tsx
- * IronCore GMS — Member Management
+ * LakasGMS — Member Management
  *
  * Fix added:
  *   - lastMemberUpdate watcher: refetches when PaymentsPage triggers a renewal

@@ -1,6 +1,6 @@
 /**
  * gymStore.ts
- * GMS — Global Gym Settings Store
+ * LakasGMS — Global Gym Settings Store
  *
  * Fetches and caches gym info + plans once on app load.
  * Plans are the SINGLE SOURCE OF TRUTH for pricing across the entire frontend.

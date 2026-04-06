@@ -1,6 +1,6 @@
 /**
  * upload.ts
- * IronCore GMS — Cloudinary Upload Middleware
+ * LakasGMS — Cloudinary Upload Middleware
  *
  * Handles logo image uploads via Multer + Cloudinary.
  * Images are stored in Cloudinary under the "ironcore-gms/logos" folder.

@@ -1,6 +1,6 @@
 /**
  * WalkInsPage.tsx
- *  GMS — Walk-ins Management (Owner View)
+ * LakasGMS — Walk-ins Management (Owner View)
  */
 
 import { useState, useEffect, useCallback } from "react";

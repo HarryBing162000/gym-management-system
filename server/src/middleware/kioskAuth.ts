@@ -1,6 +1,6 @@
 /**
  * kioskAuth.ts
- * IronCore GMS — Kiosk Authentication Middleware
+ * LakasGMS — Kiosk Authentication Middleware
  *
  * Protects all /api/kiosk/* routes from unauthorized access.
  * Public kiosk terminal must send the X-Kiosk-Token header on every request.

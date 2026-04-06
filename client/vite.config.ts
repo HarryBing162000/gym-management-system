@@ -1,6 +1,6 @@
 /**
  * vite.config.ts
- * GMS -- Vite configuration with PWA support
+ * LakasGMS — Vite configuration with PWA support
  *
  * Added: vite-plugin-pwa
  *   - Registers sw.ts as the service worker
@@ -36,8 +36,8 @@ export default defineConfig({
 
       // PWA manifest -- makes the app installable on desktop and tablet
       manifest: {
-        name: "Gym Management System",
-        short_name: "GMS",
+        name: "LakasGMS",
+        short_name: "LakasGMS",
         description: "Gym management for owners and staff",
         theme_color: "#FF6B1A",
         background_color: "#141414",

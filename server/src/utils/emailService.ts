@@ -34,6 +34,11 @@ const transporter = nodemailer.createTransport({
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
   },
+  tls: {
+    // Fixes "self-signed certificate in certificate chain" error
+    // that occurs on some local/corporate network environments.
+    rejectUnauthorized: false,
+  },
 });
 
 const FROM = `LakasGMS <${process.env.GMAIL_USER}>`;

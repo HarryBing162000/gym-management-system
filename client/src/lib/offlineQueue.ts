@@ -1,6 +1,6 @@
 /**
  * offlineQueue.ts
- * GMS — Offline Action Queue
+ * LakasGMS — Offline Action Queue
  *
  * Stores pending write actions in IndexedDB when the device is offline.
  * Actions survive tab closes, page refreshes, and app restarts.

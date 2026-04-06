@@ -1,6 +1,6 @@
 /**
  * ReportsPage.tsx
- * Gym Management System — Owner Reports
+ * LakasGMS — Owner Reports
  *
  * Fixes applied:
  *   - Race condition: fetchRevenue + fetchWalkIns now run together and merge
@@ -731,7 +731,7 @@ const FETCH_LIMIT = 1000;
 
 export default function ReportsPage() {
   const { settings, getWalkInPrice } = useGymStore();
-  const gymName = settings?.gymName || "Gym Management System";
+  const gymName = settings?.gymName || "LakasGMS";
   const wiRegular = getWalkInPrice("regular");
   const wiStudent = getWalkInPrice("student");
   const wiCouple = getWalkInPrice("couple");

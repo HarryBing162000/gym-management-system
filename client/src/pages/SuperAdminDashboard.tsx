@@ -1,6 +1,6 @@
 /**
  * SuperAdminDashboard.tsx
- * GMS — Super Admin Dashboard
+ * LakasGMS — Super Admin Dashboard
  *
  * UX improvements applied:
  * - billingRenewsAt date picker in drawer (for recording client payments)
@@ -163,7 +163,7 @@ function WelcomeModal({ onDismiss }: { onDismiss: () => void }) {
           </div>
           <div className="text-white font-black text-lg mb-1">Welcome back</div>
           <div className="text-white/30 text-xs mb-5">
-            GMS Control Panel &nbsp;·&nbsp; {now}
+            LakasGMS Control Panel &nbsp;·&nbsp; {now}
           </div>
 
           {/* Divider */}
@@ -1089,7 +1089,7 @@ export default function SuperAdminDashboard() {
           <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-[#FFB800] font-black text-sm tracking-widest uppercase">
-                ⚡ GMS Control
+                ⚡ LakasGMS Control
               </span>
               <span className="hidden sm:block text-white/15 text-xs">·</span>
               <span className="hidden sm:block text-white/25 text-xs font-medium">

@@ -1,6 +1,6 @@
 /**
  * sw.ts
- * GMS -- Service Worker
+ * LakasGMS — Service Worker
  *
  * Cache strategies:
  *   App shell               -> Cache First (precached by Workbox)

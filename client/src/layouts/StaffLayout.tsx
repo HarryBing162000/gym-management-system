@@ -366,7 +366,7 @@ export default function StaffLayout({
     .join("")
     .slice(0, 2)
     .toUpperCase();
-  const gymName = settings?.gymName || "GMS";
+  const gymName = settings?.gymName || "LakasGMS";
   const logoUrl = settings?.logoUrl || null;
 
   // Desk items = first 4, Activity = last 1

@@ -112,7 +112,7 @@ export default function LoginPage() {
     }
   }, []);
 
-  const gymName = settings?.gymName || "Gym Management System";
+  const gymName = settings?.gymName || "LakasGMS";
   const logoUrl = settings?.logoUrl || null;
   const isEmail = identifier.includes("@");
 
@@ -197,7 +197,7 @@ export default function LoginPage() {
               </h1>
             )}
             <p className="text-xs sm:text-sm text-white/40 mt-1 text-center tracking-wide">
-              Gym Management System
+              LakasGMS
             </p>
           </div>
 

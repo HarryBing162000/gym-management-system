@@ -1,6 +1,6 @@
 /**
  * kioskController.ts
- * IronCore GMS — Public Kiosk Route Handlers
+ * LakasGMS — Public Kiosk Route Handlers
  *
  * All routes are protected by kioskAuth middleware (X-Kiosk-Token),
  * NOT by JWT. These are machine-level auth routes, not user-level.
@@ -240,7 +240,6 @@ export const kioskMemberCheckOut = async (req: Request, res: Response) => {
 export const kioskWalkInLookup = async (req: Request, res: Response) => {
   try {
     const walkId = String(req.params.walkId ?? "").toUpperCase();
-    const today = getTodayDate();
 
     if (!walkId) {
       return res.status(400).json({
@@ -249,7 +248,9 @@ export const kioskWalkInLookup = async (req: Request, res: Response) => {
       });
     }
 
-    const walkIn = await WalkIn.findOne({ walkId, date: today });
+    // walkId is per-gym since multi-tenant fix; search by isCheckedOut: false
+    // to avoid needing a gym timezone to determine "today"
+    const walkIn = await WalkIn.findOne({ walkId, isCheckedOut: false });
 
     if (!walkIn) {
       return res.status(404).json({
@@ -290,10 +291,11 @@ export const kioskWalkInCheckOut = async (req: Request, res: Response) => {
       });
     }
 
-    const today = getTodayDate();
+    // walkId is per-gym since multi-tenant fix; search by isCheckedOut: false
+    // to avoid needing a gym timezone to determine "today"
     const walkIn = await WalkIn.findOne({
       walkId: String(walkId).toUpperCase(),
-      date: today,
+      isCheckedOut: false,
     });
 
     if (!walkIn) {

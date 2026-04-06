@@ -1,17 +1,25 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/authMiddleware";
 import WalkIn from "../models/WalkIn";
 import Settings from "../models/Settings";
 import { logAction } from "../utils/logAction";
 import { WalkInInput, WalkInCheckOutInput } from "../middleware/authSchemas";
 
-const getTodayDate = (): string =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
-    new Date(),
-  );
+const getTodayDate = async (ownerId?: string): Promise<string> => {
+  let tz = "Asia/Manila";
+  if (ownerId) {
+    try {
+      const s = await Settings.findOne({ ownerId }).select("timezone").lean();
+      tz = (s as any)?.timezone ?? "Asia/Manila";
+    } catch { /* fall through */ }
+  }
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+};
 
 const getPassAmount = async (
   passType: "regular" | "student" | "couple",
+  ownerId: string,
 ): Promise<number> => {
   const fallback: Record<string, number> = {
     regular: 150,
@@ -19,7 +27,7 @@ const getPassAmount = async (
     couple: 250,
   };
   try {
-    const settings = await Settings.findOne({}).select("walkInPrices").lean();
+    const settings = await Settings.findOne({ ownerId }).select("walkInPrices").lean();
     if (settings?.walkInPrices)
       return (
         (settings.walkInPrices as any)[passType] ?? fallback[passType] ?? 150
@@ -30,8 +38,8 @@ const getPassAmount = async (
   return fallback[passType] ?? 150;
 };
 
-const generateWalkId = async (today: string): Promise<string> => {
-  const last = await WalkIn.findOne({ date: today })
+const generateWalkId = async (today: string, ownerId: string): Promise<string> => {
+  const last = await WalkIn.findOne({ ownerId, date: today })
     .sort({ createdAt: -1 })
     .select("walkId")
     .lean();
@@ -61,10 +69,11 @@ const buildSummary = (walkIns: (typeof WalkIn.prototype)[]) => ({
 export const registerWalkIn = async (req: AuthRequest, res: Response) => {
   try {
     const { name, phone, passType }: WalkInInput = req.body;
-    const today = getTodayDate();
+    const today = await getTodayDate(req.user!.ownerId);
 
     // ── Duplicate check 1: same name registered today ────────────────────────
     const existing = await WalkIn.findOne({
+      ownerId: req.user!.ownerId,
       date: today,
       name: {
         $regex: new RegExp(
@@ -83,6 +92,7 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
     // ── Duplicate check 2: 10-second rapid-fire guard ────────────────────────
     const tenSecondsAgo = new Date(Date.now() - 10_000);
     const recentDuplicate = await WalkIn.findOne({
+      ownerId: req.user!.ownerId,
       staffId: req.user!.id,
       passType,
       checkIn: { $gte: tenSecondsAgo },
@@ -103,12 +113,13 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const walkId = await generateWalkId(today);
-    const amount = await getPassAmount(passType);
+    const walkId = await generateWalkId(today, req.user!.ownerId);
+    const amount = await getPassAmount(passType, req.user!.ownerId);
 
     let walkIn;
     try {
       walkIn = await WalkIn.create({
+        ownerId: new mongoose.Types.ObjectId(req.user!.ownerId),
         walkId,
         name,
         phone,
@@ -116,14 +127,15 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
         amount,
         date: today,
         checkIn: new Date(),
-        staffId: req.user!.id,
+        staffId: new mongoose.Types.ObjectId(req.user!.id),
         isCheckedOut: false,
       });
     } catch (createErr: unknown) {
       const mongoErr = createErr as { code?: number };
       if (mongoErr.code === 11000) {
-        const retryWalkId = await generateWalkId(today);
+        const retryWalkId = await generateWalkId(today, req.user!.ownerId);
         walkIn = await WalkIn.create({
+          ownerId: new mongoose.Types.ObjectId(req.user!.ownerId),
           walkId: retryWalkId,
           name,
           phone,
@@ -131,7 +143,7 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
           amount,
           date: today,
           checkIn: new Date(),
-          staffId: req.user!.id,
+          staffId: new mongoose.Types.ObjectId(req.user!.id),
           isCheckedOut: false,
         });
       } else {
@@ -140,6 +152,7 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
     }
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "walk_in_created",
       performedBy: {
         userId: req.user!.id,
@@ -176,9 +189,13 @@ export const registerWalkIn = async (req: AuthRequest, res: Response) => {
 export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;
-    const date: string = req.body.date ?? getTodayDate(); // ← use provided date or today
+    const date: string = req.body.date ?? await getTodayDate(req.user!.ownerId); // ← use provided date or today
 
-    const walkIn = await WalkIn.findOne({ walkId, date });
+    const walkIn = await WalkIn.findOne({
+      ownerId: req.user!.ownerId,
+      walkId,
+      date,
+    });
     if (!walkIn)
       return res
         .status(404)
@@ -194,6 +211,7 @@ export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
     await walkIn.save();
 
     await logAction({
+      ownerId: req.user!.ownerId,
       action: "walk_in_checkout",
       performedBy: {
         userId: req.user!.id,
@@ -227,8 +245,11 @@ export const checkOutWalkIn = async (req: AuthRequest, res: Response) => {
 // ─── GET /api/walkin/today ────────────────────────────────────────────────────
 export const getTodayWalkIns = async (req: AuthRequest, res: Response) => {
   try {
-    const today = getTodayDate();
-    const walkIns = await WalkIn.find({ date: today })
+    const today = await getTodayDate(req.user!.ownerId);
+    const walkIns = await WalkIn.find({
+      ownerId: req.user!.ownerId,
+      date: today,
+    })
       .populate("staffId", "name username")
       .sort({ checkIn: -1 });
     return res.status(200).json({
@@ -258,7 +279,11 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
-    const filter: Record<string, unknown> = {};
+    const ownerId = req.user!.ownerId;
+    const settingsDoc = await Settings.findOne({ ownerId }).select("timezone").lean();
+    const tz = (settingsDoc as any)?.timezone ?? "Asia/Manila";
+
+    const filter: Record<string, unknown> = { ownerId };
 
     if (date) {
       filter.date = date;
@@ -271,9 +296,7 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       filter.date = {
-        $gte: new Intl.DateTimeFormat("en-CA", {
-          timeZone: "Asia/Manila",
-        }).format(sevenDaysAgo),
+        $gte: new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(sevenDaysAgo),
       };
     }
 
@@ -304,13 +327,16 @@ export const getWalkInHistory = async (req: AuthRequest, res: Response) => {
 // ─── GET /api/walkin/yesterday-revenue ───────────────────────────────────────
 export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
   try {
+    const settingsDoc = await Settings.findOne({ ownerId: req.user!.ownerId }).select("timezone").lean();
+    const tz = (settingsDoc as any)?.timezone ?? "Asia/Manila";
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Manila",
-    }).format(yesterday);
+    const yesterdayStr = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(yesterday);
 
-    const walkIns = await WalkIn.find({ date: yesterdayStr });
+    const walkIns = await WalkIn.find({
+      ownerId: req.user!.ownerId,
+      date: yesterdayStr,
+    });
     const revenue = walkIns.reduce((sum, w) => sum + w.amount, 0);
     const total = walkIns.length;
 
@@ -327,11 +353,14 @@ export const getYesterdayRevenue = async (req: AuthRequest, res: Response) => {
 export const kioskCheckOut = async (req: AuthRequest, res: Response) => {
   try {
     const { walkId }: WalkInCheckOutInput = req.body;
-    const today = getTodayDate();
 
+    // No auth context on the kiosk — find by walkId + not yet checked out.
+    // walkId is now scoped per-gym per-day, so we match the active (unchecked-out)
+    // record. Auto-checkout closes all stale records nightly, so isCheckedOut: false
+    // reliably targets today's entry without needing a hardcoded timezone.
     const walkIn = await WalkIn.findOne({
       walkId: walkId.toUpperCase(),
-      date: today,
+      isCheckedOut: false,
     });
     if (!walkIn)
       return res.status(404).json({

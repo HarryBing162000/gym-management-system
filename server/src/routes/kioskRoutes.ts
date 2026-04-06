@@ -1,6 +1,6 @@
 /**
  * kioskRoutes.ts
- * IronCore GMS — Public Kiosk Router
+ * LakasGMS — Public Kiosk Router
  *
  * All routes here are:
  *   1. Rate-limited  (kioskRateLimiter — 20 req/min per IP)

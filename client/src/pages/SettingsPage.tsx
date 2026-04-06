@@ -1,6 +1,6 @@
 /**
  * SettingsPage.tsx
- *  GMS — Owner Settings
+ * LakasGMS — Owner Settings
  *
  * Sections:
  *   1. Gym Info         — name, address, logo
@@ -299,7 +299,7 @@ function GymInfoSection() {
             type="text"
             value={gymName}
             onChange={(e) => setGymName(e.target.value)}
-            placeholder="e.g. IronCore Gym"
+            placeholder="e.g. LakasGMS"
             className={inputClass}
           />
         </Field>

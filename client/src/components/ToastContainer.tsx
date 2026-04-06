@@ -1,6 +1,6 @@
 /**
  * ToastContainer.tsx
- * IronCore GMS — Global Toast Notification Renderer
+ * LakasGMS — Global Toast Notification Renderer
  *
  * Mount once in App.tsx — renders all toasts via portal.
  * Toasts stack vertically from the bottom center.

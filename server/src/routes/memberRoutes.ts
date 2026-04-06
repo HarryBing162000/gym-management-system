@@ -1,6 +1,6 @@
 /**
  * memberRoutes.ts
- * IronCore GMS — Member Management Router
+ * LakasGMS — Member Management Router
  *
  * All routes require JWT authentication (protect).
  * Role enforcement per route:
