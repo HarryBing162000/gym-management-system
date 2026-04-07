@@ -190,6 +190,13 @@ export default function SuperAdminAuditLogPage() {
     onReset: handleIdleReset,
   });
 
+  useEffect(() => {
+    document.title = "SuperAdmin - LakasGMS";
+    return () => {
+      document.title = "LakasGMS";
+    };
+  }, []);
+
   // ── Data ───────────────────────────────────────────────────────────────────
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -300,7 +307,7 @@ export default function SuperAdminAuditLogPage() {
               </button>
               <span className="text-white/10">|</span>
               <span className="text-[#FFB800] font-black text-sm tracking-widest uppercase">
-                ⚡ Audit Log
+                ⚡ SuperAdmin - LakasGMS
               </span>
             </div>
             <button

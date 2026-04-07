@@ -123,6 +123,16 @@ const inputClass =
 const btnPrimary =
   "px-4 py-2.5 bg-[#FF6B1A] hover:bg-[#ff8a45] disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-bold rounded-xl transition-all active:scale-95 cursor-pointer";
 
+// ─── Unsaved changes dot ──────────────────────────────────────────────────────
+function UnsavedDot() {
+  return (
+    <span
+      className="inline-block w-1.5 h-1.5 rounded-full bg-[#FFB800] mr-2 animate-pulse"
+      title="Unsaved changes"
+    />
+  );
+}
+
 // ─── 1. Gym Info Section ──────────────────────────────────────────────────────
 function GymInfoSection() {
   const { showToast } = useToastStore();
@@ -135,6 +145,7 @@ function GymInfoSection() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(
     settings?.logoUrl || null,
   );
+  const [hasNewFile, setHasNewFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -144,6 +155,11 @@ function GymInfoSection() {
       setPreviewUrl(settings.logoUrl);
     }
   }, [settings]);
+
+  // FIX: track dirty state so we can show the unsaved indicator
+  const isDirty =
+    gymName.trim() !== (settings?.gymName ?? "") ||
+    gymAddress.trim() !== (settings?.gymAddress ?? "");
 
   const handleSaveGym = async () => {
     if (!gymName.trim() || !gymAddress.trim()) {
@@ -186,6 +202,7 @@ function GymInfoSection() {
     const reader = new FileReader();
     reader.onload = (ev) => setPreviewUrl(ev.target?.result as string);
     reader.readAsDataURL(file);
+    setHasNewFile(true);
   };
 
   const handleUploadLogo = async () => {
@@ -203,6 +220,7 @@ function GymInfoSection() {
       });
       setLogoUrl(res.data.logoUrl);
       setPreviewUrl(res.data.logoUrl);
+      setHasNewFile(false);
       showToast("Logo uploaded.", "success");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err: any) {
@@ -218,6 +236,7 @@ function GymInfoSection() {
       await api.delete("/auth/delete-logo");
       setLogoUrl(null);
       setPreviewUrl(null);
+      setHasNewFile(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
       showToast("Logo removed.", "success");
     } catch (err: any) {
@@ -229,8 +248,6 @@ function GymInfoSection() {
       setDeletingLogo(false);
     }
   };
-
-  const hasNewFile = !!fileInputRef.current?.files?.[0];
 
   return (
     <Section
@@ -273,7 +290,7 @@ function GymInfoSection() {
                   {uploadingLogo ? "Uploading..." : "Save Logo"}
                 </button>
               )}
-              {previewUrl && settings?.logoUrl && (
+              {previewUrl && settings?.logoUrl && !hasNewFile && (
                 <button
                   onClick={handleDeleteLogo}
                   disabled={deletingLogo}
@@ -283,6 +300,12 @@ function GymInfoSection() {
                 </button>
               )}
             </div>
+            {/* FIX: hint so users know they must click Save Logo after selecting */}
+            {hasNewFile && !uploadingLogo && (
+              <p className="text-[11px] text-[#FFB800]/80 mt-2">
+                ⚠ File selected — click "Save Logo" to upload.
+              </p>
+            )}
           </div>
         </div>
         <input
@@ -299,7 +322,7 @@ function GymInfoSection() {
             type="text"
             value={gymName}
             onChange={(e) => setGymName(e.target.value)}
-            placeholder="e.g. LakasGMS"
+            placeholder="e.g. Iron Fitness Gym"
             className={inputClass}
           />
         </Field>
@@ -313,7 +336,16 @@ function GymInfoSection() {
           />
         </Field>
 
-        <div className="flex justify-end">
+        {/* FIX: unsaved changes indicator + save button row */}
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] text-white/30 flex items-center">
+            {isDirty && (
+              <>
+                <UnsavedDot />
+                Unsaved changes
+              </>
+            )}
+          </div>
           <button
             onClick={handleSaveGym}
             disabled={saving}
@@ -362,7 +394,20 @@ function WalkInPricesSection() {
     if (settings?.timezone) setTimezone(settings.timezone);
   }, [settings?.walkInPrices, settings?.closingTime, settings?.timezone]);
 
+  // FIX: track dirty state
+  const isDirty =
+    regular !== String(settings?.walkInPrices?.regular ?? 150) ||
+    student !== String(settings?.walkInPrices?.student ?? 100) ||
+    couple !== String(settings?.walkInPrices?.couple ?? 250) ||
+    closingTime !== (settings?.closingTime ?? "22:00") ||
+    timezone !== (settings?.timezone ?? "Asia/Manila");
+
   const handleSave = async () => {
+    // FIX: validate prices are greater than zero before saving
+    if (Number(regular) <= 0 || Number(student) <= 0 || Number(couple) <= 0) {
+      showToast("Walk-in prices must be greater than ₱0.", "error");
+      return;
+    }
     setSaving(true);
     try {
       const res = await api.put("/auth/walkin-prices", {
@@ -411,7 +456,7 @@ function WalkInPricesSection() {
                 </span>
                 <input
                   type="number"
-                  min={0}
+                  min={1}
                   value={value}
                   onChange={(e) => setter(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg pl-6 pr-3 py-2 text-sm text-white focus:outline-none focus:border-[#FF6B1A]/50 transition-colors"
@@ -482,7 +527,16 @@ function WalkInPricesSection() {
           </div>
         </div>
 
-        <div className="flex justify-end">
+        {/* FIX: unsaved changes indicator + save button row */}
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] text-white/30 flex items-center">
+            {isDirty && (
+              <>
+                <UnsavedDot />
+                Unsaved changes
+              </>
+            )}
+          </div>
           <button onClick={handleSave} disabled={saving} className={btnPrimary}>
             {saving ? "Saving..." : "Save Walk-in Settings"}
           </button>
@@ -499,6 +553,11 @@ function AccountSection() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPw, setSavingPw] = useState(false);
+
+  // FIX: show/hide toggles for all three password fields
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const handleUpdatePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -530,6 +589,75 @@ function AccountSection() {
     }
   };
 
+  // Reusable password input with show/hide toggle
+  const PasswordInput = ({
+    value,
+    onChange,
+    placeholder,
+    show,
+    onToggle,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    placeholder: string;
+    show: boolean;
+    onToggle: () => void;
+  }) => (
+    <div className="relative">
+      <input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-sm text-white placeholder-white/30 focus:outline-none focus:border-[#FF6B1A]/50 transition-colors"
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors cursor-pointer"
+        tabIndex={-1}
+        aria-label={show ? "Hide password" : "Show password"}
+      >
+        {show ? (
+          // Eye-off icon
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+            />
+          </svg>
+        ) : (
+          // Eye icon
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+            />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+
   return (
     <Section title="Account" subtitle="Change your account password">
       <div className="space-y-6">
@@ -538,32 +666,40 @@ function AccountSection() {
             Change Password
           </div>
           <Field label="Current Password">
-            <input
-              type="password"
+            <PasswordInput
               value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
+              onChange={setCurrentPassword}
               placeholder="Current password"
-              className={inputClass}
+              show={showCurrent}
+              onToggle={() => setShowCurrent((v) => !v)}
             />
           </Field>
           <Field label="New Password">
-            <input
-              type="password"
+            <PasswordInput
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="New password"
-              className={inputClass}
+              onChange={setNewPassword}
+              placeholder="New password (min. 6 characters)"
+              show={showNew}
+              onToggle={() => setShowNew((v) => !v)}
             />
           </Field>
           <Field label="Confirm New Password">
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={setConfirmPassword}
               placeholder="Confirm new password"
-              className={inputClass}
+              show={showConfirm}
+              onToggle={() => setShowConfirm((v) => !v)}
             />
           </Field>
+          {/* Confirm mismatch hint */}
+          {confirmPassword &&
+            newPassword &&
+            confirmPassword !== newPassword && (
+              <p className="text-[11px] text-red-400">
+                Passwords do not match.
+              </p>
+            )}
           <div className="flex justify-end">
             <button
               onClick={handleUpdatePassword}

@@ -7,7 +7,7 @@
  * Uses a separate JWT (SUPER_JWT_SECRET) stored in superAdminStore.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSuperAdminStore } from "../store/superAdminStore";
 
@@ -20,6 +20,13 @@ export default function SuperAdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    document.title = "SuperAdmin - LakasGMS";
+    return () => {
+      document.title = "LakasGMS";
+    };
+  }, []);
 
   const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -94,7 +101,7 @@ export default function SuperAdminLoginPage() {
             {/* Header */}
             <div className="text-center mb-7">
               <h1 className="text-xl font-black tracking-widest text-white uppercase">
-                ⚡ LakasGMS Control
+                ⚡ SuperAdmin - LakasGMS
               </h1>
               <p className="text-xs text-white/30 mt-1 tracking-wide">
                 System Administrator Access

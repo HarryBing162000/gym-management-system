@@ -120,8 +120,13 @@ router.put(
   updateGym,
 );
 
-// ── Gym Info (public — login page and kiosk need this) ────
-router.get("/gym-info", getGymInfo);
+// ── Gym Info ──────────────────────────────────────────────
+// FIX: was public (no protect) — every gym received wrong or no settings
+// because req.user was undefined, so Settings.findOne({ ownerId: undefined })
+// returned null or the first document in the collection.
+// Now protected so req.user!.ownerId correctly scopes to this gym.
+// gymStore.fetchGymInfo() updated to pass the JWT Bearer token.
+router.get("/gym-info", protect, getGymInfo);
 
 // ── Logo Upload (owner only) ──────────────────────────────
 router.post(

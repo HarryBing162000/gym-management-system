@@ -4,9 +4,13 @@
  *
  * Fetches and caches gym info + plans once on app load.
  * Plans are the SINGLE SOURCE OF TRUTH for pricing across the entire frontend.
- * No auth required — gym-info is a public endpoint.
  *
- * Added: timezone field — replaces all hardcoded Asia/Manila in the frontend.
+ * FIX: /auth/gym-info is now a protected route — fetchGymInfo reads the JWT
+ * from persisted authStore and sends it as a Bearer token so the backend can
+ * scope the response to the correct gym via req.user!.ownerId.
+ *
+ * FIX: resetStore() added — call it from authStore.logout() so the next login
+ * fetches fresh settings for that gym instead of serving stale cached data.
  */
 
 import { create } from "zustand";
@@ -47,6 +51,7 @@ interface GymStore {
 
   // Actions
   fetchGymInfo: () => Promise<void>;
+  resetStore: () => void; // call on logout — clears cache so next login re-fetches
   updateSettings: (settings: Partial<GymSettings>) => void;
   setLogoUrl: (logoUrl: string | null) => void;
   setPlans: (plans: GymPlan[]) => void;
@@ -70,6 +75,22 @@ const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : "http://localhost:5000/api";
 
+// ─── Read JWT from persisted authStore ───────────────────────────────────────
+// /auth/gym-info is now a protected route. We pull the token from localStorage
+// (where Zustand persist writes it under "gms-auth") so fetchGymInfo can send
+// it as a Bearer header without depending on authStore directly (avoids circular
+// import between gymStore ↔ authStore).
+function getAuthToken(): string | null {
+  try {
+    const raw = localStorage.getItem("gms-auth");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.state?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export const useGymStore = create<GymStore>((set, get) => ({
   settings: null,
   isLoading: false,
@@ -78,11 +99,16 @@ export const useGymStore = create<GymStore>((set, get) => ({
   lastMemberUpdate: 0,
   triggerMemberRefresh: () => set({ lastMemberUpdate: Date.now() }),
 
+  // FIX: sends the JWT so backend scopes settings to this gym.
+  // hasFetched guard prevents redundant fetches within the same session.
   fetchGymInfo: async () => {
     if (get().hasFetched) return;
     set({ isLoading: true });
     try {
-      const res = await fetch(`${API_BASE}/auth/gym-info`);
+      const token = getAuthToken();
+      const res = await fetch(`${API_BASE}/auth/gym-info`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json();
       if (data.success) {
         set({
@@ -108,6 +134,11 @@ export const useGymStore = create<GymStore>((set, get) => ({
       set({ isLoading: false });
     }
   },
+
+  // FIX: call this from authStore.logout() so the next login always fetches
+  // fresh gym settings instead of serving the previous owner's cached data.
+  resetStore: () =>
+    set({ settings: null, hasFetched: false, isLoading: false }),
 
   updateSettings: (newSettings) => {
     set((state) => ({

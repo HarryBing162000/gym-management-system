@@ -1011,6 +1011,13 @@ export default function SuperAdminDashboard() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  useEffect(() => {
+    document.title = "SuperAdmin - LakasGMS";
+    return () => {
+      document.title = "LakasGMS";
+    };
+  }, []);
+
   const handleLogout = () => {
     logout();
     navigate("/superadmin");
@@ -1089,11 +1096,7 @@ export default function SuperAdminDashboard() {
           <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-[#FFB800] font-black text-sm tracking-widest uppercase">
-                ⚡ LakasGMS Control
-              </span>
-              <span className="hidden sm:block text-white/15 text-xs">·</span>
-              <span className="hidden sm:block text-white/25 text-xs font-medium">
-                Super Admin
+                ⚡ SuperAdmin - LakasGMS
               </span>
             </div>
             <div className="flex items-center gap-1">

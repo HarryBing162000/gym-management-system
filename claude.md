@@ -146,14 +146,17 @@ Full-stack gym management SaaS with role-based access for owners, staff, and mem
 - Duplicate guard: 10 seconds — **scoped by `ownerId`** on both `createPayment` and `settleBalance`
 - Backend aggregate returns `grandTotal`, `cashTotal`, `onlineTotal`
 - **`ownerId`** — all queries scoped. `createPayment` member lookup uses `{ ownerId, gymId }` — prevents cross-gym member mutation
+- **`processedBy`** — always cast to `new mongoose.Types.ObjectId(processedBy)` in ALL Payment.create() calls including `autoLogPayment` — plain string breaks `populate("processedBy")`
 
 ### ActionLog
-- Fields: `action` (enum), `performedBy` ({ userId, name, role }), `targetId`, `targetName`, `detail`, `timestamp`
-- Indexes: `{ timestamp: -1 }` and `{ 'performedBy.userId': 1, timestamp: -1 }`
+- Fields: `ownerId` (ref → User owner), `action` (enum), `performedBy` ({ userId, name, role }), `targetId`, `targetName`, `detail`, `timestamp`
+- **`ownerId` is required** — scopes all action log queries to one gym
+- Indexes: `{ ownerId: 1, timestamp: -1 }`, `{ timestamp: -1 }`, `{ 'performedBy.userId': 1, timestamp: -1 }`
 
 ### Settings
-- Singleton document
+- **One document per gym** — scoped by `ownerId` (unique index). Not a singleton.
 - `timezone: string` (default `"Asia/Manila"`)
+- Always query with `{ ownerId }` — never `Settings.findOne({})` which returns first gym's settings
 
 ---
 
@@ -396,7 +399,7 @@ React UI → offlineQueue (IndexedDB) → syncManager → Service Worker → Ren
 - `autoCheckout.ts` — reads `Settings.timezone` for `getTodayInTz()` and cron option
 - `authController.ts` — `getGymInfo` returns `timezone`; `updateWalkInPrices` accepts + saves `timezone`
 - `walkInController.ts` — `getTodayDate(ownerId?)` is **async**, reads `Settings.timezone` per gym; `getYesterdayRevenue` and `getWalkInHistory` default range also read `Settings.timezone`
-- `paymentController.ts` — `getDateRange(range, timezone)` accepts timezone param; dynamically computes UTC offset (handles half-hour zones like UTC+5:30); `getPaymentSummary` reads `Settings.timezone` and passes it in
+- `paymentController.ts` — `getDateRange(range, timezone)` accepts timezone param; dynamically computes UTC offset (handles half-hour zones like UTC+5:30); `getPaymentSummary` reads `Settings.timezone` and passes it in; `getPayments` date filter uses `buildTzDateBounds(dateStr, timezone)` — reads gym's actual timezone from Settings
 
 ### Frontend
 - `gymStore.ts` — `GymSettings.timezone`, `setTimezone()`, `getTimezone()` helper
@@ -425,7 +428,7 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 - KioskPage — fully integrated, rate limited, X-Kiosk-Token auth
 - Global toast system, confirm modals via createPortal
 - Cloudinary logo upload, UptimeRobot ping
-- Action Log system — full audit trail, role isolation
+- Action Log system — full audit trail, role isolation, ownerId-scoped
 - Offline-first PWA — SW, IndexedDB queue, syncManager, SyncBadge, optimistic UI
 - Super Admin system — GymClient model, auth, email invite, dashboard, full CRUD
 - Auto walk-out — cron at closing time using `Settings.timezone`, manual trigger
@@ -454,15 +457,20 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 - billingRenewsAt min date — prevents past date selection
 - Deleted gyms shown in list — filter now works correctly, stats exclude deleted from billing counts
 - Email service — swapped Resend → Nodemailer + Gmail SMTP (`lakasgmsm@gmail.com`)
-- Multi-tenant ownerId scoping audit — all Member/Payment/WalkIn queries now properly scoped per gym
+- Multi-tenant ownerId scoping audit — all Member/Payment/WalkIn/ActionLog queries now properly scoped per gym
 - Per-gym GYM-XXXX IDs — `generateGymId(ownerId)` sequences per owner, not globally
 - Per-gym WALK-XXX IDs — `generateWalkId(today, ownerId)` sequences per owner per day; WalkIn unique index changed to `{ ownerId, date, walkId }`
 - Per-gym walk-in pricing — `getPassAmount(passType, ownerId)` reads correct gym's Settings
 - Timezone-aware payment summary — `getDateRange` accepts timezone, dynamically computes UTC offset
 - Timezone-aware walk-in history + yesterday revenue — all read `Settings.timezone` per gym
+- Timezone-aware payment date filter — `buildTzDateBounds(dateStr, tz)` replaces hardcoded Manila offset in `getPayments`
 - Kiosk walk-in checkout — now searches `{ walkId, isCheckedOut: false }` (no hardcoded date/timezone needed)
 - `User.ownerId` had `default: null` → owner documents showed `ownerId: null` in MongoDB Atlas → removed `default`, field is now absent on owner documents
 - `registerStaff` passed `ownerId: req.user!.id` as plain string → now uses explicit `new mongoose.Types.ObjectId(req.user!.id)` — consistent with Member/Payment/WalkIn pattern
+- `autoExpireMembers()` was global → scoped to `ownerId` — previously expired members across ALL gyms on every Members page load
+- `createMember` gymId collision check was global → scoped to `{ ownerId, gymId }` — per-gym sequences, no cross-gym phantom collisions
+- `getPlanPrice` / `getPlanDuration` removed `{}` fallback → if ownerId missing, returns `null` not first gym's settings
+- `autoLogPayment` `processedBy` now cast to `new mongoose.Types.ObjectId()` — was plain string, breaking `populate("processedBy")` on auto-logged payments
 
 ---
 
@@ -502,6 +510,12 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 - `getDateRange()` hardcoded `Asia/Manila` in paymentController → now accepts `timezone` param with dynamic UTC offset
 - `getYesterdayRevenue` + `getWalkInHistory` default range hardcoded `Asia/Manila` → read `Settings.timezone`
 - Kiosk walk-in lookup/checkout used `date: today` filter → breaks after per-gym walkId fix → changed to `isCheckedOut: false`
+- `autoExpireMembers()` had no `ownerId` filter → expired members across ALL gyms on every Members page load → fixed with `autoExpireMembers(ownerId)` — now takes ownerId parameter, all three callers (`getMembers`, `getMemberStats`, `getAtRiskMembers`) pass `req.user!.ownerId`
+- `createMember` gymId collision check used `Member.findOne({ gymId })` (global) → now `Member.findOne({ ownerId, gymId })` — scoped to this gym
+- `getPlanPrice` / `getPlanDuration` used `Settings.findOne(ownerId ? { ownerId } : {})` → `{}` fallback returned first gym's plan prices when ownerId was falsy → removed fallback, now returns `null` safely, falls back to `FALLBACK_PRICES`
+- `createPayment` called `getPlanPrice(effectivePlan, settingsCache)` without `ownerId` → if settingsCache null, would query first gym's settings → now passes `ownerId` as third arg to both `getPlanPrice` and `getPlanDuration`
+- `getPayments` date filter used hardcoded `toManilaStart`/`toManilaEnd` with `-8` UTC offset → wrong dates for non-Manila gyms → replaced with `buildTzDateBounds(dateStr, tz)` that reads `Settings.timezone` per gym
+- `autoLogPayment` `processedBy` passed as plain string → `populate("processedBy")` silently failed on auto-logged payments → now cast to `new mongoose.Types.ObjectId(processedBy)` consistent with all other Payment.create() calls
 
 ---
 
@@ -512,8 +526,6 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 4. **Members/Payments summary in SA drawer** — now unblocked (ownerId scoping is complete); needs aggregate queries in superAdminController
 5. **Super Admin audit log TTL** — enable 1-year auto-expiry (commented out in model)
 6. **WalkIn index migration** — run `npx ts-node src/script/migrate-walkin-index.ts` once on Atlas to drop old `walkId_1` unique index and create `{ ownerId, date, walkId }` compound index
-7. **`getPayments` date filter hardcoded Manila** — `toManilaStart`/`toManilaEnd` helpers in `paymentController.ts` use hardcoded `-8` UTC offset; should read `Settings.timezone` and compute dynamically like `getDateRange` does
-8. **`getPlanPrice`/`getPlanDuration` global fallback** — `Settings.findOne(ownerId ? { ownerId } : {})` falls back to first gym's settings if `ownerId` is falsy; fallback `{}` should be removed (ownerId is always present in practice)
 
 ---
 
@@ -562,7 +574,7 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - Babel issue: avoid `.reduce<T>()` generic syntax in TSX files
 - Express 5: no express-mongo-sanitize — manual sanitizer in place
 - Member ≠ User — never conflate these two models
-- Member/Payment/WalkIn ALL have `ownerId` — every query must include `ownerId` filter. The old "shared collections" note is obsolete — per-gym scoping is fully implemented.
+- Member/Payment/WalkIn/ActionLog ALL have `ownerId` — every query must include `ownerId` filter. Per-gym scoping is fully implemented across all collections.
 - `protect` is now async — adds ~2-10ms per request (isActive + GymClient suspension check)
 - `authStore` persist key: `gms-auth` | `superAdminStore` persist key: `gms-superadmin`
 - `gymStore.triggerMemberRefresh()` → `lastMemberUpdate: Date.now()` → `MembersPage` refetches
@@ -598,9 +610,14 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - `getPassAmount(passType, ownerId)` — always pass ownerId; reads the correct gym's walkInPrices from Settings
 - `getTodayDate(ownerId?)` in walkInController is **async** — always `await` it; pass `req.user!.ownerId` for authenticated routes
 - `getDateRange(range, timezone)` in paymentController — requires timezone string (read from Settings before calling)
+- `buildTzDateBounds(dateStr, timezone)` in paymentController — use for converting YYYY-MM-DD filter strings to UTC Date bounds; replaces old hardcoded Manila helpers
+- `autoExpireMembers(ownerId)` in memberController — always pass ownerId; never call without it or it will expire members across all gyms
+- `getPlanPrice(name, cache, ownerId)` / `getPlanDuration(name, cache, ownerId)` — always pass ownerId as third arg; no `{}` fallback exists anymore
+- `autoLogPayment({ processedBy })` — processedBy is a string userId; cast to ObjectId inside the function for Payment.create(). Never pass an ObjectId directly.
 - Kiosk has no JWT/ownerId context — kiosk walk-in lookup uses `{ walkId, isCheckedOut: false }` not `{ walkId, date }`
 - WalkIn unique index is `{ ownerId, date, walkId }` — NOT global `{ walkId }`. Two gyms can have WALK-001 on the same day. Run `migrate-walkin-index.ts` on Atlas before deploying.
 - Migration scripts: `server/src/script/migrate-add-ownerid.ts` (backfill ownerId on old records) + `server/src/script/migrate-walkin-index.ts` (drop old walkId_1 unique index)
 - **`ownerId` source chain** — `owner._id` (created by SA) = `GymClient.ownerId` = `Settings.ownerId` = JWT `id` field = `req.user!.ownerId` (set by `protect`). No GymClient lookup needed in controllers — `req.user!.ownerId` already carries the correct value for both owners and staff.
 - Owner `User` documents have no `ownerId` field in MongoDB (field absent, not null). Staff `User` documents have `ownerId: ObjectId` pointing to their owner. Never store `ownerId` on owner User documents — it is derived at runtime.
 - `registerStaff` in `authController.ts` — uses `new mongoose.Types.ObjectId(req.user!.id)` for staff `ownerId`. Follow this pattern for all `ownerId` writes.
+- Settings is **per-gym** (one document per ownerId, unique index on ownerId) — never use `Settings.findOne({})` anywhere; always `Settings.findOne({ ownerId })`

@@ -425,7 +425,7 @@ export const updatePassword = async (req: AuthRequest, res: Response) => {
     await user.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -480,7 +480,7 @@ export const updateEmail = async (req: AuthRequest, res: Response) => {
     await user.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -505,14 +505,23 @@ export const updateGym = async (req: AuthRequest, res: Response) => {
   try {
     const { gymName, gymAddress }: UpdateGymInput = req.body;
 
-    const settings = await Settings.findOneAndUpdate(
-      { ownerId: req.user!.id },
-      { gymName, gymAddress },
-      { upsert: true, new: true, runValidators: true },
-    );
+    // FIX: removed upsert:true — Super Admin always creates Settings on gym creation.
+    // If Settings is missing it means something is wrong; we hard-error instead of
+    // silently creating an empty document without plans/walkInPrices/timezone.
+    // FIX: use req.user!.ownerId (not req.user!.id) — consistent with all other
+    // Settings queries across the codebase.
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
+    if (!settings)
+      return res
+        .status(500)
+        .json({ success: false, message: "Gym settings not found." });
+
+    settings.gymName = gymName;
+    settings.gymAddress = gymAddress;
+    await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -537,11 +546,13 @@ export const updateGym = async (req: AuthRequest, res: Response) => {
 };
 
 // =================== GET GYM INFO ===================
+// FIX: route is now protected (protect middleware added in authRoutes.ts).
+// req.user!.ownerId correctly scopes to the authenticated gym's settings.
+// Previously this was a public route — req.user was always undefined, so
+// Settings.findOne({ ownerId: undefined }) returned null or wrong data.
 export const getGymInfo = async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await Settings.findOne({
-      ownerId: (req as AuthRequest).user?.id,
-    });
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     const activePlans = settings?.plans?.filter((p) => p.isActive) ?? [];
 
     return res.status(200).json({
@@ -588,19 +599,26 @@ export const uploadLogoController = async (req: AuthRequest, res: Response) => {
       path: string;
       filename: string;
     };
-    const currentSettings = await Settings.findOne({ ownerId: req.user!.id });
-    if (currentSettings?.logoPublicId) {
-      await cloudinary.uploader.destroy(currentSettings.logoPublicId);
+
+    // FIX: use req.user!.ownerId (not req.user!.id) — consistent with all other
+    // Settings queries. Also removed upsert:true — Settings must already exist.
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
+    if (!settings)
+      return res
+        .status(500)
+        .json({ success: false, message: "Gym settings not found." });
+
+    // Delete old logo from Cloudinary if present
+    if (settings.logoPublicId) {
+      await cloudinary.uploader.destroy(settings.logoPublicId);
     }
 
-    const settings = await Settings.findOneAndUpdate(
-      { ownerId: req.user!.id },
-      { logoUrl: file.path, logoPublicId: file.filename },
-      { upsert: true, new: true, runValidators: true },
-    );
+    settings.logoUrl = file.path;
+    settings.logoPublicId = file.filename;
+    await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -623,21 +641,20 @@ export const uploadLogoController = async (req: AuthRequest, res: Response) => {
 // =================== DELETE LOGO ===================
 export const deleteLogo = async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await Settings.findOne({ ownerId: req.user!.id });
+    // FIX: use req.user!.ownerId (not req.user!.id)
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     if (!settings?.logoPublicId)
       return res
         .status(404)
         .json({ success: false, message: "No logo found to delete" });
 
     await cloudinary.uploader.destroy(settings.logoPublicId);
-    await Settings.findOneAndUpdate(
-      { ownerId: req.user!.id },
-      { logoUrl: null, logoPublicId: null },
-      { new: true },
-    );
+    settings.logoUrl = null;
+    settings.logoPublicId = null;
+    await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -659,7 +676,8 @@ export const deleteLogo = async (req: AuthRequest, res: Response) => {
 
 export const getPlans = async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await Settings.findOne({ ownerId: req.user!.id });
+    // FIX: use req.user!.ownerId (not req.user!.id)
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     return res
       .status(200)
       .json({ success: true, plans: settings?.plans ?? [] });
@@ -691,7 +709,8 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
         message: "Duration must be between 1 and 24 months.",
       });
 
-    const settings = await Settings.findOne({ ownerId: req.user!.id });
+    // FIX: use req.user!.ownerId (not req.user!.id)
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     if (!settings)
       return res
         .status(500)
@@ -716,7 +735,7 @@ export const addPlan = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -746,7 +765,8 @@ export const updatePlan = async (req: AuthRequest, res: Response) => {
       name?: string;
     };
 
-    const settings = await Settings.findOne({ ownerId: req.user!.id });
+    // FIX: use req.user!.ownerId (not req.user!.id)
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     if (!settings)
       return res
         .status(500)
@@ -781,7 +801,7 @@ export const updatePlan = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -805,7 +825,8 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
   try {
     const { planId } = req.params;
 
-    const settings = await Settings.findOne({ ownerId: req.user!.id });
+    // FIX: use req.user!.ownerId (not req.user!.id)
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     if (!settings)
       return res
         .status(500)
@@ -831,7 +852,7 @@ export const deletePlan = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
@@ -862,7 +883,8 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
       timezone?: string;
     };
 
-    const settings = await Settings.findOne({ ownerId: req.user!.id });
+    // FIX: use req.user!.ownerId (not req.user!.id)
+    const settings = await Settings.findOne({ ownerId: req.user!.ownerId });
     if (!settings)
       return res
         .status(500)
@@ -883,7 +905,7 @@ export const updateWalkInPrices = async (req: AuthRequest, res: Response) => {
     await settings.save();
 
     await logAction({
-      ownerId: req.user!.id,
+      ownerId: req.user!.ownerId,
       action: "settings_updated",
       performedBy: {
         userId: req.user!.id,
