@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useGymStore } from "../store/gymStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -55,10 +56,15 @@ const KIOSK_TOKEN =
     ?.VITE_KIOSK_SECRET ?? "";
 const FETCH_TIMEOUT_MS = 8000;
 
-const kioskHeaders: HeadersInit = {
-  "Content-Type": "application/json",
-  "X-Kiosk-Token": KIOSK_TOKEN,
-};
+// FIX: kioskHeaders is now a function so X-Gym-Id is always included.
+// ownerId comes from ?gym=<ownerId> in the URL — read at component mount.
+function buildKioskHeaders(ownerId: string): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    "X-Kiosk-Token": KIOSK_TOKEN,
+    "X-Gym-Id": ownerId,
+  };
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -77,11 +83,14 @@ async function fetchWithTimeout(
   }
 }
 
-async function searchKiosk(query: string): Promise<SearchResult> {
+async function searchKiosk(
+  query: string,
+  ownerId: string,
+): Promise<SearchResult> {
   const trimmed = query.trim().toUpperCase();
   const res = await fetchWithTimeout(
     `${API_BASE}/api/kiosk/search?q=${encodeURIComponent(query.trim())}`,
-    { headers: kioskHeaders },
+    { headers: buildKioskHeaders(ownerId) },
   );
   if (!res.ok) return null;
   const body = await res.json();
@@ -104,13 +113,14 @@ async function searchKiosk(query: string): Promise<SearchResult> {
 async function performMemberAction(
   gymId: string,
   action: "checkin" | "checkout",
+  ownerId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetchWithTimeout(
       `${API_BASE}/api/kiosk/member/${action}`,
       {
         method: "POST",
-        headers: kioskHeaders,
+        headers: buildKioskHeaders(ownerId),
         body: JSON.stringify({ gymId }),
       },
     );
@@ -125,13 +135,14 @@ async function performMemberAction(
 
 async function performWalkInAction(
   walkId: string,
+  ownerId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetchWithTimeout(
       `${API_BASE}/api/kiosk/walkin/checkout`,
       {
         method: "POST",
-        headers: kioskHeaders,
+        headers: buildKioskHeaders(ownerId),
         body: JSON.stringify({ walkId }),
       },
     );
@@ -144,11 +155,14 @@ async function performWalkInAction(
   }
 }
 
-async function refetchMember(gymId: string): Promise<Member | null> {
+async function refetchMember(
+  gymId: string,
+  ownerId: string,
+): Promise<Member | null> {
   try {
     const res = await fetchWithTimeout(
       `${API_BASE}/api/kiosk/search?q=${encodeURIComponent(gymId)}`,
-      { headers: kioskHeaders },
+      { headers: buildKioskHeaders(ownerId) },
     );
     if (!res.ok) return null;
     const body = await res.json();
@@ -931,8 +945,20 @@ function SelectionList({
 const RESET_DELAY_MS = 8000;
 
 export default function KioskPage() {
+  const [searchParams] = useSearchParams();
   const { settings } = useGymStore();
   const gymName = settings?.gymName?.toUpperCase() || "GMS";
+
+  // FIX: read ownerId from ?gym=<ownerId> URL param.
+  // This is set by the "Launch Kiosk" button in the owner dashboard.
+  // Without it, every kiosk request would hit all gyms globally.
+  const ownerId = searchParams.get("gym") ?? "";
+
+  // FIX: replace history entry on mount so the browser back button has
+  // nowhere to go — prevents returning to the owner dashboard from the kiosk.
+  useEffect(() => {
+    window.history.replaceState(null, "", window.location.href);
+  }, []);
 
   const [query, setQuery] = useState("");
   const [phase, setPhase] = useState<KioskPhase>("idle");
@@ -988,7 +1014,7 @@ export default function KioskPage() {
         try {
           const res = await fetchWithTimeout(
             `${API_BASE}/api/kiosk/search?q=${encodeURIComponent(trimmed)}`,
-            { headers: kioskHeaders },
+            { headers: buildKioskHeaders(ownerId) },
           );
           if (!res.ok) {
             setSuggestions([]);
@@ -1060,7 +1086,7 @@ export default function KioskPage() {
     setErrorMessage("");
     setStatusMessage("");
     try {
-      const found = await searchKiosk(trimmed);
+      const found = await searchKiosk(trimmed, ownerId);
       if (!found) {
         setPhase("error");
         setErrorMessage(`No record found for "${trimmed}". Please try again.`);
@@ -1082,7 +1108,7 @@ export default function KioskPage() {
       );
       scheduleReset(4000);
     }
-  }, [query, phase, scheduleReset]);
+  }, [query, phase, scheduleReset, ownerId]);
 
   const handleSelectMember = useCallback((member: Member) => {
     setResult({ type: "member", data: member });
@@ -1112,14 +1138,18 @@ export default function KioskPage() {
       if (result.type === "member") {
         const m = result.data;
         const action = m.checkedIn ? "checkout" : "checkin";
-        const { ok, error } = await performMemberAction(m.gymId, action);
+        const { ok, error } = await performMemberAction(
+          m.gymId,
+          action,
+          ownerId,
+        );
         if (!ok) {
           setPhase("error");
           setErrorMessage(resolveErrorMessage(error));
           scheduleReset(4000);
           return;
         }
-        const updated = await refetchMember(m.gymId);
+        const updated = await refetchMember(m.gymId, ownerId);
         if (updated) setResult({ type: "member", data: updated });
         setStatusMessage(
           action === "checkin"
@@ -1128,7 +1158,7 @@ export default function KioskPage() {
         );
       } else if (result.type === "walkin") {
         const w = result.data;
-        const { ok, error } = await performWalkInAction(w.walkId);
+        const { ok, error } = await performWalkInAction(w.walkId, ownerId);
         if (!ok) {
           setPhase("error");
           setErrorMessage(resolveErrorMessage(error));
@@ -1148,7 +1178,7 @@ export default function KioskPage() {
       setErrorMessage(resolveErrorMessage("NETWORK_ERROR"));
       scheduleReset(4000);
     }
-  }, [result, phase, scheduleReset, playSuccessBeep, settings]);
+  }, [result, phase, scheduleReset, playSuccessBeep, settings, ownerId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSearch();
@@ -1161,6 +1191,75 @@ export default function KioskPage() {
   };
 
   const inputDisabled = ["searching", "processing", "success"].includes(phase);
+
+  // FIX: guard — if no ?gym= param, show setup instructions instead of a
+  // broken kiosk that silently queries the wrong (global) data.
+  if (!ownerId) {
+    return (
+      <>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&display=swap"
+          rel="stylesheet"
+        />
+        <div
+          style={{
+            minHeight: "100vh",
+            background: "#111",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "2rem",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 480,
+              textAlign: "center",
+              border: "1px solid rgba(255,107,26,0.2)",
+              borderRadius: 16,
+              padding: "48px 40px",
+              background: "rgba(255,107,26,0.03)",
+            }}
+          >
+            <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>⚠️</div>
+            <div
+              className="font-['Bebas_Neue']"
+              style={{
+                fontSize: "1.8rem",
+                color: "#FF6B1A",
+                letterSpacing: "0.1em",
+                marginBottom: "0.75rem",
+              }}
+            >
+              KIOSK NOT CONFIGURED
+            </div>
+            <p
+              className="font-['Space_Mono']"
+              style={{
+                fontSize: "0.65rem",
+                color: "#666",
+                lineHeight: 1.8,
+                letterSpacing: "0.04em",
+              }}
+            >
+              This kiosk is missing its gym identifier.
+              <br />
+              <br />
+              To launch the kiosk correctly, go to your{" "}
+              <span style={{ color: "#FF6B1A" }}>Owner Dashboard</span> and
+              click the <span style={{ color: "#FF6B1A" }}>Launch Kiosk</span>{" "}
+              button.
+              <br />
+              <br />
+              Do not open <span style={{ color: "#555" }}>/kiosk</span> directly
+              — it must include the <span style={{ color: "#555" }}>?gym=</span>{" "}
+              parameter.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

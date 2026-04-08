@@ -293,18 +293,12 @@ export default function LoginPage() {
           </div>
 
           {/* Bottom links */}
-          <div className="mt-6 flex items-center justify-between">
+          <div className="mt-6 flex justify-center">
             <a
               href="/forgot-password"
               className="text-xs text-white/30 hover:text-white/60 transition-colors"
             >
               Forgot password?
-            </a>
-            <a
-              href="/kiosk"
-              className="text-xs text-white/30 hover:text-[#FF6B1A] transition-colors"
-            >
-              Kiosk ➜
             </a>
           </div>
         </div>

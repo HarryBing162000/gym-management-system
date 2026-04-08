@@ -343,7 +343,7 @@ function DashboardContent({
   onNavigate: (page: string) => void;
 }) {
   const { user } = useAuthStore();
-  const { settings } = useGymStore();
+  const { settings, getOwnerId } = useGymStore();
   const gymName = settings?.gymName || "the gym";
 
   const [memberStats, setMemberStats] = useState({
@@ -591,6 +591,13 @@ function DashboardContent({
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
+          <button
+            onClick={() => window.open(`/kiosk?gym=${getOwnerId()}`, "_blank")}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 text-white/50 border border-white/10 text-xs font-bold rounded-lg hover:bg-white/10 hover:text-white/80 transition-all cursor-pointer"
+            title="Opens kiosk in a new tab — safe to use on a dedicated tablet"
+          >
+            <span className="text-sm leading-none">🖥</span> Kiosk
+          </button>
           <button
             onClick={() => onNavigate("walkins")}
             className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/25 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all cursor-pointer"

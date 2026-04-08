@@ -281,6 +281,7 @@ function CheckInDesk() {
   const LOG_PAGE_SIZE = 10;
 
   const { user } = useAuthStore();
+  const { getOwnerId } = useGymStore();
   const { showToast } = useToastStore();
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Member[]>([]);
@@ -532,17 +533,26 @@ function CheckInDesk() {
         </div>
       )}
 
-      <div>
-        <h2 className="text-lg font-bold text-white">
-          Welcome, {user?.name?.split(" ")[0]}! 👋
-        </h2>
-        <p className="text-xs text-white/30 mt-0.5">
-          {new Date().toLocaleDateString("en-PH", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white">
+            Welcome, {user?.name?.split(" ")[0]}! 👋
+          </h2>
+          <p className="text-xs text-white/30 mt-0.5">
+            {new Date().toLocaleDateString("en-PH", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+        </div>
+        <button
+          onClick={() => window.open(`/kiosk?gym=${getOwnerId()}`, "_blank")}
+          className="flex items-center gap-1.5 px-3 py-2 bg-white/5 text-white/50 border border-white/10 text-xs font-bold rounded-lg hover:bg-white/10 hover:text-white/80 transition-all cursor-pointer shrink-0"
+          title="Opens kiosk in a new tab"
+        >
+          <span className="text-sm leading-none">🖥</span> Kiosk
+        </button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">

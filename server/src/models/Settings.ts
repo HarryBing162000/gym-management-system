@@ -28,8 +28,8 @@ export interface ISettings extends Document {
   ownerId: mongoose.Types.ObjectId; // ref → User (owner) — gym scoping
   gymName: string;
   gymAddress: string;
-  logoUrl?: string;
-  logoPublicId?: string;
+  logoUrl?: string | null;
+  logoPublicId?: string | null;
   plans: IPlan[];
   walkInPrices: IWalkInPrices;
   closingTime: string;
@@ -74,14 +74,12 @@ const SettingsSchema = new Schema<ISettings>(
     gymName: {
       type: String,
       required: [true, "Gym name is required"],
-      default: "LakasGMS",
       trim: true,
       maxlength: [100, "Gym name too long"],
     },
     gymAddress: {
       type: String,
       required: [true, "Gym address is required"],
-      default: "Antique",
       trim: true,
       maxlength: [200, "Address too long"],
     },

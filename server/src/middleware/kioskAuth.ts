@@ -17,9 +17,19 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 
+// Extend Express Request to carry ownerId for downstream controllers
+declare global {
+  namespace Express {
+    interface Request {
+      kioskOwnerId?: string;
+    }
+  }
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const KIOSK_TOKEN_HEADER = "x-kiosk-token";
+const KIOSK_GYM_HEADER = "x-gym-id"; // which gym this kiosk belongs to
 const MIN_SECRET_LENGTH = 32;
 
 // ─── Startup validation ───────────────────────────────────────────────────────
@@ -83,7 +93,6 @@ export function kioskAuth(
   const isValid = safeCompare(token, KIOSK_SECRET!);
 
   if (!isValid) {
-    // Generic message — don't hint whether token exists or not
     res.status(401).json({
       error: "KIOSK_AUTH_FAILED",
       message: "Invalid kiosk token.",
@@ -91,5 +100,21 @@ export function kioskAuth(
     return;
   }
 
+  // FIX: Require X-Gym-Id so every kiosk request is scoped to one gym.
+  // The frontend sends this from the ?gym=<ownerId> URL param.
+  // Without it, all kiosk queries would hit the entire database globally.
+  const gymId = req.headers[KIOSK_GYM_HEADER];
+
+  if (!gymId || Array.isArray(gymId) || gymId.trim().length === 0) {
+    res.status(400).json({
+      error: "KIOSK_GYM_REQUIRED",
+      message:
+        "Missing X-Gym-Id header. Open the kiosk from the owner dashboard.",
+    });
+    return;
+  }
+
+  // Attach to request — all kiosk controllers use req.kioskOwnerId
+  req.kioskOwnerId = gymId.trim();
   next();
 }

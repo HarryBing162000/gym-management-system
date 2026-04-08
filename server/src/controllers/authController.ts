@@ -559,6 +559,7 @@ export const getGymInfo = async (req: AuthRequest, res: Response) => {
       success: true,
       settings: settings
         ? {
+            ownerId: settings.ownerId.toString(),
             gymName: settings.gymName,
             gymAddress: settings.gymAddress,
             logoUrl: settings.logoUrl || null,
@@ -572,6 +573,7 @@ export const getGymInfo = async (req: AuthRequest, res: Response) => {
             timezone: settings.timezone ?? "Asia/Manila",
           }
         : {
+            ownerId: "",
             gymName: process.env.GYM_NAME || "Gym",
             gymAddress: process.env.GYM_ADDRESS || "",
             logoUrl: null,

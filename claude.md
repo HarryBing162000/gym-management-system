@@ -1,5 +1,22 @@
 # LakasGMS — CLAUDE.md
 
+## ⚠️ CRITICAL INSTRUCTION FOR AI — READ BEFORE WRITING ANY CODE
+
+**Before sending any code to the developer, you MUST mentally simulate and verify the code is correct.**
+
+Specifically:
+1. **Check hook ordering** — In React components, all `useState` calls must come before `useCallback` and `useEffect`. Never reference a `const` (like a `useCallback` result) before it is declared — JavaScript `const` is not hoisted.
+2. **Check all import statements** — If you use a hook like `useEffect`, `useCallback`, `useSearchParams`, etc., verify it is in the import list. Never assume it is already imported.
+3. **Check TypeScript types** — If a Mongoose schema field has `default: null`, the interface must declare it as `string | null`, not `string | undefined`. Match the interface to what the DB actually stores.
+4. **Check ownerId scoping** — Every DB query touching Member, Payment, WalkIn, ActionLog, or Settings MUST include `{ ownerId }`. Never write a query without it.
+5. **Check CORS headers** — If you add a new custom HTTP header to any fetch/axios call, add it to `allowedHeaders` in `server/src/middleware/security.ts` or the browser preflight will block it.
+6. **Verify the full call chain** — If a function signature changes (e.g. adding an `ownerId` param), trace every call site and update them all. Never leave stale callers.
+7. **No upsert on Settings** — Never use `upsert: true` on Settings queries. Settings is created by Super Admin on gym creation. If it's missing, return a hard 500 error.
+
+**If you are not confident the code will work, say so and ask for the missing file before writing the fix. Sending broken code wastes the developer's time.**
+
+---
+
 ## Project Overview
 Full-stack gym management SaaS with role-based access for owners, staff, and members.
 
@@ -81,7 +98,7 @@ Full-stack gym management SaaS with role-based access for owners, staff, and mem
 | Store              | Responsibility |
 |--------------------|----------------|
 | `authStore`        | Current user session, role, JWT token. `logout()` fires POST /api/action-logs/logout BEFORE clearing token. `clearSession()` wipes state synchronously without action-log POST — used by End Session in impersonation. Persist key: `gms-auth`. `setAuth(user, token)` — user first, token second |
-| `gymStore`         | Settings + plans + walkInPrices + closingTime + **timezone**. `triggerMemberRefresh()`. `setClosingTime()`. `setTimezone()`. `getTimezone()` helper |
+| `gymStore`         | Settings + plans + walkInPrices + closingTime + **timezone** + **ownerId**. `triggerMemberRefresh()`. `setClosingTime()`. `setTimezone()`. `getTimezone()` helper. `getOwnerId()` helper — used for kiosk launch URL. `resetStore()` — call on logout |
 | `toastStore`       | Global toast notifications |
 | `superAdminStore`  | Super admin session, separate token. `logout()` clears `gms:sa-welcomed` from sessionStorage. Persist key: `gms-superadmin` |
 
@@ -136,8 +153,8 @@ Full-stack gym management SaaS with role-based access for owners, staff, and mem
 - **Duplicate guards:** same-name today scoped by `ownerId` (409) + 10-second rapid-fire guard
 - **Auto walk-out:** `runAutoCheckout()` called by cron at `Settings.closingTime` in `Settings.timezone`
 - **History checkout:** `PATCH /api/walkin/checkout` accepts optional `date` body param for past-day records
-- **Kiosk checkout:** searches by `{ walkId, isCheckedOut: false }` — no date filter needed since per-gym IDs + auto-checkout closes stale records
-- **`ownerId`** — all queries (register, checkout, today, history, yesterday) scoped by `ownerId`
+- **Kiosk checkout:** searches by `{ ownerId, walkId, isCheckedOut: false }` — always include ownerId
+- **`ownerId`** — all queries (register, checkout, today, history, yesterday, kiosk) scoped by `ownerId`
 - **Walk-in prices:** `getPassAmount(passType, ownerId)` reads `Settings.walkInPrices` per gym — not a global fallback
 
 ### Payment
@@ -156,7 +173,10 @@ Full-stack gym management SaaS with role-based access for owners, staff, and mem
 ### Settings
 - **One document per gym** — scoped by `ownerId` (unique index). Not a singleton.
 - `timezone: string` (default `"Asia/Manila"`)
+- `logoUrl?: string | null` — allow null (schema default is null)
+- `logoPublicId?: string | null` — allow null (schema default is null)
 - Always query with `{ ownerId }` — never `Settings.findOne({})` which returns first gym's settings
+- Never use `upsert: true` — Settings is created by Super Admin on gym creation. Missing Settings = hard 500 error.
 
 ---
 
@@ -171,6 +191,7 @@ Full-stack gym management SaaS with role-based access for owners, staff, and mem
 - **Timing-safe comparison:** `crypto.timingSafeEqual()` used for credential check
 - **x-forwarded-for sanitized:** takes first IP only — prevents rate limit bypass via header spoofing
 - **Idle timeout:** 15 min inactivity → auto-logout. 60s warning modal with countdown before logout fires.
+- **Title hardcoded:** All SA pages (login, dashboard, audit log) show `"⚡ SuperAdmin - LakasGMS"` — never dynamic
 
 ### Capabilities
 - Create gym client + owner account → sends set-password invite email via Nodemailer/Gmail
@@ -372,6 +393,7 @@ React UI → offlineQueue (IndexedDB) → syncManager → Service Worker → Ren
 |-----|------|---------|
 | `gms:dashboard-cache` | OwnerDashboard | memberStats, paymentSummary, walkInToday, atRisk, recentActivity, recentCheckins |
 | `gms:staff-dashboard-cache` | StaffDashboard | membersInside, walkInsToday, totalCheckins, atRisk, todayLog |
+| `gms:members-cache` | MembersPage | members list (unfiltered first page) |
 | `gms:payments-cache` | PaymentsPage | payments list (unfiltered default) |
 | `gms:payments-summary-cache` | PaymentsPage | summary cards |
 | `gms:walkins-today-cache` | WalkInsPage | today's walk-ins + summary + yesterday stats |
@@ -397,12 +419,12 @@ React UI → offlineQueue (IndexedDB) → syncManager → Service Worker → Ren
 ### Backend
 - `Settings.ts` — `timezone: { type: String, default: "Asia/Manila" }`
 - `autoCheckout.ts` — reads `Settings.timezone` for `getTodayInTz()` and cron option
-- `authController.ts` — `getGymInfo` returns `timezone`; `updateWalkInPrices` accepts + saves `timezone`
+- `authController.ts` — `getGymInfo` returns `timezone` and `ownerId`; `updateWalkInPrices` accepts + saves `timezone`
 - `walkInController.ts` — `getTodayDate(ownerId?)` is **async**, reads `Settings.timezone` per gym; `getYesterdayRevenue` and `getWalkInHistory` default range also read `Settings.timezone`
 - `paymentController.ts` — `getDateRange(range, timezone)` accepts timezone param; dynamically computes UTC offset (handles half-hour zones like UTC+5:30); `getPaymentSummary` reads `Settings.timezone` and passes it in; `getPayments` date filter uses `buildTzDateBounds(dateStr, timezone)` — reads gym's actual timezone from Settings
 
 ### Frontend
-- `gymStore.ts` — `GymSettings.timezone`, `setTimezone()`, `getTimezone()` helper
+- `gymStore.ts` — `GymSettings.timezone`, `setTimezone()`, `getTimezone()` helper; also stores `ownerId`, `getOwnerId()` helper
 - `WalkInsPage.tsx`, `PaymentsPage.tsx` — all date helpers use `gymStore.getTimezone()`
 - `SettingsPage.tsx` — timezone dropdown (35 IANA options), saves via `PUT /api/auth/walkin-prices`
 - `useClock.ts` — reads `gymStore.getTimezone()`
@@ -420,16 +442,62 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 
 ---
 
+## Kiosk System
+
+### Architecture
+- URL: `/kiosk?gym=<ownerId>` — `ownerId` is the gym owner's `User._id`
+- Auth: `X-Kiosk-Token` header (static secret from `.env`) + `X-Gym-Id` header (ownerId from URL param)
+- No JWT. Machine-level auth only. Completely independent of owner/staff session.
+- `kioskAuth` middleware validates both headers and attaches `req.kioskOwnerId`
+- All 5 controller functions scope every DB query with `{ ownerId: req.kioskOwnerId }`
+
+### Launch flow
+```
+Owner/Staff clicks 🖥 Kiosk button in dashboard
+→ window.open("/kiosk?gym=<ownerId>", "_blank")
+→ New tab — back button is dead (no history)
+→ KioskPage reads ownerId from ?gym= param via useSearchParams
+→ window.history.replaceState() kills any remaining history on mount
+→ Every API call sends X-Gym-Id: <ownerId> and X-Kiosk-Token headers
+→ kioskAuth validates token + extracts gymId → attaches req.kioskOwnerId
+→ All queries scoped to that gym only
+```
+
+### Key kiosk rules
+- `gymStore.getOwnerId()` — use this to build the kiosk URL from both owner and staff dashboards
+- `buildKioskHeaders(ownerId)` — always use this function in KioskPage, never hardcode headers
+- If `/kiosk` is opened without `?gym=`, shows a setup error screen — never queries globally
+- Kiosk is independent of owner session — works even if owner logs out or token expires
+- `X-Gym-Id` must be in `allowedHeaders` in `server/src/middleware/security.ts` for CORS preflight to pass
+- Kiosk walk-in lookup uses `{ ownerId, walkId, isCheckedOut: false }` — NOT `{ walkId, date }`
+
+---
+
+## Settings Page
+
+- Sections: Gym Info, Membership Plans, Walk-in Prices + Closing Time + Timezone, Account (Change Password)
+- **Unsaved changes indicator** — amber pulsing dot + "Unsaved changes" appears when local state differs from gymStore
+- **Logo upload hint** — "⚠ File selected — click Save Logo to upload" shown when file staged but not uploaded
+- **Walk-in price validation** — prices must be > 0 before saving
+- **Password show/hide toggles** — all three password fields have eye icon toggle
+- **Password mismatch hint** — live inline error shown below confirm field before hitting save
+- All Settings write endpoints use `req.user!.ownerId` (not `req.user!.id`)
+- `/auth/gym-info` is a **protected** route — requires JWT. `gymStore.fetchGymInfo()` reads token from `localStorage("gms-auth")` and sends as Bearer header.
+
+---
+
 ## Completed Features
 - Role-based auth (owner / staff / super admin flows)
 - MembersPage, WalkInsPage, WalkInDesk, PaymentsPage, OwnerDashboard, StaffDashboard
 - ReportsPage — redesigned charts, PDF export
-- SettingsPage — PlansManager, Walk-in Prices, Closing Time, Timezone, Change Password
-- KioskPage — fully integrated, rate limited, X-Kiosk-Token auth
+- SettingsPage — PlansManager, Walk-in Prices, Closing Time, Timezone, Change Password, unsaved indicators, logo hint, password toggles
+- KioskPage — fully integrated, ownerId-scoped via X-Gym-Id, history guard, error screen for missing ?gym= param
+- Kiosk launch button — 🖥 Kiosk in both OwnerDashboard and StaffDashboard header
 - Global toast system, confirm modals via createPortal
 - Cloudinary logo upload, UptimeRobot ping
 - Action Log system — full audit trail, role isolation, ownerId-scoped
 - Offline-first PWA — SW, IndexedDB queue, syncManager, SyncBadge, optimistic UI
+- MembersPage offline cache — `gms:members-cache`, amber banner, auto-refresh on reconnect, 30s poll paused offline, Array.isArray guards
 - Super Admin system — GymClient model, auth, email invite, dashboard, full CRUD
 - Auto walk-out — cron at closing time using `Settings.timezone`, manual trigger
 - Live clock — `useClock()` hook, both layouts, closing time warning
@@ -437,40 +505,19 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 - Gym suspension enforcement — kicks owner + all staff immediately
 - Login rate limiting — 5 attempts → 15-min lockout (owner/staff by identifier, Super Admin by IP)
 - Forced logout message — `sessionStorage("gms:logout-reason")`
-- Walk-in Action column — Check Out on both Today and History tabs
-- Walk-in history checkout fix — `date` passed through full stack
 - Offline cache — all pages cached with amber banner + auto-refresh
 - Offline renew — at-risk renewal queued in both dashboards
 - Timezone setting — `Settings.timezone` replaces all Asia/Manila hardcodes
-- `lastLoginAt` fix — `GymClient.findOneAndUpdate` added to `loginOwner`
-- Impersonation token — single-use, rate limited, StrictMode-safe
-- Impersonation session — 4h token, `impersonated: true` flag, orange support banner in OwnerLayout
-- End Session — ConfirmModal + `clearSession()` + `window.location.href` back to SA dashboard
-- Super Admin security hardening — rate limiting, timing-safe comparison, single-use tokens, IP sanitization, billingStatus validation, Settings deleted by ownerId
-- Super Admin audit log — MongoDB persistent (`superadminauditlogs` collection), survives restarts
-- Super Admin audit log viewer — `/superadmin/audit-log` page with filters + CSV export
-- Idle timeout — `useIdleTimeout` hook, 15 min, 60s warning modal on SA dashboard + audit log page
-- Super Admin dashboard UI enhancement — stat card icons/subtext/hover, skeleton loaders, filter chips, copy ID, address in row, expiry column, expiring row highlight, enhanced empty state
-- Welcome modal — shown once per SA login session, cleared on logout
-- Owner verification badge in drawer — fetches `isVerified` from `GET /gyms/:id`
-- Drawer re-syncs after Save — `useEffect` on gym prop
-- billingRenewsAt min date — prevents past date selection
-- Deleted gyms shown in list — filter now works correctly, stats exclude deleted from billing counts
-- Email service — swapped Resend → Nodemailer + Gmail SMTP (`lakasgmsm@gmail.com`)
-- Multi-tenant ownerId scoping audit — all Member/Payment/WalkIn/ActionLog queries now properly scoped per gym
-- Per-gym GYM-XXXX IDs — `generateGymId(ownerId)` sequences per owner, not globally
-- Per-gym WALK-XXX IDs — `generateWalkId(today, ownerId)` sequences per owner per day; WalkIn unique index changed to `{ ownerId, date, walkId }`
-- Per-gym walk-in pricing — `getPassAmount(passType, ownerId)` reads correct gym's Settings
-- Timezone-aware payment summary — `getDateRange` accepts timezone, dynamically computes UTC offset
-- Timezone-aware walk-in history + yesterday revenue — all read `Settings.timezone` per gym
-- Timezone-aware payment date filter — `buildTzDateBounds(dateStr, tz)` replaces hardcoded Manila offset in `getPayments`
-- Kiosk walk-in checkout — now searches `{ walkId, isCheckedOut: false }` (no hardcoded date/timezone needed)
-- `User.ownerId` had `default: null` → owner documents showed `ownerId: null` in MongoDB Atlas → removed `default`, field is now absent on owner documents
-- `registerStaff` passed `ownerId: req.user!.id` as plain string → now uses explicit `new mongoose.Types.ObjectId(req.user!.id)` — consistent with Member/Payment/WalkIn pattern
-- `autoExpireMembers()` was global → scoped to `ownerId` — previously expired members across ALL gyms on every Members page load
-- `createMember` gymId collision check was global → scoped to `{ ownerId, gymId }` — per-gym sequences, no cross-gym phantom collisions
-- `getPlanPrice` / `getPlanDuration` removed `{}` fallback → if ownerId missing, returns `null` not first gym's settings
-- `autoLogPayment` `processedBy` now cast to `new mongoose.Types.ObjectId()` — was plain string, breaking `populate("processedBy")` on auto-logged payments
+- Impersonation token — single-use, rate limited, StrictMode-safe, 4h session
+- Super Admin security hardening — rate limiting, timing-safe comparison, IP sanitization, billingStatus validation
+- Super Admin audit log — MongoDB persistent, viewer page with filters + CSV export
+- SA branding hardcoded — `"⚡ SuperAdmin - LakasGMS"` in topbar + login + browser tab via `document.title`
+- Idle timeout — 15 min, 60s warning modal on SA pages
+- gymStore `ownerId` + `getOwnerId()` — fetched from `/auth/gym-info`, used for kiosk URL
+- CORS `allowedHeaders` includes `X-Gym-Id`
+- LoginPage — removed Kiosk link; kiosk only accessible from dashboard
+- Settings `logoUrl`/`logoPublicId` typed as `string | null` (matches Mongoose schema)
+- `gymStore.resetStore()` — resets `hasFetched` on logout so next login fetches fresh settings
 
 ---
 
@@ -501,21 +548,33 @@ const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = u
 - Deleted gyms filter broken → `listGyms` now returns all gyms, frontend filters
 - `SuperAdminAuditLog.ts` filename casing mismatch on Windows → rename via temp file
 - Resend free tier blocked non-verified emails → swapped to Nodemailer + Gmail SMTP
-- `createPayment` member lookup missing `ownerId` → Gym A could mutate Gym B's member balance/expiry → fixed with `{ ownerId, gymId }` filter
+- `createPayment` member lookup missing `ownerId` → Gym A could mutate Gym B's member → fixed with `{ ownerId, gymId }` filter
 - `getPassAmount` used `Settings.findOne({})` → all gyms got first gym's walk-in prices → fixed with `{ ownerId }` filter
 - `generateWalkId` missing `ownerId` → WALK-XXX counter was globally shared → fixed; WalkIn unique index updated to `{ ownerId, date, walkId }`
 - `generateGymId` missing `ownerId` → GYM-XXXX counter was globally shared → fixed with `generateGymId(ownerId)`
 - Payment duplicate guards missing `ownerId` → fixed on both `createPayment` and `settleBalance`
 - `getTodayDate()` hardcoded `Asia/Manila` in walkInController → made async, reads `Settings.timezone` per gym
-- `getDateRange()` hardcoded `Asia/Manila` in paymentController → now accepts `timezone` param with dynamic UTC offset
-- `getYesterdayRevenue` + `getWalkInHistory` default range hardcoded `Asia/Manila` → read `Settings.timezone`
-- Kiosk walk-in lookup/checkout used `date: today` filter → breaks after per-gym walkId fix → changed to `isCheckedOut: false`
-- `autoExpireMembers()` had no `ownerId` filter → expired members across ALL gyms on every Members page load → fixed with `autoExpireMembers(ownerId)` — now takes ownerId parameter, all three callers (`getMembers`, `getMemberStats`, `getAtRiskMembers`) pass `req.user!.ownerId`
-- `createMember` gymId collision check used `Member.findOne({ gymId })` (global) → now `Member.findOne({ ownerId, gymId })` — scoped to this gym
-- `getPlanPrice` / `getPlanDuration` used `Settings.findOne(ownerId ? { ownerId } : {})` → `{}` fallback returned first gym's plan prices when ownerId was falsy → removed fallback, now returns `null` safely, falls back to `FALLBACK_PRICES`
-- `createPayment` called `getPlanPrice(effectivePlan, settingsCache)` without `ownerId` → if settingsCache null, would query first gym's settings → now passes `ownerId` as third arg to both `getPlanPrice` and `getPlanDuration`
-- `getPayments` date filter used hardcoded `toManilaStart`/`toManilaEnd` with `-8` UTC offset → wrong dates for non-Manila gyms → replaced with `buildTzDateBounds(dateStr, tz)` that reads `Settings.timezone` per gym
-- `autoLogPayment` `processedBy` passed as plain string → `populate("processedBy")` silently failed on auto-logged payments → now cast to `new mongoose.Types.ObjectId(processedBy)` consistent with all other Payment.create() calls
+- `getDateRange()` hardcoded `Asia/Manila` in paymentController → now accepts `timezone` param
+- `getYesterdayRevenue` + `getWalkInHistory` hardcoded `Asia/Manila` → read `Settings.timezone`
+- `autoExpireMembers()` had no `ownerId` filter → expired members across ALL gyms → fixed with `autoExpireMembers(ownerId)`
+- `createMember` gymId collision check was global → scoped to `{ ownerId, gymId }`
+- `getPlanPrice` / `getPlanDuration` `{}` fallback leaked first gym's settings → removed fallback
+- `getPayments` date filter hardcoded Manila offset → replaced with `buildTzDateBounds(dateStr, tz)`
+- `autoLogPayment` `processedBy` plain string → cast to ObjectId; `populate("processedBy")` was silently failing
+- `/auth/gym-info` was public → `req.user` always undefined → route now protected; gymStore sends JWT
+- All Settings fns used `req.user!.id` → changed to `req.user!.ownerId`
+- `updateGym` + `uploadLogoController` had `upsert: true` → removed; hard error if Settings missing
+- `gymStore.hasFetched` never reset on logout → `resetStore()` added
+- `gymStore` missing `ownerId` → added to interface + fetchGymInfo + `getOwnerId()` helper
+- `getGymInfo` not returning `ownerId` → added to response
+- `Settings.ts` interface `logoUrl`/`logoPublicId` typed as `string | undefined` → changed to `string | null`
+- Kiosk queries had no `ownerId` scoping → all 5 controller functions now scoped; `kioskAuth` extracts `X-Gym-Id`
+- `X-Gym-Id` header blocked by CORS preflight → added to `allowedHeaders` in `security.ts`
+- `MembersPage` white screen offline → `fetchMembers` had no offline handling; `res.members` could be undefined → added cache read, Array.isArray guards, offline banner
+- `useEffect` for online/offline listeners in `MembersPage` referenced `fetchMembers` before declaration → moved `isOffline` state up; effect placed after `fetchMembers`
+- SA topbar showed "LakasGMS Control" → hardcoded to "⚡ SuperAdmin - LakasGMS" across all 3 SA pages
+- Browser tab showed "LakasGMS" on SA pages → `document.title` set in `useEffect` on all SA pages
+- LoginPage had `Kiosk ➜` link → removed; kiosk only accessible from dashboard
 
 ---
 
@@ -574,15 +633,16 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - Babel issue: avoid `.reduce<T>()` generic syntax in TSX files
 - Express 5: no express-mongo-sanitize — manual sanitizer in place
 - Member ≠ User — never conflate these two models
-- Member/Payment/WalkIn/ActionLog ALL have `ownerId` — every query must include `ownerId` filter. Per-gym scoping is fully implemented across all collections.
+- Member/Payment/WalkIn/ActionLog ALL have `ownerId` — every query must include `ownerId` filter
 - `protect` is now async — adds ~2-10ms per request (isActive + GymClient suspension check)
 - `authStore` persist key: `gms-auth` | `superAdminStore` persist key: `gms-superadmin`
 - `gymStore.triggerMemberRefresh()` → `lastMemberUpdate: Date.now()` → `MembersPage` refetches
 - **`gymStore.getTimezone()`** — use this everywhere instead of hardcoding `"Asia/Manila"`
+- **`gymStore.getOwnerId()`** — use this for kiosk URL; works for both owners and staff
 - `useClock.ts` — `client/src/hooks/useClock.ts`, reads timezone from gymStore
 - `useIdleTimeout.ts` — `client/src/hooks/useIdleTimeout.ts`, used by SA pages only
 - Expiry extension: if `member.expiresAt > now` → extend from expiry; else extend from today
-- Kiosk uses raw `fetch()` with `X-Kiosk-Token` — NOT Axios `api` instance
+- Kiosk uses raw `fetch()` with `X-Kiosk-Token` + `X-Gym-Id` — NOT Axios `api` instance
 - `syncManager` is singleton — call `syncManager.init()` once in `App.tsx`
 - SW only registers in production build (`npm run build && npm run preview`)
 - `logAction()` is fire-and-forget with try/catch — never crashes routes
@@ -593,6 +653,7 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - Owner email is immutable after creation — only Super Admin can manage it
 - Name collision fix: `const { setClosingTime: setStoreClosingTime, setTimezone: setStoreTimezone } = useGymStore()`
 - `ALLOWED_ORIGINS` in `config/security.ts` must include both Render URLs
+- `allowedHeaders` in `middleware/security.ts` must include `X-Kiosk-Token` AND `X-Gym-Id`
 - `sessionStorage("gms:logout-reason")` — written by api.ts 401 interceptor, read + cleared by LoginPage
 - `sessionStorage("gms:impersonating")` — written by ImpersonatePage on successful exchange, value = gymName
 - `sessionStorage("gms:sa-welcomed")` — written on SA welcome modal dismiss, cleared on SA logout
@@ -602,22 +663,23 @@ VITE_KIOSK_SECRET=same_value_as_KIOSK_SECRET
 - Super Admin login rate limit keyed by IP (only one SA account exists)
 - Impersonation tokens single-use — `jti` in JWT payload, added to `usedTokens` Set on exchange, reuse = 401
 - `hardDeleteGym` deletes User + GymClient + Settings (by `ownerId`) — all three, never just two
-- Windows filename casing: rename via temp file when changing casing (e.g. `Superadminauditlog.ts` → `SuperAdminAuditLog.ts`)
+- Windows filename casing: rename via temp file when changing casing
 - `ImpersonatePage` uses `useRef(false)` guard — React StrictMode double-invokes effects, consuming single-use token
 - End Session uses `window.location.href` not `navigate()` — React Router render race causes redirect to /login otherwise
 - `generateGymId(ownerId)` — always pass ownerId; sequences are per-gym, not global
 - `generateWalkId(today, ownerId)` — always pass both; WALK-XXX counter is per-gym-per-day
 - `getPassAmount(passType, ownerId)` — always pass ownerId; reads the correct gym's walkInPrices from Settings
-- `getTodayDate(ownerId?)` in walkInController is **async** — always `await` it; pass `req.user!.ownerId` for authenticated routes
-- `getDateRange(range, timezone)` in paymentController — requires timezone string (read from Settings before calling)
-- `buildTzDateBounds(dateStr, timezone)` in paymentController — use for converting YYYY-MM-DD filter strings to UTC Date bounds; replaces old hardcoded Manila helpers
-- `autoExpireMembers(ownerId)` in memberController — always pass ownerId; never call without it or it will expire members across all gyms
-- `getPlanPrice(name, cache, ownerId)` / `getPlanDuration(name, cache, ownerId)` — always pass ownerId as third arg; no `{}` fallback exists anymore
-- `autoLogPayment({ processedBy })` — processedBy is a string userId; cast to ObjectId inside the function for Payment.create(). Never pass an ObjectId directly.
-- Kiosk has no JWT/ownerId context — kiosk walk-in lookup uses `{ walkId, isCheckedOut: false }` not `{ walkId, date }`
-- WalkIn unique index is `{ ownerId, date, walkId }` — NOT global `{ walkId }`. Two gyms can have WALK-001 on the same day. Run `migrate-walkin-index.ts` on Atlas before deploying.
-- Migration scripts: `server/src/script/migrate-add-ownerid.ts` (backfill ownerId on old records) + `server/src/script/migrate-walkin-index.ts` (drop old walkId_1 unique index)
-- **`ownerId` source chain** — `owner._id` (created by SA) = `GymClient.ownerId` = `Settings.ownerId` = JWT `id` field = `req.user!.ownerId` (set by `protect`). No GymClient lookup needed in controllers — `req.user!.ownerId` already carries the correct value for both owners and staff.
-- Owner `User` documents have no `ownerId` field in MongoDB (field absent, not null). Staff `User` documents have `ownerId: ObjectId` pointing to their owner. Never store `ownerId` on owner User documents — it is derived at runtime.
-- `registerStaff` in `authController.ts` — uses `new mongoose.Types.ObjectId(req.user!.id)` for staff `ownerId`. Follow this pattern for all `ownerId` writes.
-- Settings is **per-gym** (one document per ownerId, unique index on ownerId) — never use `Settings.findOne({})` anywhere; always `Settings.findOne({ ownerId })`
+- `getTodayDate(ownerId?)` in walkInController is **async** — always `await` it; pass `req.user!.ownerId`
+- `getDateRange(range, timezone)` in paymentController — requires timezone string
+- `buildTzDateBounds(dateStr, timezone)` in paymentController — use for YYYY-MM-DD filter strings to UTC Date bounds
+- `autoExpireMembers(ownerId)` in memberController — always pass ownerId; never call without it
+- `getPlanPrice(name, cache, ownerId)` / `getPlanDuration(name, cache, ownerId)` — always pass ownerId as third arg
+- `autoLogPayment({ processedBy })` — processedBy is a string userId; cast to ObjectId inside. Never pass ObjectId directly.
+- Kiosk walk-in lookup uses `{ ownerId, walkId, isCheckedOut: false }` — NOT `{ walkId, date }`
+- WalkIn unique index is `{ ownerId, date, walkId }` — NOT global `{ walkId }`. Run `migrate-walkin-index.ts` on Atlas.
+- Migration scripts: `server/src/script/migrate-add-ownerid.ts` + `server/src/script/migrate-walkin-index.ts`
+- **`ownerId` source chain** — `owner._id` (created by SA) = `GymClient.ownerId` = `Settings.ownerId` = JWT `id` field = `req.user!.ownerId` (set by `protect`). No GymClient lookup needed in controllers.
+- Owner `User` documents have no `ownerId` field in MongoDB (absent, not null). Staff documents have `ownerId: ObjectId`.
+- `registerStaff` uses `new mongoose.Types.ObjectId(req.user!.id)` for staff `ownerId`. Follow this pattern for all `ownerId` writes.
+- Settings is **per-gym** — never `Settings.findOne({})` without ownerId; never upsert
+- **React hook ordering rule:** all `useState` → store hooks → computed values → `useCallback` → `useEffect`. Never reference a `useCallback` result before it is declared.

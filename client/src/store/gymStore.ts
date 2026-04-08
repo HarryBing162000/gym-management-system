@@ -31,6 +31,7 @@ export interface WalkInPrices {
 }
 
 interface GymSettings {
+  ownerId: string; // the gym owner's User._id — used by kiosk launch URL
   gymName: string;
   gymAddress: string;
   logoUrl: string | null;
@@ -69,6 +70,9 @@ interface GymStore {
 
   // Timezone helper — use this everywhere instead of hardcoding "Asia/Manila"
   getTimezone: () => string;
+
+  // Kiosk helper — returns the ownerId for launching the kiosk URL
+  getOwnerId: () => string;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL
@@ -113,6 +117,7 @@ export const useGymStore = create<GymStore>((set, get) => ({
       if (data.success) {
         set({
           settings: {
+            ownerId: data.settings.ownerId ?? "",
             gymName: data.settings.gymName,
             gymAddress: data.settings.gymAddress,
             logoUrl: data.settings.logoUrl || null,
@@ -208,5 +213,12 @@ export const useGymStore = create<GymStore>((set, get) => ({
   // Use this everywhere instead of hardcoding the timezone string.
   getTimezone: () => {
     return get().settings?.timezone ?? "Asia/Manila";
+  },
+
+  // Returns the gym owner's User._id — used to build the kiosk launch URL.
+  // Works for both owners and staff since gymStore is populated from the
+  // authenticated /auth/gym-info endpoint which always returns the owner's id.
+  getOwnerId: () => {
+    return get().settings?.ownerId ?? "";
   },
 }));

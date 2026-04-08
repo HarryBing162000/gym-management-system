@@ -48,6 +48,8 @@ const MEMBER_PROJECTION = {
 export const kioskSearch = async (req: Request, res: Response) => {
   try {
     const raw = String(req.query.q ?? "").trim();
+    // ownerId set by kioskAuth middleware from X-Gym-Id header
+    const ownerId = req.kioskOwnerId!;
 
     if (!raw) {
       return res
@@ -69,25 +71,34 @@ export const kioskSearch = async (req: Request, res: Response) => {
     let walkIns: (typeof WalkIn.prototype)[] = [];
 
     if (/^GYM-\d+$/i.test(q)) {
-      // Exact GYM-ID match
-      members = await Member.find({ gymId: q.toUpperCase() }).select(
-        MEMBER_PROJECTION,
-      );
+      // FIX: scope to this gym's ownerId
+      members = await Member.find({
+        ownerId,
+        gymId: q.toUpperCase(),
+      }).select(MEMBER_PROJECTION);
     } else if (/^WALK-?\d*/i.test(q)) {
-      // Partial WALK-ID match — search today's walk-ins
+      // FIX: scope to this gym's ownerId
       walkIns = await WalkIn.find({
+        ownerId,
         walkId: { $regex: `^${q.toUpperCase()}` },
         date: today,
       })
         .select("walkId name passType checkIn isCheckedOut date")
         .limit(5);
     } else {
-      // Name search — members + today's walk-ins
+      // FIX: scope both member and walk-in searches to this gym's ownerId
       [members, walkIns] = await Promise.all([
-        Member.find({ name: { $regex: q, $options: "i" } })
+        Member.find({
+          ownerId,
+          name: { $regex: q, $options: "i" },
+        })
           .select(MEMBER_PROJECTION)
           .limit(5),
-        WalkIn.find({ name: { $regex: q, $options: "i" }, date: today })
+        WalkIn.find({
+          ownerId,
+          name: { $regex: q, $options: "i" },
+          date: today,
+        })
           .select("walkId name passType checkIn isCheckedOut date")
           .limit(3),
       ]);
@@ -113,6 +124,7 @@ export const kioskSearch = async (req: Request, res: Response) => {
 export const kioskMemberCheckIn = async (req: Request, res: Response) => {
   try {
     const { gymId } = req.body;
+    const ownerId = req.kioskOwnerId!;
 
     if (!gymId) {
       return res.status(400).json({
@@ -121,7 +133,9 @@ export const kioskMemberCheckIn = async (req: Request, res: Response) => {
       });
     }
 
+    // FIX: scope to this gym's ownerId — prevents checking in another gym's member
     const member = await Member.findOne({
+      ownerId,
       gymId: String(gymId).toUpperCase(),
     });
 
@@ -189,6 +203,7 @@ export const kioskMemberCheckIn = async (req: Request, res: Response) => {
 export const kioskMemberCheckOut = async (req: Request, res: Response) => {
   try {
     const { gymId } = req.body;
+    const ownerId = req.kioskOwnerId!;
 
     if (!gymId) {
       return res.status(400).json({
@@ -197,7 +212,9 @@ export const kioskMemberCheckOut = async (req: Request, res: Response) => {
       });
     }
 
+    // FIX: scope to this gym's ownerId
     const member = await Member.findOne({
+      ownerId,
       gymId: String(gymId).toUpperCase(),
     });
 
@@ -240,6 +257,7 @@ export const kioskMemberCheckOut = async (req: Request, res: Response) => {
 export const kioskWalkInLookup = async (req: Request, res: Response) => {
   try {
     const walkId = String(req.params.walkId ?? "").toUpperCase();
+    const ownerId = req.kioskOwnerId!;
 
     if (!walkId) {
       return res.status(400).json({
@@ -248,9 +266,13 @@ export const kioskWalkInLookup = async (req: Request, res: Response) => {
       });
     }
 
-    // walkId is per-gym since multi-tenant fix; search by isCheckedOut: false
-    // to avoid needing a gym timezone to determine "today"
-    const walkIn = await WalkIn.findOne({ walkId, isCheckedOut: false });
+    // FIX: scope to this gym's ownerId — walkIds are per-gym so WALK-001 can
+    // exist in multiple gyms; without ownerId we'd match the wrong gym's record
+    const walkIn = await WalkIn.findOne({
+      ownerId,
+      walkId,
+      isCheckedOut: false,
+    });
 
     if (!walkIn) {
       return res.status(404).json({
@@ -283,6 +305,7 @@ export const kioskWalkInLookup = async (req: Request, res: Response) => {
 export const kioskWalkInCheckOut = async (req: Request, res: Response) => {
   try {
     const { walkId } = req.body;
+    const ownerId = req.kioskOwnerId!;
 
     if (!walkId) {
       return res.status(400).json({
@@ -291,9 +314,9 @@ export const kioskWalkInCheckOut = async (req: Request, res: Response) => {
       });
     }
 
-    // walkId is per-gym since multi-tenant fix; search by isCheckedOut: false
-    // to avoid needing a gym timezone to determine "today"
+    // FIX: scope to this gym's ownerId
     const walkIn = await WalkIn.findOne({
+      ownerId,
       walkId: String(walkId).toUpperCase(),
       isCheckedOut: false,
     });

@@ -132,7 +132,12 @@ export const corsOptions = {
   },
   credentials: true, // allow cookies/auth headers
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Kiosk-Token"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Kiosk-Token",
+    "X-Gym-Id",
+  ],
 };
 
 // ============================================================

@@ -547,13 +547,38 @@ export default function MembersPage({
   const [settleMethod, setSettleMethod] = useState<"cash" | "online">("cash");
   const [settleAmount, setSettleAmount] = useState<string>("");
   const [settleLoading, setSettleLoading] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   const { showToast } = useToastStore();
 
   const hasFilters = search || filterStatus || filterPlan;
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+  const CACHE_KEY = "gms:members-cache";
+
   const fetchMembers = useCallback(async () => {
+    // Offline — serve from localStorage cache instead of crashing
+    if (!navigator.onLine) {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+          const cached = JSON.parse(raw);
+          // Guard: cached.members must be an array or we fall back to []
+          setMembers(Array.isArray(cached.members) ? cached.members : []);
+          setTotal(typeof cached.total === "number" ? cached.total : 0);
+          setTotalPages(
+            typeof cached.totalPages === "number" ? cached.totalPages : 1,
+          );
+        }
+        // No cache yet — leave members as [] (already initialised that way)
+      } catch {
+        // Corrupt cache — ignore, show empty list
+      }
+      setFetchError("");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setFetchError("");
     try {
@@ -564,10 +589,45 @@ export default function MembersPage({
         page,
         limit: LIMIT,
       });
-      setMembers(res.members);
-      setTotal(res.total);
-      setTotalPages(res.totalPages);
+      // Guard: never allow undefined to reach state — always fall back to []
+      const safeMembers = Array.isArray(res.members) ? res.members : [];
+      setMembers(safeMembers);
+      setTotal(res.total ?? 0);
+      setTotalPages(res.totalPages ?? 1);
+
+      // Persist to cache only on the unfiltered first page so offline always
+      // shows the full default list, not a filtered subset
+      if (!search && !filterStatus && !filterPlan && page === 1) {
+        try {
+          localStorage.setItem(
+            CACHE_KEY,
+            JSON.stringify({
+              members: safeMembers,
+              total: res.total ?? 0,
+              totalPages: res.totalPages ?? 1,
+            }),
+          );
+        } catch {
+          /* storage quota — ignore */
+        }
+      }
     } catch {
+      // Network error while online — fall back to cache if available
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+          const cached = JSON.parse(raw);
+          setMembers(Array.isArray(cached.members) ? cached.members : []);
+          setTotal(typeof cached.total === "number" ? cached.total : 0);
+          setTotalPages(
+            typeof cached.totalPages === "number" ? cached.totalPages : 1,
+          );
+          setFetchError("Showing cached data — could not reach server.");
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
       setFetchError("Failed to load members. Please try again.");
     } finally {
       setLoading(false);
@@ -579,7 +639,9 @@ export default function MembersPage({
     return () => clearTimeout(id);
   }, [fetchMembers, search]);
 
+  // Only poll when online — no point hammering failed requests every 30s
   useEffect(() => {
+    if (!navigator.onLine) return;
     const id = setInterval(fetchMembers, 30000);
     return () => clearInterval(id);
   }, [fetchMembers]);
@@ -592,6 +654,21 @@ export default function MembersPage({
   useEffect(() => {
     if (lastMemberUpdate > 0) fetchMembers();
   }, [lastMemberUpdate]);
+
+  // ── Offline state + auto-refresh on reconnect ─────────────────────────────
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => {
+      setIsOffline(false);
+      fetchMembers(); // auto-refresh when connection restores
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+    };
+  }, [fetchMembers]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleSaved = (savedMode: "add" | "edit", offlineMsg?: string) => {
@@ -706,6 +783,17 @@ export default function MembersPage({
             Add Member
           </button>
         </div>
+
+        {/* ── Offline banner ── */}
+        {isOffline && (
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-400/10 border border-amber-400/20 rounded-lg">
+            <span className="text-amber-400 text-xs">⚡</span>
+            <span className="text-amber-400 text-xs font-semibold">
+              You're offline — showing cached members. Changes will sync when
+              connection restores.
+            </span>
+          </div>
+        )}
 
         {/* ── Filters ── */}
         <div className="bg-[#212121] border border-white/10 rounded-xl p-3">
