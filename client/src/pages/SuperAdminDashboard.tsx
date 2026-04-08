@@ -47,6 +47,7 @@ const STAT_ICONS: Record<string, string> = {
   Suspended: "⏸",
   "On Trial": "🕐",
   Paid: "💳",
+  Overdue: "🚨",
   "Expiring Soon": "⚠️",
 };
 
@@ -1033,13 +1034,69 @@ export default function SuperAdminDashboard() {
     return matchSearch && matchStatus;
   });
 
+  // ── Sort state ────────────────────────────────────────────────────────────
+  const [sortKey, setSortKey] = useState<
+    | "gymClientId"
+    | "gymName"
+    | "status"
+    | "billingStatus"
+    | "trialEndsAt"
+    | "lastLoginAt"
+    | null
+  >(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (key: typeof sortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (!sortKey) return 0;
+    let aVal: string | number = "";
+    let bVal: string | number = "";
+    if (sortKey === "gymClientId") {
+      aVal = a.gymClientId;
+      bVal = b.gymClientId;
+    } else if (sortKey === "gymName") {
+      aVal = a.gymName.toLowerCase();
+      bVal = b.gymName.toLowerCase();
+    } else if (sortKey === "status") {
+      aVal = a.status;
+      bVal = b.status;
+    } else if (sortKey === "billingStatus") {
+      aVal = a.billingStatus;
+      bVal = b.billingStatus;
+    } else if (sortKey === "trialEndsAt") {
+      aVal = a.trialEndsAt ? new Date(a.trialEndsAt).getTime() : Infinity;
+      bVal = b.trialEndsAt ? new Date(b.trialEndsAt).getTime() : Infinity;
+    } else if (sortKey === "lastLoginAt") {
+      aVal = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
+      bVal = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
+    }
+    if (aVal < bVal) return sortDir === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
+
   const sevenDaysFromNow = Date.now() + 7 * 24 * 60 * 60 * 1000;
   const stats = {
-    total: gyms.length,
+    total: gyms.filter((g) => g.status !== "deleted").length,
     active: gyms.filter((g) => g.status === "active").length,
     suspended: gyms.filter((g) => g.status === "suspended").length,
-    trial: gyms.filter((g) => g.billingStatus === "trial").length,
-    paid: gyms.filter((g) => g.billingStatus === "paid").length,
+    trial: gyms.filter(
+      (g) => g.billingStatus === "trial" && g.status !== "deleted",
+    ).length,
+    paid: gyms.filter(
+      (g) => g.billingStatus === "paid" && g.status !== "deleted",
+    ).length,
+    overdue: gyms.filter(
+      (g) => g.billingStatus === "overdue" && g.status !== "deleted",
+    ).length,
     expiringSoon: gyms.filter(
       (g) =>
         g.billingStatus === "trial" &&
@@ -1047,6 +1104,8 @@ export default function SuperAdminDashboard() {
         new Date(g.trialEndsAt).getTime() <= sevenDaysFromNow &&
         new Date(g.trialEndsAt).getTime() > Date.now(),
     ).length,
+    neverLoggedIn: gyms.filter((g) => !g.lastLoginAt && g.status === "active")
+      .length,
   };
 
   if (!_hasHydrated) return null;
@@ -1121,13 +1180,13 @@ export default function SuperAdminDashboard() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
           {/* Stats row */}
           {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-              {Array.from({ length: 6 }).map((_, i) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+              {Array.from({ length: 7 }).map((_, i) => (
                 <SkeletonCard key={i} />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               {[
                 {
                   label: "Total Gyms",
@@ -1138,7 +1197,7 @@ export default function SuperAdminDashboard() {
                       const d = Date.now() - new Date(g.createdAt).getTime();
                       return d < 7 * 86400000;
                     }).length
-                  } this week`,
+                  } created this week`,
                 },
                 {
                   label: "Active",
@@ -1165,6 +1224,12 @@ export default function SuperAdminDashboard() {
                   sub: "active subscribers",
                 },
                 {
+                  label: "Overdue",
+                  value: stats.overdue,
+                  color: stats.overdue > 0 ? "#ef4444" : "#6b7280",
+                  sub: stats.overdue > 0 ? "unpaid — follow up" : "all clear",
+                },
+                {
                   label: "Expiring Soon",
                   value: stats.expiringSoon,
                   color: "#FF6B1A",
@@ -1185,7 +1250,10 @@ export default function SuperAdminDashboard() {
                     </span>
                   </div>
                   <div className="text-2xl font-bold" style={{ color }}>
-                    {value === 0 && label === "Expiring Soon" ? (
+                    {value === 0 &&
+                    (label === "Expiring Soon" ||
+                      label === "Overdue" ||
+                      label === "Suspended") ? (
                       <span style={{ color: "#22c55e" }}>✓</span>
                     ) : (
                       value
@@ -1198,6 +1266,78 @@ export default function SuperAdminDashboard() {
               ))}
             </div>
           )}
+
+          {/* ── Needs Attention banner ── */}
+          {!loading &&
+            (stats.overdue > 0 ||
+              stats.expiringSoon > 0 ||
+              stats.suspended > 0 ||
+              stats.neverLoggedIn > 0) && (
+              <div className="bg-[#212121] border border-amber-400/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-amber-400 text-sm">⚡</span>
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-amber-400">
+                    Needs Attention
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {gyms
+                    .filter((g) => {
+                      const days = daysUntil(g.trialEndsAt);
+                      return (
+                        (g.billingStatus === "overdue" &&
+                          g.status !== "deleted") ||
+                        g.status === "suspended" ||
+                        (!g.lastLoginAt && g.status === "active") ||
+                        (g.billingStatus === "trial" &&
+                          days !== null &&
+                          days > 0 &&
+                          days <= 7)
+                      );
+                    })
+                    .map((g) => {
+                      const days = daysUntil(g.trialEndsAt);
+                      const isOverdue = g.billingStatus === "overdue";
+                      const isSuspended = g.status === "suspended";
+                      const neverLogged =
+                        !g.lastLoginAt && g.status === "active";
+
+                      const tag = isOverdue
+                        ? { label: "Overdue", color: "#ef4444" }
+                        : isSuspended
+                          ? { label: "Suspended", color: "#f59e0b" }
+                          : neverLogged
+                            ? { label: "Never logged in", color: "#f59e0b" }
+                            : {
+                                label: `Trial: ${days}d left`,
+                                color: "#FF6B1A",
+                              };
+
+                      return (
+                        <button
+                          key={g._id}
+                          onClick={() => setSelectedGym(g)}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-[#2a2a2a] border border-white/10 rounded-lg hover:border-white/20 transition-all cursor-pointer group"
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: tag.color }}
+                          />
+                          <span className="text-xs font-semibold text-white/70 group-hover:text-white transition-colors">
+                            {g.gymName}
+                          </span>
+                          <span
+                            className="text-[10px] font-bold uppercase"
+                            style={{ color: tag.color }}
+                          >
+                            {tag.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
 
           {/* Controls */}
           <div className="flex flex-col gap-3">
@@ -1290,7 +1430,9 @@ export default function SuperAdminDashboard() {
                 </button>
               )}
               <span className="text-[10px] text-white/20 ml-auto">
-                {filtered.length} of {gyms.length} gyms
+                {filtered.length === gyms.length
+                  ? `${gyms.length} gym${gyms.length !== 1 ? "s" : ""}`
+                  : `${filtered.length} of ${gyms.length} gyms`}
               </span>
             </div>
           </div>
@@ -1307,20 +1449,43 @@ export default function SuperAdminDashboard() {
               className="hidden md:grid px-5 py-3 border-b border-white/10 bg-white/[0.02]"
               style={{ gridTemplateColumns: "1fr 1.5fr 1fr 1fr 1fr 1fr auto" }}
             >
-              {[
-                "Gym ID",
-                "Gym Name",
-                "Status",
-                "Billing",
-                "Expiry",
-                "Last Login",
-                "",
-              ].map((h) => (
-                <div
-                  key={h}
-                  className="text-[10px] font-semibold uppercase tracking-widest text-white/30"
-                >
-                  {h}
+              {(
+                [
+                  { label: "Gym ID", key: "gymClientId" },
+                  { label: "Gym Name", key: "gymName" },
+                  { label: "Status", key: "status" },
+                  { label: "Billing", key: "billingStatus" },
+                  { label: "Expiry", key: "trialEndsAt" },
+                  { label: "Last Login", key: "lastLoginAt" },
+                  { label: "", key: null },
+                ] as { label: string; key: typeof sortKey }[]
+              ).map(({ label, key }) => (
+                <div key={label} className="flex items-center">
+                  {key ? (
+                    <button
+                      onClick={() => handleSort(key)}
+                      className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-white/30 hover:text-white/60 transition-colors cursor-pointer group"
+                    >
+                      {label}
+                      <span
+                        className="text-[8px] opacity-0 group-hover:opacity-60 transition-opacity"
+                        style={{
+                          opacity: sortKey === key ? 1 : undefined,
+                          color: sortKey === key ? "#FFB800" : undefined,
+                        }}
+                      >
+                        {sortKey === key
+                          ? sortDir === "asc"
+                            ? "↑"
+                            : "↓"
+                          : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
+                      {label}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1375,7 +1540,7 @@ export default function SuperAdminDashboard() {
             )}
 
             {!loading &&
-              filtered.map((gym, rowIdx) => {
+              sorted.map((gym, rowIdx) => {
                 const days = daysUntil(gym.trialEndsAt);
                 const isExpiringSoon =
                   gym.billingStatus === "trial" &&
@@ -1503,9 +1668,28 @@ export default function SuperAdminDashboard() {
                           Never
                         </span>
                       ) : (
-                        <span className="text-xs text-white/40">
-                          {timeAgo(gym.lastLoginAt)}
-                        </span>
+                        <div className="relative group/tt">
+                          <span className="text-xs text-white/40 cursor-default">
+                            {timeAgo(gym.lastLoginAt)}
+                          </span>
+                          {gym.lastLoginAt && (
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-[#2a2a2a] border border-white/15 rounded-lg text-[10px] text-white/70 font-mono whitespace-nowrap pointer-events-none opacity-0 group-hover/tt:opacity-100 transition-opacity duration-100 z-50">
+                              {new Date(gym.lastLoginAt).toLocaleString(
+                                "en-PH",
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                },
+                              )}
+                              {/* Arrow */}
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#2a2a2a]" />
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
 
