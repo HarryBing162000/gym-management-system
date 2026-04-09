@@ -480,7 +480,12 @@ function GymDetailDrawer({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const doAction = async (method: string, path: string, body?: object) => {
+  const doAction = async (
+    method: string,
+    path: string,
+    body?: object,
+    keepOpen = false,
+  ) => {
     setActionLoading(path);
     try {
       const res = await fetch(`${API}/api/superadmin/gyms/${gym._id}${path}`, {
@@ -492,17 +497,21 @@ function GymDetailDrawer({
         body: body ? JSON.stringify(body) : undefined,
       });
       const data = await res.json();
+      // FIX: reset loading BEFORE onClose — previously the drawer unmounted
+      // before finally{} ran, leaving "Sending..." frozen on screen.
+      setActionLoading("");
       if (!res.ok || !data.success) {
         onToast(data.message || "Action failed.", "error");
         return;
       }
       onToast(data.message, "success");
       onRefresh();
-      onClose();
+      // keepOpen=true for email actions (resend invite, reset password) so
+      // the SA can see the success toast without the drawer closing instantly
+      if (!keepOpen) onClose();
     } catch {
-      onToast("Connection failed.", "error");
-    } finally {
       setActionLoading("");
+      onToast("Connection failed.", "error");
     }
   };
 
@@ -775,7 +784,7 @@ function GymDetailDrawer({
                   variant: "warning",
                   onConfirm: () => {
                     setConfirm(null);
-                    doAction("POST", "/resend-invite");
+                    doAction("POST", "/resend-invite", undefined, true);
                   },
                 })
               }
@@ -795,7 +804,7 @@ function GymDetailDrawer({
                   variant: "warning",
                   onConfirm: () => {
                     setConfirm(null);
-                    doAction("POST", "/reset-password");
+                    doAction("POST", "/reset-password", undefined, true);
                   },
                 })
               }

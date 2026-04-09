@@ -25,20 +25,36 @@ import nodemailer from "nodemailer";
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 // ─── Transporter ──────────────────────────────────────────────────────────────
-// Created once, reused for all emails. Gmail SMTP on port 587 with STARTTLS.
+// FIX: added connection timeouts + pool so Render doesn't hang on slow SMTP.
+// - connectionTimeout: fail fast if Gmail SMTP doesn't respond in 5s
+// - greetingTimeout: max time to wait for SMTP greeting
+// - socketTimeout: max time for any single SMTP operation
+// - pool: reuse connections instead of creating a new one per email (faster)
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
-  secure: false, // STARTTLS — upgrades to TLS after connection
+  secure: false, // STARTTLS
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
   },
   tls: {
-    // Fixes "self-signed certificate in certificate chain" error
-    // that occurs on some local/corporate network environments.
     rejectUnauthorized: false,
   },
+  connectionTimeout: 5000, // 5s to establish connection
+  greetingTimeout: 5000, // 5s for SMTP greeting
+  socketTimeout: 10000, // 10s for send operation
+  pool: true, // reuse connections — much faster for burst sends
+  maxConnections: 3, // max simultaneous SMTP connections
+});
+
+// Verify transporter on startup so we know immediately if credentials are wrong
+transporter.verify((err) => {
+  if (err) {
+    console.error("[emailService] SMTP connection failed:", err.message);
+  } else {
+    console.log("[emailService] Gmail SMTP ready ✅");
+  }
 });
 
 const FROM = `LakasGMS <${process.env.GMAIL_USER}>`;

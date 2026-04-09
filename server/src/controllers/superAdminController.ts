@@ -399,16 +399,27 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
     let emailSent = true;
     let emailError = "";
     try {
-      await sendSetPasswordEmail({
-        to: ownerEmail.toLowerCase().trim(),
-        ownerName: ownerName.trim(),
-        gymName: gymName.trim(),
-        token: setPasswordToken,
-      });
+      // FIX: wrap email in a race with an 8s timeout so the SA gets a fast
+      // response even if Gmail SMTP is slow. If the email times out, the gym
+      // is still created successfully — SA can resend from the dashboard.
+      await Promise.race([
+        sendSetPasswordEmail({
+          to: ownerEmail.toLowerCase().trim(),
+          ownerName: ownerName.trim(),
+          gymName: gymName.trim(),
+          token: setPasswordToken,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Email timeout — took longer than 8s")),
+            8000,
+          ),
+        ),
+      ]);
     } catch (emailErr: any) {
       emailSent = false;
       emailError = emailErr?.message ?? "Unknown email error";
-      console.error("[createGym] Resend error:", emailError);
+      console.error("[createGym] Email error:", emailError);
     }
 
     logSa(
