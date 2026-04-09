@@ -14,7 +14,7 @@
  *
  * Env vars required (add to Render):
  *   GMAIL_USER=lakasgmsm@gmail.com
- *   GMAIL_APP_PASSWORD=mmcl nkjf lpbv hkgs
+ *   GMAIL_APP_PASSWORD=mmclnkjflpbvhkgs
  *
  * Function signatures are identical to the old Resend version —
  * no other files need to change.
@@ -31,7 +31,11 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 // - socketTimeout: max time for any single SMTP operation
 // - pool: reuse connections instead of creating a new one per email (faster)
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
+  // FIX: use Gmail's IPv4 address directly instead of hostname.
+  // Render blocks outbound IPv6 — DNS was resolving smtp.gmail.com to an
+  // IPv6 address (2404:6800:...) causing ENETUNREACH.
+  // 74.125.130.108 is Gmail SMTP IPv4 — bypasses IPv6 DNS resolution entirely.
+  host: "74.125.130.108",
   port: 587,
   secure: false, // STARTTLS
   auth: {
@@ -40,13 +44,15 @@ const transporter = nodemailer.createTransport({
   },
   tls: {
     rejectUnauthorized: false,
+    // servername required when using IP directly instead of hostname
+    servername: "smtp.gmail.com",
   },
-  connectionTimeout: 5000, // 5s to establish connection
-  greetingTimeout: 5000, // 5s for SMTP greeting
-  socketTimeout: 10000, // 10s for send operation
-  pool: true, // reuse connections — much faster for burst sends
-  maxConnections: 3, // max simultaneous SMTP connections
-});
+  connectionTimeout: 5000,
+  greetingTimeout: 5000,
+  socketTimeout: 10000,
+  pool: true,
+  maxConnections: 3,
+} as nodemailer.TransportOptions);
 
 // Verify transporter on startup so we know immediately if credentials are wrong
 transporter.verify((err) => {
