@@ -11,6 +11,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSuperAdminStore } from "../store/superAdminStore";
 
+// FIX: moved outside component — was redefined on every render
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+
 export default function SuperAdminLoginPage() {
   const navigate = useNavigate();
   const { setAuth } = useSuperAdminStore();
@@ -27,8 +30,6 @@ export default function SuperAdminLoginPage() {
       document.title = "LakasGMS";
     };
   }, []);
-
-  const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   const handleLogin = async () => {
     setErrorMsg("");

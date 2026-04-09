@@ -17,6 +17,11 @@ import crypto from "crypto";
 import User from "../models/User";
 import GymClient from "../models/GymClient";
 import Settings from "../models/Settings";
+import Member from "../models/Member";
+import WalkIn from "../models/WalkIn";
+import Payment from "../models/Payment";
+import ActionLog from "../models/ActionLog";
+import SuperAdminAuditLog from "../models/SuperAdminAuditLog";
 import { sendSetPasswordEmail } from "../utils/emailService";
 import { SuperAdminRequest } from "../middleware/superAdminMiddleware";
 
@@ -91,20 +96,31 @@ function isUsed(token: string): boolean {
   return usedTokens.has(token);
 }
 
-// ─── Super Admin audit log (in-memory, last 200) ──────────────────────────────
-interface AuditEntry {
-  action: string;
-  detail: string;
-  ip: string;
-  timestamp: Date;
+// ─── Super Admin audit log — persistent MongoDB ───────────────────────────────
+// FIX: was in-memory array — wiped on every server restart (Render restarts
+// frequently). Now writes to SuperAdminAuditLog collection so logs survive.
+async function logSa(
+  action: string,
+  detail: string,
+  ip: string,
+  gymId?: string,
+): Promise<void> {
+  try {
+    await SuperAdminAuditLog.create({
+      action,
+      detail,
+      ip,
+      gymId,
+      timestamp: new Date(),
+    });
+  } catch (err) {
+    // fire-and-forget — never crash a route because of logging
+    console.error("[logSa] Failed to write audit log:", err);
+  }
 }
-const auditLog: AuditEntry[] = [];
-function logSa(action: string, detail: string, ip: string): void {
-  auditLog.unshift({ action, detail, ip, timestamp: new Date() });
-  if (auditLog.length > 200) auditLog.pop();
-}
-export function getSaAuditLog(): AuditEntry[] {
-  return auditLog;
+
+export function getSaAuditLog(): never[] {
+  return []; // legacy export kept for compatibility — use getAuditLog route instead
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -149,8 +165,11 @@ const generateResetToken = (userId: string): string =>
   );
 
 const generateGymClientId = async (): Promise<string> => {
+  // FIX: use findOne with sort inside a retry loop to handle race conditions.
+  // The GymClient model should have a unique index on gymClientId which will
+  // cause a duplicate key error on collision — caller handles the retry.
   const last = await GymClient.findOne()
-    .sort({ createdAt: -1 })
+    .sort({ gymClientId: -1 })
     .select("gymClientId")
     .lean();
   if (!last?.gymClientId) return "GYM-001";
@@ -159,8 +178,24 @@ const generateGymClientId = async (): Promise<string> => {
 };
 
 // ─── GET /api/superadmin/audit-log ────────────────────────────────────────────
-export const getAuditLog = async (_req: SuperAdminRequest, res: Response) => {
-  return res.status(200).json({ success: true, log: getSaAuditLog() });
+export const getAuditLog = async (req: SuperAdminRequest, res: Response) => {
+  try {
+    const {
+      action,
+      gymId,
+      limit = "100",
+    } = req.query as Record<string, string>;
+    const filter: Record<string, any> = {};
+    if (action && action !== "all") filter.action = action;
+    if (gymId) filter.gymId = gymId;
+    const entries = await SuperAdminAuditLog.find(filter)
+      .sort({ timestamp: -1 })
+      .limit(Math.min(parseInt(limit) || 100, 500))
+      .lean();
+    return res.status(200).json({ success: true, log: entries });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
 };
 
 // ─── POST /api/superadmin/login ───────────────────────────────────────────────
@@ -226,11 +261,11 @@ export const superAdminLogin = async (req: Request, res: Response) => {
 };
 
 // ─── GET /api/superadmin/gyms ─────────────────────────────────────────────────
+// FIX: was filtering out deleted gyms — SA couldn't see or recover them.
+// Now returns ALL gyms. Frontend filters by status chip (All/Active/Suspended/Deleted).
 export const listGyms = async (_req: SuperAdminRequest, res: Response) => {
   try {
-    const gyms = await GymClient.find({ status: { $ne: "deleted" } })
-      .sort({ createdAt: -1 })
-      .lean();
+    const gyms = await GymClient.find().sort({ createdAt: -1 }).lean();
     return res.status(200).json({ success: true, gyms });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
@@ -318,35 +353,47 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       throw gymErr;
     }
 
-    await Settings.create({
-      ownerId: owner._id,
-      gymName: gymName.trim(),
-      gymAddress: gymAddress?.trim() || "",
-      plans: [
-        {
-          name: "Monthly",
-          price: 500,
-          durationMonths: 1,
-          isActive: true,
-          isDefault: true,
-        },
-        {
-          name: "Quarterly",
-          price: 1200,
-          durationMonths: 3,
-          isActive: true,
-          isDefault: false,
-        },
-        {
-          name: "Annual",
-          price: 4000,
-          durationMonths: 12,
-          isActive: true,
-          isDefault: false,
-        },
-      ],
-      walkInPrices: { regular: 150, student: 100, couple: 250 },
-    });
+    // FIX: wrap Settings.create in try/catch with full rollback.
+    // Previously if Settings.create threw, User + GymClient were left orphaned —
+    // the owner could never log in and SA had no way to fix it.
+    try {
+      await Settings.create({
+        ownerId: owner._id,
+        gymName: gymName.trim(),
+        gymAddress: gymAddress?.trim() || "",
+        plans: [
+          {
+            name: "Monthly",
+            price: 500,
+            durationMonths: 1,
+            isActive: true,
+            isDefault: true,
+          },
+          {
+            name: "Quarterly",
+            price: 1200,
+            durationMonths: 3,
+            isActive: true,
+            isDefault: false,
+          },
+          {
+            name: "Annual",
+            price: 4000,
+            durationMonths: 12,
+            isActive: true,
+            isDefault: false,
+          },
+        ],
+        walkInPrices: { regular: 150, student: 100, couple: 250 },
+      });
+    } catch (settingsErr) {
+      // Roll back User and GymClient so no orphaned records exist
+      await Promise.all([
+        User.findByIdAndDelete(owner._id),
+        GymClient.findByIdAndDelete(gymClient._id),
+      ]);
+      throw settingsErr;
+    }
 
     const setPasswordToken = generateSetPasswordToken(owner._id.toString());
     let emailSent = true;
@@ -368,6 +415,7 @@ export const createGym = async (req: SuperAdminRequest, res: Response) => {
       "gym_created",
       `Created "${gymName}" (${gymClientId}) for ${ownerEmail}`,
       getIp(req),
+      gymClient._id.toString(),
     );
 
     return res.status(201).json({
@@ -455,22 +503,21 @@ export const updateGym = async (req: SuperAdminRequest, res: Response) => {
     if (billingRenewsAt) gym.billingRenewsAt = new Date(billingRenewsAt);
     await gym.save();
 
-    // FIX: if gymName changed, sync it to Settings so the owner/staff
-    // dashboard shows the updated name. GymClient.gymName and Settings.gymName
-    // must always stay in sync — Settings is what the frontend reads via
-    // /auth/gym-info. Without this, the owner's dashboard still shows the old name.
-    if (gymName?.trim()) {
-      await Settings.findOneAndUpdate(
-        { ownerId: gym.ownerId },
-        { gymName: gymName.trim() },
-      );
-    }
-
     if (billingStatus && billingStatus !== prevBilling) {
       logSa(
         "billing_updated",
         `"${gym.gymName}" billing: ${prevBilling} → ${billingStatus}${billingRenewsAt ? ` | renews: ${billingRenewsAt}` : ""}`,
         getIp(req),
+        gym._id.toString(),
+      );
+    }
+
+    // FIX: sync gymName to Settings so owner/staff dashboard reflects the
+    // updated name immediately. GymClient and Settings must always stay in sync.
+    if (gymName?.trim()) {
+      await Settings.findOneAndUpdate(
+        { ownerId: gym.ownerId },
+        { gymName: gymName.trim() },
       );
     }
 
@@ -493,14 +540,21 @@ export const hardDeleteGym = async (req: SuperAdminRequest, res: Response) => {
 
     const gymName = gym.gymName;
     const ownerEmail = gym.contactEmail;
+    const ownerId = gym.ownerId;
 
-    // Delete all three documents atomically.
-    // Settings is matched by ownerId (not gymName) to avoid accidentally
-    // deleting the wrong gym if two gyms share the same name.
+    // FIX: delete ALL gym data — previously only deleted User (owner), GymClient,
+    // and Settings. Staff accounts, Members, WalkIns, Payments, and ActionLogs
+    // were left orphaned in the database.
     await Promise.all([
-      User.findByIdAndDelete(gym.ownerId),
+      // Auth records
+      User.deleteMany({ $or: [{ _id: ownerId }, { ownerId }] }), // owner + all staff
       GymClient.findByIdAndDelete(gym._id),
-      Settings.findOneAndDelete({ ownerId: gym.ownerId }),
+      Settings.findOneAndDelete({ ownerId }),
+      // Gym data
+      Member.deleteMany({ ownerId }),
+      WalkIn.deleteMany({ ownerId }),
+      Payment.deleteMany({ ownerId }),
+      ActionLog.deleteMany({ ownerId }),
     ]);
 
     logSa(
@@ -533,9 +587,21 @@ export const suspendGym = async (req: SuperAdminRequest, res: Response) => {
 
     gym.status = "suspended";
     await gym.save();
-    await User.findByIdAndUpdate(gym.ownerId, { isActive: false });
 
-    logSa("gym_suspended", `"${gym.gymName}" suspended`, getIp(req));
+    // FIX: deactivate owner AND all staff for this gym.
+    // Previously only the owner was deactivated — staff could still log in
+    // while the gym was suspended.
+    await User.updateMany(
+      { $or: [{ _id: gym.ownerId }, { ownerId: gym.ownerId }] },
+      { isActive: false },
+    );
+
+    logSa(
+      "gym_suspended",
+      `"${gym.gymName}" suspended`,
+      getIp(req),
+      gym._id.toString(),
+    );
     return res
       .status(200)
       .json({ success: true, message: `"${gym.gymName}" has been suspended.` });
@@ -555,9 +621,19 @@ export const reactivateGym = async (req: SuperAdminRequest, res: Response) => {
 
     gym.status = "active";
     await gym.save();
-    await User.findByIdAndUpdate(gym.ownerId, { isActive: true });
 
-    logSa("gym_reactivated", `"${gym.gymName}" reactivated`, getIp(req));
+    // Reactivate owner AND all staff so the whole team can log back in
+    await User.updateMany(
+      { $or: [{ _id: gym.ownerId }, { ownerId: gym.ownerId }] },
+      { isActive: true },
+    );
+
+    logSa(
+      "gym_reactivated",
+      `"${gym.gymName}" reactivated`,
+      getIp(req),
+      gym._id.toString(),
+    );
     return res.status(200).json({
       success: true,
       message: `"${gym.gymName}" has been reactivated.`,
@@ -578,9 +654,19 @@ export const deleteGym = async (req: SuperAdminRequest, res: Response) => {
 
     gym.status = "deleted";
     await gym.save();
-    await User.findByIdAndUpdate(gym.ownerId, { isActive: false });
 
-    logSa("gym_deleted", `"${gym.gymName}" soft-deleted`, getIp(req));
+    // FIX: deactivate owner AND all staff — previously only owner was deactivated
+    await User.updateMany(
+      { $or: [{ _id: gym.ownerId }, { ownerId: gym.ownerId }] },
+      { isActive: false },
+    );
+
+    logSa(
+      "gym_deleted",
+      `"${gym.gymName}" soft-deleted`,
+      getIp(req),
+      gym._id.toString(),
+    );
     return res
       .status(200)
       .json({ success: true, message: `"${gym.gymName}" has been deleted.` });
@@ -625,6 +711,7 @@ export const resetOwnerPassword = async (
       "password_reset",
       `Reset sent to ${owner.email} for "${gym.gymName}"`,
       getIp(req),
+      gym._id.toString(),
     );
     return res.status(200).json({
       success: true,
@@ -649,10 +736,9 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
         .status(404)
         .json({ success: false, message: "Owner user not found." });
 
-    // FIX: if owner is already verified, send a password reset email instead
-    // of blocking with a 400. This handles the case where SA clicks Resend
-    // Invite on a gym whose owner already set their password — the correct
-    // action is a reset link, not a set-password link.
+    // FIX: if owner already verified, send a password RESET email instead of
+    // blocking with 400. Previously this returned a hard error which confused SA
+    // when trying to help an owner who forgot their password.
     if (owner.isVerified) {
       const resetToken = generateResetToken(owner._id.toString());
       try {
@@ -672,6 +758,7 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
         "invite_resent",
         `Password reset sent to ${owner.email} for "${gym.gymName}" (owner already verified)`,
         getIp(req),
+        gym._id.toString(),
       );
       return res.status(200).json({
         success: true,
@@ -698,6 +785,7 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
       "invite_resent",
       `Invite resent to ${owner.email} for "${gym.gymName}"`,
       getIp(req),
+      gym._id.toString(),
     );
     return res
       .status(200)
@@ -757,6 +845,7 @@ export const impersonateGym = async (req: SuperAdminRequest, res: Response) => {
       "impersonation_started",
       `Token generated for "${gym.gymName}" (${owner.email})`,
       getIp(req),
+      gym._id.toString(),
     );
     return res.status(200).json({
       success: true,
