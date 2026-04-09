@@ -455,6 +455,17 @@ export const updateGym = async (req: SuperAdminRequest, res: Response) => {
     if (billingRenewsAt) gym.billingRenewsAt = new Date(billingRenewsAt);
     await gym.save();
 
+    // FIX: if gymName changed, sync it to Settings so the owner/staff
+    // dashboard shows the updated name. GymClient.gymName and Settings.gymName
+    // must always stay in sync — Settings is what the frontend reads via
+    // /auth/gym-info. Without this, the owner's dashboard still shows the old name.
+    if (gymName?.trim()) {
+      await Settings.findOneAndUpdate(
+        { ownerId: gym.ownerId },
+        { gymName: gymName.trim() },
+      );
+    }
+
     if (billingStatus && billingStatus !== prevBilling) {
       logSa(
         "billing_updated",
@@ -637,11 +648,36 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
       return res
         .status(404)
         .json({ success: false, message: "Owner user not found." });
-    if (owner.isVerified)
-      return res.status(400).json({
-        success: false,
-        message: "Owner has already set their password.",
+
+    // FIX: if owner is already verified, send a password reset email instead
+    // of blocking with a 400. This handles the case where SA clicks Resend
+    // Invite on a gym whose owner already set their password — the correct
+    // action is a reset link, not a set-password link.
+    if (owner.isVerified) {
+      const resetToken = generateResetToken(owner._id.toString());
+      try {
+        await sendSetPasswordEmail({
+          to: owner.email!,
+          ownerName: owner.name,
+          gymName: gym.gymName,
+          token: resetToken,
+        });
+      } catch (emailErr: any) {
+        const msg = emailErr?.message ?? "Unknown error";
+        return res
+          .status(500)
+          .json({ success: false, message: `Failed to send email: ${msg}.` });
+      }
+      logSa(
+        "invite_resent",
+        `Password reset sent to ${owner.email} for "${gym.gymName}" (owner already verified)`,
+        getIp(req),
+      );
+      return res.status(200).json({
+        success: true,
+        message: `${owner.email} already set their password. A password reset link has been sent instead.`,
       });
+    }
 
     const token = generateSetPasswordToken(owner._id.toString());
     try {
