@@ -203,7 +203,7 @@ export default function ActionLogPage() {
       </div>
 
       {/* ── FILTERS ── */}
-      <div className="bg-[#212121] border border-white/10 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="bg-[#212121] border border-white/10 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div>
           <label className="block text-[10px] font-semibold uppercase tracking-widest text-white/30 mb-1.5">
             Action
@@ -290,7 +290,8 @@ export default function ActionLogPage() {
 
       {/* ── TABLE ── */}
       <div className="bg-[#212121] border border-white/10 rounded-xl overflow-hidden">
-        <div className="grid grid-cols-[120px_1fr_160px_100px] gap-4 px-4 py-3 border-b border-white/10 bg-white/[0.02]">
+        {/* Desktop header — hidden on mobile */}
+        <div className="hidden md:grid grid-cols-[120px_1fr_160px_100px] gap-4 px-4 py-3 border-b border-white/10 bg-white/[0.02]">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
             Action
           </span>
@@ -308,16 +309,25 @@ export default function ActionLogPage() {
         {loading ? (
           <div className="divide-y divide-white/5">
             {Array.from({ length: 10 }).map((_, i) => (
-              <div
-                key={i}
-                className="grid grid-cols-[120px_1fr_160px_100px] gap-4 px-4 py-3"
-              >
-                {Array.from({ length: 4 }).map((_, j) => (
-                  <div
-                    key={j}
-                    className="h-5 bg-white/5 rounded animate-pulse"
-                  />
-                ))}
+              <div key={i}>
+                {/* Mobile skeleton */}
+                <div className="md:hidden px-4 py-3 space-y-2">
+                  <div className="flex justify-between">
+                    <div className="h-5 w-20 bg-white/5 rounded animate-pulse" />
+                    <div className="h-5 w-16 bg-white/5 rounded animate-pulse" />
+                  </div>
+                  <div className="h-4 bg-white/5 rounded animate-pulse" />
+                  <div className="h-4 w-32 bg-white/5 rounded animate-pulse" />
+                </div>
+                {/* Desktop skeleton */}
+                <div className="hidden md:grid grid-cols-[120px_1fr_160px_100px] gap-4 px-4 py-3">
+                  {Array.from({ length: 4 }).map((_, j) => (
+                    <div
+                      key={j}
+                      className="h-5 bg-white/5 rounded animate-pulse"
+                    />
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -344,47 +354,86 @@ export default function ActionLogPage() {
               return (
                 <div
                   key={log._id}
-                  className="grid grid-cols-[120px_1fr_160px_100px] gap-4 px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  className="hover:bg-white/[0.02] transition-colors"
                 >
-                  <div className="flex items-center">
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${meta.color} ${meta.bg}`}
-                    >
-                      {meta.label}
-                    </span>
-                  </div>
-                  <div className="flex items-center min-w-0">
-                    <span className="text-xs text-white/60 truncate">
+                  {/* Mobile card (< md) */}
+                  <div className="md:hidden px-4 py-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${meta.color} ${meta.bg}`}
+                      >
+                        {meta.label}
+                      </span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] font-mono text-white/40">
+                          {formatTime(log.timestamp)}
+                        </span>
+                        <span className="text-[10px] text-white/20">
+                          {formatDate(log.timestamp)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-xs text-white/60 break-words mb-1.5">
                       {log.detail}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${log.performedBy.role === "owner" ? "bg-[#FF6B1A]/15 text-[#FF6B1A]" : "bg-white/10 text-white/50"}`}
-                    >
-                      {log.performedBy.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase()}
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-xs text-white/70 truncate font-medium">
-                        {log.performedBy.name}
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0 ${log.performedBy.role === "owner" ? "bg-[#FF6B1A]/15 text-[#FF6B1A]" : "bg-white/10 text-white/50"}`}
+                      >
+                        {log.performedBy.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()}
                       </div>
-                      <div className="text-[10px] text-white/25 capitalize">
-                        {log.performedBy.role}
-                      </div>
+                      <span className="text-[11px] text-white/40 capitalize">
+                        {log.performedBy.name} · {log.performedBy.role}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end justify-center">
-                    <span className="text-[10px] font-mono text-white/40">
-                      {formatTime(log.timestamp)}
-                    </span>
-                    <span className="text-[10px] text-white/20">
-                      {formatDate(log.timestamp)}
-                    </span>
+                  {/* Desktop row (md+) */}
+                  <div className="hidden md:grid grid-cols-[120px_1fr_160px_100px] gap-4 px-4 py-3">
+                    <div className="flex items-center">
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${meta.color} ${meta.bg}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="flex items-center min-w-0">
+                      <span className="text-xs text-white/60 truncate">
+                        {log.detail}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${log.performedBy.role === "owner" ? "bg-[#FF6B1A]/15 text-[#FF6B1A]" : "bg-white/10 text-white/50"}`}
+                      >
+                        {log.performedBy.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-white/70 truncate font-medium">
+                          {log.performedBy.name}
+                        </div>
+                        <div className="text-[10px] text-white/25 capitalize">
+                          {log.performedBy.role}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end justify-center">
+                      <span className="text-[10px] font-mono text-white/40">
+                        {formatTime(log.timestamp)}
+                      </span>
+                      <span className="text-[10px] text-white/20">
+                        {formatDate(log.timestamp)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               );

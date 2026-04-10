@@ -115,8 +115,8 @@ function SummarySection({ summary }: { summary: PaymentSummary }) {
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="col-span-2 lg:col-span-1 bg-[#FF6B1A]/5 border border-t-2 border-[#FF6B1A]/20 border-t-[#FF6B1A] rounded-xl p-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="col-span-2 md:col-span-1 bg-[#FF6B1A]/5 border border-t-2 border-[#FF6B1A]/20 border-t-[#FF6B1A] rounded-xl p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Total Revenue
           </div>
@@ -1070,7 +1070,7 @@ export default function PaymentsPage({
         {/* ── Summary — owner only ── */}
         {!isStaff &&
           (summaryLoading ? (
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div
                   key={i}

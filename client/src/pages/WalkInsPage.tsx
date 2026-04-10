@@ -304,11 +304,11 @@ function SummaryCards({
         {label}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-[#FFB800]/5 border border-white/10 border-t-2 border-t-[#FFB800] rounded-xl p-4">
+        <div className="bg-[#FFB800]/5 border border-white/10 border-t-2 border-t-[#FFB800] rounded-xl p-3 sm:p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Total Revenue
           </div>
-          <div className="text-2xl sm:text-3xl font-bold text-[#FFB800]">
+          <div className="text-xl sm:text-3xl font-bold text-[#FFB800]">
             ₱{summary.revenue.toLocaleString()}
           </div>
           <div
@@ -321,7 +321,7 @@ function SummaryCards({
               : `${summary.total} walk-in${summary.total !== 1 ? "s" : ""}`}
           </div>
         </div>
-        <div className="bg-[#FF6B1A]/5 border border-white/10 border-t-2 border-t-[#FF6B1A] rounded-xl p-4">
+        <div className="bg-[#FF6B1A]/5 border border-white/10 border-t-2 border-t-[#FF6B1A] rounded-xl p-3 sm:p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2 flex items-center gap-2">
             Still Inside
             {summary.stillInside > 0 && (
@@ -331,16 +331,16 @@ function SummaryCards({
               />
             )}
           </div>
-          <div className="text-2xl sm:text-3xl font-bold text-[#FF6B1A]">
+          <div className="text-xl sm:text-3xl font-bold text-[#FF6B1A]">
             {summary.stillInside}
           </div>
           <div className="text-[11px] text-white/30 mt-1">currently in gym</div>
         </div>
-        <div className="bg-emerald-500/5 border border-white/10 border-t-2 border-t-emerald-500 rounded-xl p-4">
+        <div className="bg-emerald-500/5 border border-white/10 border-t-2 border-t-emerald-500 rounded-xl p-3 sm:p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
             Checked Out
           </div>
-          <div className="text-2xl sm:text-3xl font-bold text-emerald-400">
+          <div className="text-xl sm:text-3xl font-bold text-emerald-400">
             {summary.checkedOut}
           </div>
           <div className="text-[11px] text-white/30 mt-1">
@@ -349,7 +349,7 @@ function SummaryCards({
               : `of ${summary.total} total`}
           </div>
         </div>
-        <div className="bg-white/[0.02] border border-white/10 border-t-2 border-t-white/20 rounded-xl p-4">
+        <div className="bg-white/[0.02] border border-white/10 border-t-2 border-t-white/20 rounded-xl p-3 sm:p-4">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-3">
             Pass Breakdown
           </div>
@@ -394,130 +394,211 @@ function WalkInRow({
   const passColor = PASS_COLORS[w.passType] ?? "#FFB800";
   const staffName = w.staffId?.name ?? "—";
 
+  const initials = w.name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
-    <div
-      className="walkin-row grid grid-cols-1 gap-2 px-5 py-4 border-b border-white/5 last:border-0 transition-colors cursor-default"
-      style={{
-        gridTemplateColumns: showDate
-          ? "1.5fr 1fr 1fr 1fr 1fr 1fr 1fr auto" // History: 8 cols
-          : "1.5fr 1fr 1fr 1fr 1fr 1fr auto", // Today:   7 cols
-      }}
-    >
-      {/* Guest */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-          style={{
-            background: `${passColor}18`,
-            border: `1px solid ${passColor}40`,
-            color: passColor,
-          }}
-        >
-          {w.name
-            .split(" ")
-            .map((n) => n[0])
-            .join("")
-            .slice(0, 2)
-            .toUpperCase()}
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-white truncate">
-            {w.name}
-          </div>
-          <div className="text-[10px] font-mono text-white/30">{w.walkId}</div>
-        </div>
-      </div>
-
-      {/* Pass */}
-      <div className="flex items-center">
-        <span
-          className="text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide"
-          style={{
-            color: passColor,
-            background: `${passColor}15`,
-            borderColor: `${passColor}40`,
-          }}
-        >
-          {PASS_LABELS[w.passType]}
-        </span>
-      </div>
-
-      {/* Amount */}
-      <div className="flex items-center">
-        <span className="text-sm font-mono font-semibold text-[#FFB800]">
-          ₱{w.amount}
-        </span>
-      </div>
-
-      {/* Date (history) or Check-in time (today) */}
-      <div className="flex items-center">
-        {showDate ? (
-          <div>
-            <div className="text-xs font-mono text-white/50">
-              {formatDate(w.checkIn)}
+    <div className="walkin-row border-b border-white/5 last:border-0 transition-colors cursor-default">
+      {/* ── Mobile card (< md) ── */}
+      <div className="md:hidden px-4 py-3">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+              style={{
+                background: `${passColor}18`,
+                border: `1px solid ${passColor}40`,
+                color: passColor,
+              }}
+            >
+              {initials}
             </div>
-            <div className="text-[10px] text-white/30">
-              {formatTime(w.checkIn)}
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white truncate">
+                {w.name}
+              </div>
+              <div className="text-[10px] font-mono text-white/30">
+                {w.walkId}
+              </div>
             </div>
           </div>
-        ) : (
-          <span className="text-xs font-mono text-white/60">
-            {formatTime(w.checkIn)}
-          </span>
-        )}
-      </div>
-
-      {/* Duration */}
-      <div className="flex items-center">
-        {w.isCheckedOut ? (
-          <span className="text-xs font-mono text-white/40">
-            {calcDuration(w.checkIn, w.checkOut)}
-          </span>
-        ) : (
-          <span className="text-[10px] font-semibold text-[#FF6B1A] flex items-center gap-1">
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="text-sm font-mono font-semibold text-[#FFB800]">
+              ₱{w.amount}
+            </span>
             <span
-              className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] inline-block"
-              style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
-            />
-            Inside
-          </span>
-        )}
+              className="text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide"
+              style={{
+                color: passColor,
+                background: `${passColor}15`,
+                borderColor: `${passColor}40`,
+              }}
+            >
+              {PASS_LABELS[w.passType]}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 text-[11px] text-white/40">
+            <span className="font-mono">
+              {showDate ? formatDate(w.checkIn) : formatTime(w.checkIn)}
+            </span>
+            <span>·</span>
+            {w.isCheckedOut ? (
+              <span className="font-mono">
+                {calcDuration(w.checkIn, w.checkOut)}
+              </span>
+            ) : (
+              <span className="text-[#FF6B1A] flex items-center gap-1">
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] inline-block"
+                  style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
+                />
+                Inside
+              </span>
+            )}
+          </div>
+          {!w.isCheckedOut ? (
+            <button
+              onClick={() => onCheckOut?.(w.walkId, w.date)}
+              className="px-3 py-1.5 text-[10px] font-semibold text-white/50 hover:text-[#FFB800] border border-white/10 hover:border-[#FFB800]/40 rounded-md transition-all cursor-pointer whitespace-nowrap"
+            >
+              Check Out
+            </button>
+          ) : (
+            <span className="text-[10px] font-semibold text-emerald-400/60">
+              ✓ Done
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Status badge — history only */}
-      {showDate && (
+      {/* ── Desktop row (md+) ── */}
+      <div
+        className="hidden md:grid gap-4 px-5 py-4"
+        style={{
+          gridTemplateColumns: showDate
+            ? "1.5fr 1fr 1fr 1fr 1fr 1fr 1fr auto"
+            : "1.5fr 1fr 1fr 1fr 1fr 1fr auto",
+        }}
+      >
+        {/* Guest */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+            style={{
+              background: `${passColor}18`,
+              border: `1px solid ${passColor}40`,
+              color: passColor,
+            }}
+          >
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-white truncate">
+              {w.name}
+            </div>
+            <div className="text-[10px] font-mono text-white/30">
+              {w.walkId}
+            </div>
+          </div>
+        </div>
+
+        {/* Pass */}
+        <div className="flex items-center">
+          <span
+            className="text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide"
+            style={{
+              color: passColor,
+              background: `${passColor}15`,
+              borderColor: `${passColor}40`,
+            }}
+          >
+            {PASS_LABELS[w.passType]}
+          </span>
+        </div>
+
+        {/* Amount */}
+        <div className="flex items-center">
+          <span className="text-sm font-mono font-semibold text-[#FFB800]">
+            ₱{w.amount}
+          </span>
+        </div>
+
+        {/* Date or Check-in */}
+        <div className="flex items-center">
+          {showDate ? (
+            <div>
+              <div className="text-xs font-mono text-white/50">
+                {formatDate(w.checkIn)}
+              </div>
+              <div className="text-[10px] text-white/30">
+                {formatTime(w.checkIn)}
+              </div>
+            </div>
+          ) : (
+            <span className="text-xs font-mono text-white/60">
+              {formatTime(w.checkIn)}
+            </span>
+          )}
+        </div>
+
+        {/* Duration */}
         <div className="flex items-center">
           {w.isCheckedOut ? (
-            <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">
-              Checked Out
+            <span className="text-xs font-mono text-white/40">
+              {calcDuration(w.checkIn, w.checkOut)}
             </span>
           ) : (
-            <span className="text-[10px] font-semibold text-[#FF6B1A] bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 px-2 py-0.5 rounded-full">
+            <span className="text-[10px] font-semibold text-[#FF6B1A] flex items-center gap-1">
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-[#FF6B1A] inline-block"
+                style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
+              />
               Inside
             </span>
           )}
         </div>
-      )}
 
-      {/* By */}
-      <div className="flex items-center">
-        <span className="text-xs text-white/40 truncate">{staffName}</span>
-      </div>
-
-      {/* Action — shown on BOTH Today and History */}
-      <div className="flex items-center">
-        {!w.isCheckedOut ? (
-          <button
-            onClick={() => onCheckOut?.(w.walkId, w.date)}
-            className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-[#FFB800] border border-white/10 hover:border-[#FFB800]/40 rounded-md transition-all cursor-pointer whitespace-nowrap"
-          >
-            Check Out
-          </button>
-        ) : (
-          <span className="text-[10px] font-semibold text-emerald-400/60 whitespace-nowrap">
-            ✓ Done
-          </span>
+        {/* Status badge — history only */}
+        {showDate && (
+          <div className="flex items-center">
+            {w.isCheckedOut ? (
+              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">
+                Checked Out
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold text-[#FF6B1A] bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 px-2 py-0.5 rounded-full">
+                Inside
+              </span>
+            )}
+          </div>
         )}
+
+        {/* By */}
+        <div className="flex items-center">
+          <span className="text-xs text-white/40 truncate">{staffName}</span>
+        </div>
+
+        {/* Action */}
+        <div className="flex items-center">
+          {!w.isCheckedOut ? (
+            <button
+              onClick={() => onCheckOut?.(w.walkId, w.date)}
+              className="px-2.5 py-1.5 text-[10px] font-semibold text-white/50 hover:text-[#FFB800] border border-white/10 hover:border-[#FFB800]/40 rounded-md transition-all cursor-pointer whitespace-nowrap"
+            >
+              Check Out
+            </button>
+          ) : (
+            <span className="text-[10px] font-semibold text-emerald-400/60 whitespace-nowrap">
+              ✓ Done
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1011,8 +1092,8 @@ export default function WalkInsPage() {
           <div className="space-y-5" style={{ animation: "fadeIn 0.2s ease" }}>
             {/* Filters */}
             <div className="bg-[#212121] border border-white/10 rounded-xl p-4 space-y-3">
-              <div className="flex flex-wrap gap-2 items-center">
-                <div className="relative flex-1 min-w-48">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
                   <svg
                     className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30"
                     width="14"
@@ -1042,7 +1123,7 @@ export default function WalkInsPage() {
                     className="w-full bg-[#2a2a2a] border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-[#FFB800] transition-colors"
                   />
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
                   {(
                     [
                       { key: "week", label: "This Week" },
@@ -1053,20 +1134,20 @@ export default function WalkInsPage() {
                     <button
                       key={key}
                       onClick={() => setQuickFilter(key)}
-                      className={`px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${quickFilter === key ? "bg-[#FFB800]/15 text-[#FFB800] border-[#FFB800]/30" : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"}`}
+                      className={`flex-1 sm:flex-none px-3 py-2.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${quickFilter === key ? "bg-[#FFB800]/15 text-[#FFB800] border-[#FFB800]/30" : "bg-[#2a2a2a] text-white/40 border-white/10 hover:text-white hover:border-white/20"}`}
                     >
                       {label}
                     </button>
                   ))}
+                  {historySearch && (
+                    <button
+                      onClick={() => setHistorySearch("")}
+                      className="flex-1 sm:flex-none px-3 py-2.5 text-xs text-red-400 hover:text-red-300 border border-red-400/20 hover:border-red-400/40 rounded-lg transition-all cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
-                {historySearch && (
-                  <button
-                    onClick={() => setHistorySearch("")}
-                    className="px-3 py-2.5 text-xs text-red-400 hover:text-red-300 border border-red-400/20 hover:border-red-400/40 rounded-lg transition-all cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                )}
               </div>
 
               {quickFilter === "custom" && (
