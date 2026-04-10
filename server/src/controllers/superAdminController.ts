@@ -22,7 +22,10 @@ import WalkIn from "../models/WalkIn";
 import Payment from "../models/Payment";
 import ActionLog from "../models/ActionLog";
 import SuperAdminAuditLog from "../models/SuperAdminAuditLog";
-import { sendSetPasswordEmail } from "../utils/emailService";
+import {
+  sendSetPasswordEmail,
+  sendResetPasswordEmail,
+} from "../utils/emailService";
 import { SuperAdminRequest } from "../middleware/superAdminMiddleware";
 
 // ─── Rate limiter — Super Admin login (by IP) ─────────────────────────────────
@@ -705,12 +708,16 @@ export const resetOwnerPassword = async (
 
     const resetToken = generateResetToken(owner._id.toString());
     try {
-      await sendSetPasswordEmail({
-        to: owner.email!,
-        ownerName: owner.name,
-        gymName: gym.gymName,
-        token: resetToken,
-      });
+      await Promise.race([
+        sendResetPasswordEmail({
+          to: owner.email!,
+          ownerName: owner.name,
+          token: resetToken,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Email timeout after 8s")), 8000),
+        ),
+      ]);
     } catch (emailErr: any) {
       const msg = emailErr?.message ?? "Unknown error";
       return res
@@ -753,12 +760,16 @@ export const resendInvite = async (req: SuperAdminRequest, res: Response) => {
     if (owner.isVerified) {
       const resetToken = generateResetToken(owner._id.toString());
       try {
-        await sendSetPasswordEmail({
-          to: owner.email!,
-          ownerName: owner.name,
-          gymName: gym.gymName,
-          token: resetToken,
-        });
+        await Promise.race([
+          sendResetPasswordEmail({
+            to: owner.email!,
+            ownerName: owner.name,
+            token: resetToken,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Email timeout after 8s")), 8000),
+          ),
+        ]);
       } catch (emailErr: any) {
         const msg = emailErr?.message ?? "Unknown error";
         return res

@@ -620,4 +620,16 @@ Then pick any feature and trace it end to end.
 
 ---
 
+## ⚠️ AI USAGE NOTE
+
+This file is a deep reference.
+
+For AI assistants:
+- Do NOT load this file unless explicitly requested
+- Use CLAUDE.md for rules and constraints
+- Use this file only for:
+  - debugging
+  - architecture understanding
+  - complex feature implementation
+
 *GMS Architecture Deep-Dive — April 2026*
