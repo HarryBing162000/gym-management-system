@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { actionLogService } from "../services/actionLogService";
 import type { ActionLog } from "../services/actionLogService";
+import { useGymStore } from "../store/gymStore";
 
 // ─── Action metadata — all dark-theme friendly colors ────────────────────────
 const ACTION_META: Record<
@@ -94,21 +95,25 @@ const ACTION_META: Record<
 
 type DatePreset = "all" | "today" | "week" | "month" | "custom";
 
-function getPresetDates(preset: DatePreset): { from: string; to: string } {
-  const fmt = (d: Date) => d.toISOString().split("T")[0];
+function getPresetDates(
+  preset: DatePreset,
+  timezone: string,
+): { from: string; to: string } {
+  // Format a Date as YYYY-MM-DD in the gym's configured timezone
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(d);
   const today = new Date();
   if (preset === "today") {
     const s = fmt(today);
     return { from: s, to: s };
   }
   if (preset === "week") {
-    const start = new Date(today);
-    start.setDate(today.getDate() - 6);
+    const start = new Date(today.getTime() - 6 * 86400000);
     return { from: fmt(start), to: fmt(today) };
   }
   if (preset === "month") {
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from: fmt(start), to: fmt(today) };
+    const todayStr = fmt(today);
+    return { from: todayStr.slice(0, 8) + "01", to: todayStr };
   }
   return { from: "", to: "" };
 }
@@ -125,22 +130,21 @@ function cleanDetail(detail: string, name: string, action: string): string {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
-// Group logs by Manila date
+// Group logs by date in the gym's configured timezone
 function groupByDate(
   logs: ActionLog[],
+  timezone: string,
 ): { label: string; date: string; logs: ActionLog[] }[] {
   const groups: Record<string, ActionLog[]> = {};
-  const today = new Date().toLocaleDateString("en-CA", {
-    timeZone: "Asia/Manila",
-  });
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
   const yesterday = new Date(Date.now() - 86400000).toLocaleDateString(
     "en-CA",
-    { timeZone: "Asia/Manila" },
+    { timeZone: timezone },
   );
 
   for (const log of logs) {
     const date = new Date(log.timestamp).toLocaleDateString("en-CA", {
-      timeZone: "Asia/Manila",
+      timeZone: timezone,
     });
     if (!groups[date]) groups[date] = [];
     groups[date].push(log);
@@ -154,17 +158,21 @@ function groupByDate(
         month: "long",
         day: "numeric",
         year: "numeric",
+        timeZone: timezone,
       });
       let label = formatted;
       if (date === today)
-        label = `Today — ${d.toLocaleDateString("en-PH", { month: "long", day: "numeric" })}`;
+        label = `Today — ${d.toLocaleDateString("en-PH", { month: "long", day: "numeric", timeZone: timezone })}`;
       if (date === yesterday)
-        label = `Yesterday — ${d.toLocaleDateString("en-PH", { month: "long", day: "numeric" })}`;
+        label = `Yesterday — ${d.toLocaleDateString("en-PH", { month: "long", day: "numeric", timeZone: timezone })}`;
       return { label, date, logs: items };
     });
 }
 
 export default function MyActivityPage() {
+  const { getTimezone } = useGymStore();
+  const timezone = getTimezone();
+
   const [logs, setLogs] = useState<ActionLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -172,13 +180,17 @@ export default function MyActivityPage() {
   const limit = 100;
 
   const [preset, setPreset] = useState<DatePreset>("today");
-  const [filterFrom, setFilterFrom] = useState(getPresetDates("today").from);
-  const [filterTo, setFilterTo] = useState(getPresetDates("today").to);
+  const [filterFrom, setFilterFrom] = useState(
+    () => getPresetDates("today", timezone).from,
+  );
+  const [filterTo, setFilterTo] = useState(
+    () => getPresetDates("today", timezone).to,
+  );
 
   const handlePreset = (p: DatePreset) => {
     setPreset(p);
     if (p !== "custom") {
-      const { from, to } = getPresetDates(p);
+      const { from, to } = getPresetDates(p, timezone);
       setFilterFrom(from);
       setFilterTo(to);
     }
@@ -212,7 +224,7 @@ export default function MyActivityPage() {
   }, [filterFrom, filterTo]);
 
   const totalPages = Math.ceil(total / limit);
-  const grouped = groupByDate(logs);
+  const grouped = groupByDate(logs, timezone);
 
   const stats = {
     checkins: logs.filter((l) => l.action === "check_in").length,
@@ -225,7 +237,7 @@ export default function MyActivityPage() {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
-      timeZone: "Asia/Manila",
+      timeZone: timezone,
     });
 
   return (

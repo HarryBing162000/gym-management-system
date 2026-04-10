@@ -22,17 +22,21 @@ const CACHE_KEY_HISTORY = "gms:walkins-history-cache";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTime(iso: string): string {
+  const timezone = useGymStore.getState().getTimezone();
   return new Date(iso).toLocaleTimeString("en-PH", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
+    timeZone: timezone,
   });
 }
 function formatDate(iso: string): string {
+  const timezone = useGymStore.getState().getTimezone();
   return new Date(iso).toLocaleDateString("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: timezone,
   });
 }
 function calcDuration(checkIn: string, checkOut?: string): string {

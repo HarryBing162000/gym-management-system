@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { actionLogService } from "../services/actionLogService";
 import type { ActionLog } from "../services/actionLogService";
 import api from "../services/api";
+import { useGymStore } from "../store/gymStore";
 
 const ACTION_META: Record<
   string,
@@ -85,6 +86,9 @@ interface StaffOption {
 }
 
 export default function ActionLogPage() {
+  const { getTimezone } = useGymStore();
+  const timezone = getTimezone();
+
   const [logs, setLogs] = useState<ActionLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -148,6 +152,7 @@ export default function ActionLogPage() {
       month: "short",
       day: "numeric",
       year: "numeric",
+      timeZone: timezone,
     });
 
   const formatTime = (ts: string) =>
@@ -155,6 +160,7 @@ export default function ActionLogPage() {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      timeZone: timezone,
     });
 
   const clearFilters = () => {

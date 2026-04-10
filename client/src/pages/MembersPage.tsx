@@ -33,10 +33,12 @@ const STATUS_STYLES: Record<MemberStatus, string> = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string): string {
+  const timezone = useGymStore.getState().getTimezone();
   return new Date(iso).toLocaleDateString("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: timezone,
   });
 }
 

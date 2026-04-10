@@ -1,18 +1,26 @@
 import { Response, Router } from "express";
 import ActionLog from "../models/ActionLog";
+import Settings from "../models/Settings";
 import { AuthRequest, protect } from "../middleware/authMiddleware";
 import { logAction } from "../utils/logAction";
 
 const router = Router();
 
-// Helper — convert a YYYY-MM-DD date string to Manila start/end of day in UTC
-const toManilaStart = (dateStr: string): Date => {
+// Helper — convert YYYY-MM-DD to UTC Date for start/end of day in the gym's timezone.
+// Uses the sv-SE locale trick to get a reliable "YYYY-MM-DD HH:MM:SS" string from Intl,
+// then computes the UTC offset by comparing the same UTC moment rendered in both UTC and the tz.
+const toTzDayStart = (dateStr: string, timezone: string): Date => {
+  const probe = new Date(`${dateStr}T12:00:00.000Z`); // noon UTC — safe from DST edge cases
+  const utcStr = probe.toLocaleString("sv-SE", { timeZone: "UTC" }).replace(" ", "T");
+  const tzStr = probe.toLocaleString("sv-SE", { timeZone: timezone }).replace(" ", "T");
+  const offsetMs = new Date(tzStr + "Z").getTime() - new Date(utcStr + "Z").getTime();
   const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0));
+  return new Date(Date.UTC(y, m - 1, d) - offsetMs);
 };
-const toManilaEnd = (dateStr: string): Date => {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, -1));
+
+const toTzDayEnd = (dateStr: string, timezone: string): Date => {
+  const start = toTzDayStart(dateStr, timezone);
+  return new Date(start.getTime() + 86400000 - 1); // + 24h − 1ms
 };
 
 // GET /api/action-logs
@@ -45,9 +53,12 @@ router.get("/", protect, async (req: AuthRequest, res: Response) => {
     if (action) filter.action = action;
 
     if (from || to) {
+      const settings = await Settings.findOne({ ownerId }).select("timezone").lean();
+      if (!settings) return res.status(500).json({ message: "Gym settings not found." });
+      const timezone = settings.timezone ?? "Asia/Manila";
       const tsFilter: Record<string, unknown> = {};
-      if (from) tsFilter["$gte"] = toManilaStart(from);
-      if (to) tsFilter["$lte"] = toManilaEnd(to);
+      if (from) tsFilter["$gte"] = toTzDayStart(from, timezone);
+      if (to) tsFilter["$lte"] = toTzDayEnd(to, timezone);
       filter.timestamp = tsFilter;
     }
 

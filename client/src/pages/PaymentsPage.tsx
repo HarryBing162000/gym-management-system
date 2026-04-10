@@ -27,17 +27,21 @@ import type { Member } from "../types";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string): string {
+  const timezone = useGymStore.getState().getTimezone();
   return new Date(iso).toLocaleDateString("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: timezone,
   });
 }
 function formatTime(iso: string): string {
+  const timezone = useGymStore.getState().getTimezone();
   return new Date(iso).toLocaleTimeString("en-PH", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
+    timeZone: timezone,
   });
 }
 
@@ -201,6 +205,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
     getPlanPrice,
     getPlanDuration,
     triggerMemberRefresh,
+    getTimezone,
   } = useGymStore();
   const activePlans = getActivePlans();
 
@@ -418,7 +423,12 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                       >
                         {new Date(selected.expiresAt).toLocaleDateString(
                           "en-PH",
-                          { month: "short", day: "numeric", year: "numeric" },
+                          {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            timeZone: useGymStore.getState().getTimezone(),
+                          },
                         )}
                         {daysLeft < 0 && (
                           <span className="ml-1.5 text-red-400">
@@ -635,7 +645,7 @@ function LogPaymentModal({ onClose, onLogged }: LogPaymentModalProps) {
                   </div>
                   <div className="text-[10px] text-white/30 mt-0.5">
                     {renewExpiry
-                      ? `New expiry: ${new Date(getNewExpiry(selectedPlan)).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} (+${getPlanDuration(selectedPlan)}mo)`
+                      ? `New expiry: ${new Date(getNewExpiry(selectedPlan)).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: getTimezone() })} (+${getPlanDuration(selectedPlan)}mo)`
                       : "Toggle to renew/extend the membership with this payment"}
                   </div>
                 </div>
@@ -974,7 +984,7 @@ export default function PaymentsPage({
       const now = new Date();
       const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
         now.toLocaleDateString("en-US", {
-          timeZone: "Asia/Manila",
+          timeZone: timezone,
           weekday: "short",
         }),
       );
