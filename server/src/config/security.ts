@@ -19,7 +19,6 @@ export const SECURITY_CONFIG = {
   ALLOWED_ORIGINS: [
     "http://localhost:5173",
     "http://localhost:4173",
-    "https://ironcore-gms.onrender.com",
-    "https://ironcore-gms-server.onrender.com",
+    "https://lakasgms-frontend-prod.onrender.com",
   ],
 };
