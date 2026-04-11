@@ -20,5 +20,6 @@ export const SECURITY_CONFIG = {
     "http://localhost:5173",
     "http://localhost:4173",
     "https://lakasgms-frontend-prod.onrender.com",
+    "https://lakasgms-frontend-dev.onrender.com",
   ],
 };
