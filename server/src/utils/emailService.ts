@@ -34,8 +34,8 @@ const transporter = nodemailer.createTransport({
   // FIX: use Gmail's IPv4 address directly instead of hostname.
   // Render blocks outbound IPv6 — DNS was resolving smtp.gmail.com to an
   // IPv6 address (2404:6800:...) causing ENETUNREACH.
-  // 74.125.130.108 is Gmail SMTP IPv4 — bypasses IPv6 DNS resolution entirely.
-  host: "74.125.130.108",
+  // 74.125.200.108 is Gmail SMTP IPv4 — bypasses IPv6 DNS resolution entirely.
+  host: "74.125.200.108",
   port: 587,
   secure: false, // STARTTLS
   auth: {
