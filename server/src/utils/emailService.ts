@@ -30,26 +30,26 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 // - greetingTimeout: max time to wait for SMTP greeting
 // - socketTimeout: max time for any single SMTP operation
 // - pool: reuse connections instead of creating a new one per email (faster)
+// FIX: use Gmail's IPv4 address directly instead of hostname.
+// Render blocks outbound IPv6 — DNS was resolving smtp.gmail.com to an
+// IPv6 address (2404:6800:...) causing ENETUNREACH.
+// 74.125.130.108 is Gmail SMTP IPv4 — bypasses IPv6 DNS resolution entirely.
+
 const transporter = nodemailer.createTransport({
-  // FIX: use Gmail's IPv4 address directly instead of hostname.
-  // Render blocks outbound IPv6 — DNS was resolving smtp.gmail.com to an
-  // IPv6 address (2404:6800:...) causing ENETUNREACH.
-  // 74.125.130.108 is Gmail SMTP IPv4 — bypasses IPv6 DNS resolution entirely.
   host: "74.125.130.108",
-  port: 465,
-  secure: true, // STARTTLS
+  port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 465,
+  secure: process.env.SMTP_SECURE === "true",
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
   },
   tls: {
     rejectUnauthorized: false,
-    // servername required when using IP directly instead of hostname
     servername: "smtp.gmail.com",
   },
-  connectionTimeout: 5000,
-  greetingTimeout: 5000,
-  socketTimeout: 10000,
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
   pool: true,
   maxConnections: 3,
 } as nodemailer.TransportOptions);

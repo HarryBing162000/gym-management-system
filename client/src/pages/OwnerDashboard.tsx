@@ -139,13 +139,11 @@ function RenewModal({
       `}</style>
       <div
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-        onClick={onClose}
-      >
+        onClick={onClose}>
         <div
           className="w-full max-w-sm bg-[#1e1e1e] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
           style={{ animation: "renewFadeIn 0.2s ease" }}
-          onClick={(e) => e.stopPropagation()}
-        >
+          onClick={(e) => e.stopPropagation()}>
           {/* Header */}
           <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <div>
@@ -162,8 +160,7 @@ function RenewModal({
                     member.status === "overdue"
                       ? "text-red-400"
                       : "text-amber-400"
-                  }
-                >
+                  }>
                   {member.status === "overdue"
                     ? `${Math.abs(member.daysLeft)}d overdue`
                     : `${member.daysLeft}d left`}
@@ -172,8 +169,7 @@ function RenewModal({
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all cursor-pointer text-lg shrink-0"
-            >
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all cursor-pointer text-lg shrink-0">
               ✕
             </button>
           </div>
@@ -193,8 +189,7 @@ function RenewModal({
                       plan === p.name
                         ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
                         : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
-                    }`}
-                  >
+                    }`}>
                     <div className="text-xs font-bold">{p.name}</div>
                     <div className="text-[10px] font-mono mt-0.5">
                       ₱{p.price.toLocaleString()}
@@ -259,8 +254,7 @@ function RenewModal({
                       method === m
                         ? "border-[#FF6B1A] bg-[#FF6B1A]/10 text-[#FF6B1A]"
                         : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
-                    }`}
-                  >
+                    }`}>
                     {m}
                   </button>
                 ))}
@@ -272,15 +266,13 @@ function RenewModal({
           <div className="px-6 pb-6 flex gap-2">
             <button
               onClick={onClose}
-              className="flex-1 py-2.5 border border-white/10 text-white/50 hover:text-white hover:border-white/20 text-sm font-semibold rounded-xl transition-all cursor-pointer"
-            >
+              className="flex-1 py-2.5 border border-white/10 text-white/50 hover:text-white hover:border-white/20 text-sm font-semibold rounded-xl transition-all cursor-pointer">
               Cancel
             </button>
             <button
               onClick={handleRenew}
               disabled={saving}
-              className="flex-1 py-2.5 bg-[#FF6B1A] hover:bg-[#ff8a45] disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-bold rounded-xl transition-all active:scale-95 cursor-pointer"
-            >
+              className="flex-1 py-2.5 bg-[#FF6B1A] hover:bg-[#ff8a45] disabled:opacity-50 disabled:cursor-not-allowed text-black text-sm font-bold rounded-xl transition-all active:scale-95 cursor-pointer">
               {saving ? "Renewing..." : "Confirm Renewal"}
             </button>
           </div>
@@ -320,8 +312,7 @@ export default function OwnerDashboard() {
     <OwnerLayout
       activePage={activePage}
       onPageChange={setActivePage}
-      pageTitle={pageTitles[activePage] ?? "Dashboard"}
-    >
+      pageTitle={pageTitles[activePage] ?? "Dashboard"}>
       {activePage === "dashboard" && (
         <DashboardContent onNavigate={setActivePage} />
       )}
@@ -415,10 +406,10 @@ function DashboardContent({
     try {
       const stats = await memberService.getMemberStats();
       const ms = {
-        total: stats.total,
-        checkedIn: stats.checkedIn,
-        expiringSoon: stats.expiringSoon,
-        withBalance: stats.withBalance,
+        total: stats.total ?? 0,
+        checkedIn: stats.checkedIn ?? 0,
+        expiringSoon: stats.expiringSoon ?? 0,
+        withBalance: stats.withBalance ?? 0,
       };
       setMemberStats({ ...ms, loading: false });
       cacheData.memberStats = ms;
@@ -523,7 +514,10 @@ function DashboardContent({
   const statCards = [
     {
       label: "Total Members",
-      value: memberStats.loading ? "—" : memberStats.total.toString(),
+      value:
+        memberStats.loading || memberStats.total === undefined
+          ? "—"
+          : memberStats.total.toString(),
       sub: memberStats.loading ? "" : `${memberStats.checkedIn} inside now`,
       color: "text-[#FF6B1A]",
       border: "border-t-[#FF6B1A]",
@@ -594,20 +588,17 @@ function DashboardContent({
           <button
             onClick={() => window.open(`/kiosk?gym=${getOwnerId()}`, "_blank")}
             className="flex items-center gap-1.5 px-3 py-2 bg-white/5 text-white/50 border border-white/10 text-xs font-bold rounded-lg hover:bg-white/10 hover:text-white/80 transition-all cursor-pointer"
-            title="Opens kiosk in a new tab — safe to use on a dedicated tablet"
-          >
+            title="Opens kiosk in a new tab — safe to use on a dedicated tablet">
             <span className="text-sm leading-none">🖥</span> Kiosk
           </button>
           <button
             onClick={() => onNavigate("walkins")}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/25 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all cursor-pointer"
-          >
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#FFB800]/10 text-[#FFB800] border border-[#FFB800]/25 text-xs font-bold rounded-lg hover:bg-[#FFB800]/20 transition-all cursor-pointer">
             <span className="text-sm leading-none">+</span> Walk-in
           </button>
           <button
             onClick={() => onNavigate("members")}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all cursor-pointer"
-          >
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#FF6B1A] text-black text-xs font-bold rounded-lg hover:bg-[#ff8a45] transition-all cursor-pointer">
             <span className="text-sm leading-none">+</span> Add Member
           </button>
         </div>
@@ -619,14 +610,12 @@ function DashboardContent({
           <button
             key={stat.label}
             onClick={stat.onClick}
-            className={`${stat.bg} border border-white/10 border-t-2 ${stat.border} rounded-xl p-4 text-left transition-all hover:brightness-110 cursor-pointer`}
-          >
+            className={`${stat.bg} border border-white/10 border-t-2 ${stat.border} rounded-xl p-4 text-left transition-all hover:brightness-110 cursor-pointer`}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
               {stat.label}
             </div>
             <div
-              className={`text-2xl sm:text-3xl font-bold ${stat.color} mb-1`}
-            >
+              className={`text-2xl sm:text-3xl font-bold ${stat.color} mb-1`}>
               {stat.value}
             </div>
             <div className="text-[11px] text-white/30">{stat.sub}</div>
@@ -675,8 +664,7 @@ function DashboardContent({
         ].map((item) => (
           <div
             key={item.label}
-            className={`${item.bg} border border-white/10 border-t-2 ${item.border} rounded-xl p-4`}
-          >
+            className={`${item.bg} border border-white/10 border-t-2 ${item.border} rounded-xl p-4`}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-2">
               {item.label}
             </div>
@@ -693,8 +681,7 @@ function DashboardContent({
         {/* ── MEMBERS INSIDE NOW ── */}
         <div
           className="lg:col-span-2 bg-[#212121] border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col"
-          style={{ minHeight: 200, maxHeight: 480 }}
-        >
+          style={{ minHeight: 200, maxHeight: 480 }}>
           <div className="flex items-center justify-between mb-4 shrink-0">
             <h3 className="text-xs font-bold uppercase tracking-widest text-white/50">
               Members Inside Now
@@ -717,13 +704,11 @@ function DashboardContent({
               style={{
                 scrollbarWidth: "thin",
                 scrollbarColor: "rgba(255,107,26,0.2) transparent",
-              }}
-            >
+              }}>
               {recentCheckins.map((m) => (
                 <div
                   key={m.gymId}
-                  className="flex items-center gap-3 p-3 bg-[#2a2a2a] rounded-lg border border-white/5"
-                >
+                  className="flex items-center gap-3 p-3 bg-[#2a2a2a] rounded-lg border border-white/5">
                   <div className="w-8 h-8 rounded-full bg-[#FF6B1A]/10 border border-[#FF6B1A]/20 flex items-center justify-center text-xs font-bold text-[#FF6B1A] shrink-0">
                     {m.name
                       .split(" ")
@@ -758,8 +743,7 @@ function DashboardContent({
               </span>
               <button
                 onClick={() => onNavigate("members")}
-                className="text-[11px] text-[#FF6B1A] hover:text-[#ff8a45] transition-colors cursor-pointer"
-              >
+                className="text-[11px] text-[#FF6B1A] hover:text-[#ff8a45] transition-colors cursor-pointer">
                 View all members →
               </button>
             </div>
@@ -776,8 +760,7 @@ function DashboardContent({
               </h3>
               <button
                 onClick={() => onNavigate("payments")}
-                className="text-[11px] text-[#FF6B1A] hover:text-[#ff8a45] transition-colors cursor-pointer"
-              >
+                className="text-[11px] text-[#FF6B1A] hover:text-[#ff8a45] transition-colors cursor-pointer">
                 View all →
               </button>
             </div>
@@ -811,12 +794,10 @@ function DashboardContent({
                 ].map((row) => (
                   <div
                     key={row.label}
-                    className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0"
-                  >
+                    className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
                     <span className="text-xs text-white/40">{row.label}</span>
                     <span
-                      className={`text-xs font-mono font-semibold ${row.color}`}
-                    >
+                      className={`text-xs font-mono font-semibold ${row.color}`}>
                       {row.amount}
                     </span>
                   </div>
@@ -844,7 +825,7 @@ function DashboardContent({
               </h3>
               {atRiskLoading ? (
                 <div className="w-12 h-4 bg-white/5 rounded animate-pulse" />
-              ) : atRisk.length > 0 ? (
+              ) : Array.isArray(atRisk) && atRisk.length > 0 ? (
                 <span className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 px-2 py-0.5 rounded-full font-semibold">
                   {atRisk.length}
                 </span>
@@ -880,8 +861,7 @@ function DashboardContent({
                 style={{
                   scrollbarWidth: "thin",
                   scrollbarColor: "rgba(255,107,26,0.2) transparent",
-                }}
-              >
+                }}>
                 {atRisk.map((member) => {
                   const expiresLabel = new Date(
                     member.expiresAt,
@@ -892,11 +872,9 @@ function DashboardContent({
                   return (
                     <div
                       key={member.gymId}
-                      className="flex items-center gap-2.5 p-2.5 bg-[#2a2a2a] rounded-lg border border-white/5"
-                    >
+                      className="flex items-center gap-2.5 p-2.5 bg-[#2a2a2a] rounded-lg border border-white/5">
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${member.status === "overdue" ? "bg-red-400/10 text-red-400" : "bg-amber-400/10 text-amber-400"}`}
-                      >
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${member.status === "overdue" ? "bg-red-400/10 text-red-400" : "bg-amber-400/10 text-amber-400"}`}>
                         {member.name
                           .split(" ")
                           .map((n) => n[0])
@@ -908,8 +886,7 @@ function DashboardContent({
                           {member.name}
                         </div>
                         <div
-                          className={`text-[10px] ${member.status === "overdue" ? "text-red-400" : "text-amber-400"}`}
-                        >
+                          className={`text-[10px] ${member.status === "overdue" ? "text-red-400" : "text-amber-400"}`}>
                           {member.status === "overdue"
                             ? `Overdue since ${expiresLabel} · ${Math.abs(member.daysLeft)}d ago`
                             : `Expires ${expiresLabel} · ${member.daysLeft}d left`}
@@ -917,8 +894,7 @@ function DashboardContent({
                       </div>
                       <button
                         onClick={() => setRenewTarget(member)}
-                        className="shrink-0 px-2 py-1 text-[10px] font-bold text-[#FF6B1A] bg-[#FF6B1A]/10 hover:bg-[#FF6B1A]/20 border border-[#FF6B1A]/20 rounded-md transition-all cursor-pointer"
-                      >
+                        className="shrink-0 px-2 py-1 text-[10px] font-bold text-[#FF6B1A] bg-[#FF6B1A]/10 hover:bg-[#FF6B1A]/20 border border-[#FF6B1A]/20 rounded-md transition-all cursor-pointer">
                         Renew
                       </button>
                     </div>
@@ -938,8 +914,7 @@ function DashboardContent({
           </h3>
           <button
             onClick={() => onNavigate("action-log")}
-            className="text-[11px] text-[#FF6B1A] hover:text-[#ff8a45] transition-colors cursor-pointer"
-          >
+            className="text-[11px] text-[#FF6B1A] hover:text-[#ff8a45] transition-colors cursor-pointer">
             View all →
           </button>
         </div>
@@ -969,13 +944,11 @@ function DashboardContent({
               return (
                 <div
                   key={log._id}
-                  className="py-2 border-b border-white/5 last:border-0"
-                >
+                  className="py-2 border-b border-white/5 last:border-0">
                   {/* Mobile: stacked */}
                   <div className="flex items-center justify-between gap-2 sm:hidden">
                     <span
-                      className={`text-[10px] font-bold uppercase tracking-wider shrink-0 ${color}`}
-                    >
+                      className={`text-[10px] font-bold uppercase tracking-wider shrink-0 ${color}`}>
                       {label}
                     </span>
                     <span className="text-[10px] font-mono text-white/25 shrink-0">
@@ -988,8 +961,7 @@ function DashboardContent({
                   {/* Desktop: single row */}
                   <div className="hidden sm:flex items-center gap-3">
                     <span
-                      className={`text-[10px] font-bold uppercase tracking-wider shrink-0 w-24 ${color}`}
-                    >
+                      className={`text-[10px] font-bold uppercase tracking-wider shrink-0 w-24 ${color}`}>
                       {label}
                     </span>
                     <span className="text-xs text-white/60 flex-1 truncate">
